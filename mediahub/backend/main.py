@@ -239,6 +239,12 @@ def init_db():
     conn.commit()
     conn.close()
 
+# ── Health ───────────────────────────────────────────────────────────────────
+
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "MediaHub API"}
+
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
 @app.post("/api/auth/login")
