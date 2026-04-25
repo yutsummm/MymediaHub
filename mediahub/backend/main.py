@@ -439,8 +439,15 @@ def vk_upload_photo_to_wall(access_token: str, group_id: str, image_data: bytes,
         raise ValueError(data["error"].get("error_msg", "VK getWallUploadServer error"))
     upload_url = data["response"]["upload_url"]
 
-    r2 = http_requests.post(upload_url, files={"photo": (filename, image_data)}, timeout=60)
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "jpg"
+    mime_map = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "gif": "image/gif", "webp": "image/webp"}
+    content_type = mime_map.get(ext, "image/jpeg")
+
+    r2 = http_requests.post(upload_url, files={"photo": (filename, image_data, content_type)}, timeout=60)
+    r2.raise_for_status()
     upload_result = r2.json()
+    if "error" in upload_result:
+        raise ValueError(upload_result.get("error", "VK photo upload error"))
 
     r3 = http_requests.post(
         "https://api.vk.com/method/photos.saveWallPhoto",
@@ -730,6 +737,7 @@ def publish_post(post_id: int):
     post_dict = row_to_dict(post)
     vk_post_id = None
     vk_error = None
+    photo_errors: list = []
 
     platforms = post_dict.get("platforms", [])
     if "vk" in platforms:
@@ -755,12 +763,21 @@ def publish_post(post_id: int):
                                 image_data = resp.content
                             att = vk_upload_photo_to_wall(vk["access_token"], vk["group_id"], image_data, fname)
                             attachments.append(att)
-                        except Exception:
-                            pass
+                        except Exception as photo_err:
+                            photo_errors.append(str(photo_err))
                 vk_post_id = vk_wall_post(vk["access_token"], vk["group_id"], message, attachments)
+                if photo_errors:
+                    notif_msg = (
+                        f"Пост «{post_dict['title']}» опубликован в ВКонтакте, "
+                        f"но {len(photo_errors)} фото не загружено: {photo_errors[0]}"
+                    )
+                    notif_type = "warning"
+                else:
+                    notif_msg = f"Пост «{post_dict['title']}» опубликован в группу ВКонтакте"
+                    notif_type = "success"
                 c.execute(
                     "INSERT INTO notifications (user_id, message, type, is_read) VALUES (1, %s, %s, 0)",
-                    (f"Пост «{post_dict['title']}» опубликован в группу ВКонтакте", "success"),
+                    (notif_msg, notif_type),
                 )
                 conn.commit()
             except Exception as e:
@@ -779,6 +796,8 @@ def publish_post(post_id: int):
         result["vk_post_id"] = vk_post_id
     if vk_error is not None:
         result["vk_error"] = vk_error
+    if photo_errors:
+        result["vk_photo_errors"] = photo_errors
     return result
 
 # ── Calendar ─────────────────────────────────────────────────────────────────
