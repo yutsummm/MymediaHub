@@ -16,7 +16,7 @@ const fmtDt = (s: string | null) => {
 const SL: Record<string, string> = { draft: 'Черновик', scheduled: 'Запланирован', published: 'Опубликован' }
 const SC: Record<string, string> = { draft: 's-draft', scheduled: 's-scheduled', published: 's-published' }
 const DOT: Record<string, string> = { draft: '○', scheduled: '◑', published: '●' }
-const PI: Record<string, string> = { vk: '🔵', telegram: '✈️' }
+const PI: Record<string, string> = { vk: 'ВК', telegram: 'TG' }
 
 export default function PostsPage() {
   const router = useRouter()
@@ -45,7 +45,7 @@ export default function PostsPage() {
 
   async function handlePublish(p: Post) {
     setPub(p.id)
-    try { await api.publishPost(p.id); showToast('✅ Пост опубликован!', 'success'); load() }
+    try { await api.publishPost(p.id); showToast('Пост опубликован!', 'success'); load() }
     catch (e: unknown) { showToast((e as Error).message, 'error') }
     finally { setPub(null) }
   }
@@ -53,7 +53,7 @@ export default function PostsPage() {
   return (
     <div className="content">
       <div className="filters-bar">
-        <input className="srch" placeholder="🔍 Поиск..." value={search} onChange={e => setSearch(e.target.value)} />
+        <input className="srch" placeholder="Поиск..." value={search} onChange={e => setSearch(e.target.value)} />
         <select className="fsel" value={stFilter} onChange={e => setStFilter(e.target.value)}>
           <option value="">Все статусы</option>
           <option value="published">Опубликованы</option>
@@ -74,12 +74,12 @@ export default function PostsPage() {
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={7} style={{ textAlign: 'center', padding: 40, color: 'var(--gray-400)' }}>Постов нет</td></tr>
+                <tr><td colSpan={7} style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>Постов нет</td></tr>
               ) : filtered.map(p => (
                 <tr key={p.id}>
                   <td>
-                    <div className="trunc" style={{ fontWeight: 600, fontSize: 14, maxWidth: 260 }}>{p.title}</div>
-                    {p.author_name && <div style={{ fontSize: 11, color: 'var(--gray-400)', marginTop: 2 }}>👤 {p.author_name}</div>}
+                    <div className="trunc" style={{ fontWeight: 600, fontSize: 13, maxWidth: 260, color: 'var(--text)' }}>{p.title}</div>
+                    {p.author_name && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{p.author_name}</div>}
                   </td>
                   <td><span className={`sbadge ${SC[p.status]}`}>{DOT[p.status]} {SL[p.status]}</span></td>
                   <td>
@@ -92,20 +92,22 @@ export default function PostsPage() {
                       {(p.tags || []).map(t => <span key={t} className="tag">{t}</span>)}
                     </div>
                   </td>
-                  <td style={{ fontSize: 13 }}>
-                    {p.status === 'published' ? fmtDt(p.published_at) : p.status === 'scheduled' ? '⏰ ' + fmtDt(p.scheduled_at) : fmtDate(p.created_at)}
+                  <td style={{ fontSize: 12, color: 'var(--text-2)' }}>
+                    {p.status === 'published' ? fmtDt(p.published_at) : p.status === 'scheduled' ? fmtDt(p.scheduled_at) : fmtDate(p.created_at)}
                   </td>
-                  <td>{p.status === 'published' ? `👁 ${fmtN(p.views)} · ❤️ ${p.reactions}` : '—'}</td>
+                  <td style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                    {p.status === 'published' ? `${fmtN(p.views)} · ${p.reactions}` : '—'}
+                  </td>
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      {canEdit && <button className="btn btn-secondary btn-sm" onClick={() => router.push(`/posts/${p.id}/edit`)}>✏️</button>}
+                      {canEdit && <button className="btn btn-secondary btn-sm" onClick={() => router.push(`/posts/${p.id}/edit`)}>✏</button>}
                       {canEdit && (p.status === 'draft' || p.status === 'scheduled') && (
                         <button className="btn btn-success btn-sm" onClick={() => handlePublish(p)} disabled={pub === p.id}>
-                          {pub === p.id ? '⏳' : '🚀'}
+                          {pub === p.id ? '...' : '↗'}
                         </button>
                       )}
                       {user?.role === 'admin' && (
-                        <button className="btn btn-danger btn-sm" onClick={() => handleDelete(p)}>🗑️</button>
+                        <button className="btn btn-danger btn-sm" onClick={() => handleDelete(p)}>×</button>
                       )}
                     </div>
                   </td>

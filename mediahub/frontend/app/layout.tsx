@@ -2,6 +2,14 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { AuthProvider } from '@/contexts/AuthContext'
 import { ToastProvider } from '@/contexts/ToastContext'
+import { Plus_Jakarta_Sans } from 'next/font/google'
+
+const sans = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  variable: '--font-sans',
+  weight: ['400', '500', '600', '700', '800'],
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: 'MediaHub — Медиахаб для молодёжных центров',
@@ -9,7 +17,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ru">
+    <html lang="ru" className={sans.variable}>
       <body>
         <AuthProvider>
           <ToastProvider>

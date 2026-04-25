@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { useToast } from '@/contexts/ToastContext'
 import type { Post, Template } from '@/lib/types'
 
-const TICO: Record<string, string> = { announcement: '📢', results: '✅', vacancy: '🚀', grant: '💰' }
+const TICO: Record<string, string> = { announcement: '◈', results: '✓', vacancy: '↗', grant: '◎' }
 const STEPS = [{ n: 1, l: 'Шаблон' }, { n: 2, l: 'Данные' }, { n: 3, l: 'Редактор' }, { n: 4, l: 'Публикация' }]
 
 export default function PostEditor({ editPost }: { editPost?: Post }) {
@@ -46,7 +46,7 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
       const body = { title, content, status, platforms, tags, scheduled_at: schedAt || null, template_type: tmplType || null }
       if (isEdit) await api.updatePost(editPost!.id, body)
       else await api.createPost(body)
-      showToast(isEdit ? '✅ Пост обновлён!' : '✅ Пост создан!', 'success')
+      showToast(isEdit ? 'Пост обновлён!' : 'Пост создан!', 'success')
       router.push('/posts')
     } catch (e: unknown) { showToast((e as Error).message, 'error') }
     finally { setSaving(false) }
@@ -90,24 +90,27 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
         {/* Step 1: шаблон */}
         {step === 1 && (
           <div className="card card-p">
-            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>📋 Выберите шаблон</h2>
+            <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 6, color: 'var(--text)', letterSpacing: '-0.02em' }}>Выберите шаблон</h2>
             <p className="ts tg" style={{ marginBottom: 20 }}>Шаблон заполнит структуру поста автоматически</p>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 12, marginBottom: 20 }}>
               {tmpls.map(t => (
                 <div key={t.type} className={`tmpl-card${tmplType === t.type ? ' sel' : ''}`} onClick={() => setTmplType(t.type)}>
-                  <div className="tmpl-icon">{TICO[t.type] ?? '📄'}</div>
+                  <div className="tmpl-icon" style={{ fontSize: 20 }}>{TICO[t.type] ?? '≡'}</div>
                   <div className="tmpl-name">{t.name}</div>
                   <div className="tmpl-desc">{t.description}</div>
                 </div>
               ))}
               <div className={`tmpl-card${tmplType === '' ? ' sel' : ''}`} onClick={() => setTmplType('')}>
-                <div className="tmpl-icon">✍️</div>
+                <div className="tmpl-icon" style={{ fontSize: 20 }}>✍</div>
                 <div className="tmpl-name">С нуля</div>
                 <div className="tmpl-desc">Написать пост самостоятельно</div>
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-              <button className="btn btn-primary" onClick={() => setStep(tmplType ? 2 : 3)}>Далее →</button>
+              <button className="btn btn-primary" onClick={() => setStep(tmplType ? 2 : 3)}>
+                Далее
+                <span className="btn-icon">→</span>
+              </button>
             </div>
           </div>
         )}
@@ -115,7 +118,7 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
         {/* Step 2: поля шаблона */}
         {step === 2 && tmplType && (
           <div className="card card-p">
-            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>📝 Заполните данные</h2>
+            <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 6, color: 'var(--text)', letterSpacing: '-0.02em' }}>Заполните данные</h2>
             <p className="ts tg" style={{ marginBottom: 20 }}>Текст будет сгенерирован по шаблону</p>
             {tmplFields.map(f => (
               <div key={f.key} className="fg">
@@ -127,7 +130,8 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
               <button className="btn btn-secondary" onClick={() => setStep(1)}>← Назад</button>
               <button className="btn btn-primary" onClick={generateText} disabled={gen}>
-                {gen ? '⏳ Генерирую...' : '✨ Сгенерировать текст'}
+                {gen ? 'Генерирую...' : 'Сгенерировать текст'}
+                {!gen && <span className="btn-icon">✦</span>}
               </button>
             </div>
           </div>
@@ -136,8 +140,8 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
         {/* Step 3: редактор */}
         {step === 3 && (
           <div className="card card-p">
-            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>
-              {isEdit ? '✏️ Редактировать пост' : '📝 Редактор текста'}
+            <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 20, color: 'var(--text)', letterSpacing: '-0.02em' }}>
+              {isEdit ? 'Редактировать пост' : 'Редактор текста'}
             </h2>
             <div className="fg">
               <label>Заголовок поста</label>
@@ -149,9 +153,10 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
               {!isEdit && <button className="btn btn-secondary" onClick={() => setStep(tmplType ? 2 : 1)}>← Назад</button>}
-              {isEdit && <button className="btn btn-secondary" onClick={() => router.push('/posts')}>✕ Отмена</button>}
+              {isEdit && <button className="btn btn-secondary" onClick={() => router.push('/posts')}>Отмена</button>}
               <button className="btn btn-primary" onClick={() => isEdit ? save() : setStep(4)} disabled={saving}>
-                {isEdit ? (saving ? '⏳ Сохраняем...' : '💾 Сохранить') : 'Далее →'}
+                {isEdit ? (saving ? 'Сохраняем...' : 'Сохранить') : 'Далее'}
+                {!saving && <span className="btn-icon">{isEdit ? '✓' : '→'}</span>}
               </button>
             </div>
           </div>
@@ -160,12 +165,12 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
         {/* Step 4: публикация */}
         {step === 4 && (
           <div className="card card-p">
-            <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>🚀 Настройки публикации</h2>
+            <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 20, color: 'var(--text)', letterSpacing: '-0.02em' }}>Настройки публикации</h2>
 
             <div className="fg">
               <label>Платформы</label>
               <div style={{ display: 'flex', gap: 10 }}>
-                {[{ id: 'vk', l: '🔵 ВКонтакте' }, { id: 'telegram', l: '✈️ Telegram' }].map(pl => (
+                {[{ id: 'vk', l: 'ВКонтакте' }, { id: 'telegram', l: 'Telegram' }].map(pl => (
                   <div key={pl.id} className={`pltoggle${platforms.includes(pl.id) ? ' on' : ''}`} onClick={() => togglePl(pl.id)}>
                     {platforms.includes(pl.id) ? '✓ ' : ''}{pl.l}
                   </div>
@@ -183,7 +188,7 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
                 ))}
                 <input type="text" value={tagIn} onChange={e => setTagIn(e.target.value)} onKeyDown={addTag}
                   placeholder={tags.length === 0 ? 'Введите тег, нажмите Enter...' : ''}
-                  style={{ border: 'none', outline: 'none', fontSize: 13, padding: '2px 4px', flex: 1, minWidth: 80 }} />
+                  style={{ border: 'none', outline: 'none', background: 'transparent', color: 'var(--text)', fontSize: 12, padding: '2px 4px', flex: 1, minWidth: 80, width: 'auto' }} />
               </div>
               <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
                 {['мероприятия', 'вакансии', 'гранты', 'новости'].map(t => (
@@ -211,14 +216,15 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
             )}
 
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--gray-500)', marginBottom: 8 }}>ПРЕДПРОСМОТР</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Предпросмотр</div>
               <div className="preview">{content}</div>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
               <button className="btn btn-secondary" onClick={() => setStep(3)}>← Назад</button>
               <button className="btn btn-primary" onClick={save} disabled={saving}>
-                {saving ? '⏳ Сохраняем...' : status === 'published' ? '🚀 Опубликовать' : status === 'scheduled' ? '⏰ Запланировать' : '💾 Сохранить'}
+                {saving ? 'Сохраняем...' : status === 'published' ? 'Опубликовать' : status === 'scheduled' ? 'Запланировать' : 'Сохранить'}
+                {!saving && <span className="btn-icon">{status === 'published' ? '↗' : '✓'}</span>}
               </button>
             </div>
           </div>

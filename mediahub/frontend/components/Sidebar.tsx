@@ -3,13 +3,13 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 
 const NAV = [
-  { href: '/dashboard',      icon: '📊', label: 'Дашборд' },
-  { href: '/calendar',       icon: '📅', label: 'Календарь' },
-  { href: '/posts',          icon: '📝', label: 'Посты' },
-  { href: '/posts/new',      icon: '✏️',  label: 'Создать пост' },
-  { href: '/analytics',      icon: '📈', label: 'Аналитика' },
-  { href: '/notifications',  icon: '🔔', label: 'Уведомления' },
-  { href: '/settings',       icon: '⚙️',  label: 'Настройки' },
+  { href: '/dashboard',     icon: '◈', label: 'Дашборд' },
+  { href: '/calendar',      icon: '◷', label: 'Календарь' },
+  { href: '/posts',         icon: '≡',  label: 'Посты' },
+  { href: '/posts/new',     icon: '+',  label: 'Создать пост' },
+  { href: '/analytics',     icon: '↗', label: 'Аналитика' },
+  { href: '/notifications', icon: '◉', label: 'Уведомления' },
+  { href: '/settings',      icon: '◎', label: 'Настройки' },
 ]
 
 const ROLE_CLASS: Record<string, string> = { admin: 'r-admin', editor: 'r-editor', observer: 'r-observer' }
@@ -27,14 +27,16 @@ export default function Sidebar({ unread = 0 }: { unread?: number }) {
 
   return (
     <div className="sidebar">
+      {/* Logo */}
       <div className="sidebar-logo">
-        <div className="logo-icon">📡</div>
+        <div className="logo-icon">M</div>
         <div>
           <div className="logo-text">MediaHub</div>
           <div className="logo-sub">Молодёжные центры КК</div>
         </div>
       </div>
 
+      {/* Navigation */}
       <nav className="sidebar-nav">
         <div className="nav-section">Навигация</div>
         {NAV.map(item => (
@@ -43,7 +45,9 @@ export default function Sidebar({ unread = 0 }: { unread?: number }) {
             className={`nav-item${pathname === item.href ? ' active' : ''}`}
             onClick={() => router.push(item.href)}
           >
-            <span className="nav-icon">{item.icon}</span>
+            <span className="nav-icon" style={{ fontStyle: 'normal', fontFamily: 'monospace' }}>
+              {item.icon}
+            </span>
             {item.label}
             {item.href === '/notifications' && unread > 0 && (
               <span className="nav-badge">{unread}</span>
@@ -52,16 +56,22 @@ export default function Sidebar({ unread = 0 }: { unread?: number }) {
         ))}
       </nav>
 
+      {/* User profile */}
       {user && (
         <div className="sidebar-user">
-          <div className="avatar">{user.avatar || user.name[0]}</div>
+          <div className="avatar">{user.name[0].toUpperCase()}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="user-name" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {user.name}
-            </div>
-            <span className={`user-role-lbl ${ROLE_CLASS[user.role] ?? ''}`}>{ROLE_LABEL[user.role]}</span>
+            <div className="user-name">{user.name}</div>
+            <span className={`user-role-lbl ${ROLE_CLASS[user.role] ?? ''}`}>
+              {ROLE_LABEL[user.role]}
+            </span>
           </div>
-          <button onClick={handleLogout} className="btn btn-ghost btn-sm" style={{ color: 'var(--gray-400)', padding: '4px 8px' }} title="Выйти">
+          <button
+            onClick={handleLogout}
+            className="btn btn-ghost btn-sm"
+            style={{ padding: '4px 8px', fontSize: 16, lineHeight: 1 }}
+            title="Выйти"
+          >
             ↩
           </button>
         </div>

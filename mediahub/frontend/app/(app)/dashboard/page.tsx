@@ -7,11 +7,11 @@ import type { AnalyticsSummary, Post } from '@/lib/types'
 const fmtN = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n)
 const fmtDate = (s: string | null) => {
   if (!s) return '—'
-  return new Date(s).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', year: 'numeric' })
+  return new Date(s).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' })
 }
-const SL: Record<string, string> = { draft: 'Черновик', scheduled: 'Запланирован', published: 'Опубликован' }
-const SC: Record<string, string> = { draft: 's-draft', scheduled: 's-scheduled', published: 's-published' }
-const DOT: Record<string, string> = { draft: '○', scheduled: '◑', published: '●' }
+
+const STATUS_LABEL: Record<string, string> = { draft: 'Черновик', scheduled: 'Запланирован', published: 'Опубликован' }
+const STATUS_CLASS: Record<string, string> = { draft: 's-draft', scheduled: 's-scheduled', published: 's-published' }
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -23,78 +23,151 @@ export default function DashboardPage() {
     api.getPosts({ limit: '5' } as never).then(d => setPosts(d.posts)).catch(console.error)
   }, [])
 
-  if (!sum) return <div className="content">⏳ Загрузка...</div>
+  if (!sum) {
+    return (
+      <div className="content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
+        <div style={{ textAlign: 'center', color: 'var(--text-3)' }}>
+          <div style={{ fontSize: 32, marginBottom: 12, opacity: 0.4 }}>◈</div>
+          <div style={{ fontSize: 13, letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 600 }}>Загрузка</div>
+        </div>
+      </div>
+    )
+  }
 
   const cards = [
-    { icon: '📝', label: 'Всего постов',    val: sum.total_posts,                    bg: '#eff6ff' },
-    { icon: '👁',  label: 'Суммарный охват', val: fmtN(sum.total_views),              bg: '#f0fdf4' },
-    { icon: '❤️', label: 'Реакции',         val: fmtN(sum.total_reactions),          bg: '#fff7ed' },
-    { icon: '📊', label: 'Вовлечённость',   val: sum.engagement_rate + '%',          bg: '#fdf4ff' },
+    { label: 'Всего постов',    val: sum.total_posts,        delta: '+12%', bg: 'rgba(124,58,237,0.12)',  color: '#a78bfa' },
+    { label: 'Суммарный охват', val: fmtN(sum.total_views),  delta: '+18%', bg: 'rgba(59,130,246,0.12)', color: '#60a5fa' },
+    { label: 'Реакции',         val: fmtN(sum.total_reactions), delta: '+9%', bg: 'rgba(16,185,129,0.12)', color: '#34d399' },
+    { label: 'Вовлечённость',   val: sum.engagement_rate + '%', delta: '+3%', bg: 'rgba(245,158,11,0.12)', color: '#fbbf24' },
   ]
 
   const statusRows = [
-    { l: 'Опубликованы',  n: sum.published, c: '#16a34a', pct: Math.round(sum.published / Math.max(sum.total_posts, 1) * 100) },
-    { l: 'Запланированы', n: sum.scheduled, c: '#d97706', pct: Math.round(sum.scheduled / Math.max(sum.total_posts, 1) * 100) },
-    { l: 'Черновики',     n: sum.drafts,    c: '#6b7280', pct: Math.round(sum.drafts    / Math.max(sum.total_posts, 1) * 100) },
+    { l: 'Опубликованы',  n: sum.published, c: 'var(--green)', pct: Math.round(sum.published / Math.max(sum.total_posts, 1) * 100) },
+    { l: 'Запланированы', n: sum.scheduled, c: 'var(--yellow)', pct: Math.round(sum.scheduled / Math.max(sum.total_posts, 1) * 100) },
+    { l: 'Черновики',     n: sum.drafts,    c: 'var(--text-3)', pct: Math.round(sum.drafts    / Math.max(sum.total_posts, 1) * 100) },
   ]
 
   return (
     <div className="content">
-      <div className="stats-grid">
+
+      {/* ── Stat cards ── */}
+      <div className="stats-grid" style={{ marginBottom: 20 }}>
         {cards.map((c, i) => (
-          <div key={i} className="stat-card">
-            <div className="stat-icon" style={{ background: c.bg }}>{c.icon}</div>
-            <div className="stat-value">{c.val}</div>
+          <div key={i} className="stat-card anim-in">
+            <div className="stat-icon" style={{ background: c.bg }}>
+              <span style={{ color: c.color, fontSize: 15, fontWeight: 800 }}>
+                {i === 0 ? '≡' : i === 1 ? '↗' : i === 2 ? '♥' : '◎'}
+              </span>
+            </div>
+            <div className="stat-value" style={{ color: c.color }}>{c.val}</div>
             <div className="stat-label">{c.label}</div>
-            <div className="stat-delta">↑ +12% за месяц</div>
+            <div className="stat-delta">↑ {c.delta} за месяц</div>
           </div>
         ))}
       </div>
 
-      <div className="grid2">
-        <div className="card">
+      {/* ── Bento grid — asymmetric layout ── */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 340px',
+        gridTemplateRows: 'auto auto',
+        gap: 16,
+      }}>
+
+        {/* Recent posts — spans full height left */}
+        <div className="card" style={{ gridRow: '1 / 3' }}>
           <div className="card-header">
-            <span className="card-title">📋 Последние посты</span>
-            <button className="btn btn-ghost btn-sm" onClick={() => router.push('/posts')}>Все →</button>
+            <span className="card-title">Последние посты</span>
+            <button className="btn btn-ghost btn-sm" onClick={() => router.push('/posts')}
+              style={{ fontSize: 11.5, letterSpacing: '0.04em' }}>
+              Все посты →
+            </button>
           </div>
+          {posts.length === 0 && (
+            <div className="empty">
+              <div className="empty-ico">≡</div>
+              <div>Нет постов</div>
+            </div>
+          )}
           {posts.map(p => (
-            <div key={p.id} style={{ padding: '12px 20px', borderBottom: '1px solid var(--gray-100)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
-              onClick={() => router.push(`/posts/${p.id}/edit`)}>
+            <div
+              key={p.id}
+              onClick={() => router.push(`/posts/${p.id}/edit`)}
+              style={{
+                padding: '14px 22px',
+                borderBottom: '1px solid var(--border)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 14,
+                cursor: 'pointer',
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-h)')}
+              onMouseLeave={e => (e.currentTarget.style.background = '')}
+            >
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="trunc" style={{ fontWeight: 600, fontSize: 14 }}>{p.title}</div>
-                <div style={{ fontSize: 11, color: 'var(--gray-400)', marginTop: 3 }}>{fmtDate(p.created_at)}</div>
+                <div className="trunc" style={{ fontWeight: 600, fontSize: 13, letterSpacing: '-0.01em', marginBottom: 3 }}>
+                  {p.title}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 500 }}>
+                  {fmtDate(p.created_at)}
+                </div>
               </div>
-              <span className={`sbadge ${SC[p.status]}`}>{DOT[p.status]} {SL[p.status]}</span>
+              <span className={`sbadge ${STATUS_CLASS[p.status]}`}>
+                {STATUS_LABEL[p.status]}
+              </span>
             </div>
           ))}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="card card-p">
-            <div className="card-title" style={{ marginBottom: 14 }}>📊 Статус публикаций</div>
-            {statusRows.map(s => (
-              <div key={s.l} style={{ marginBottom: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
-                  <span>{s.l}</span><span style={{ fontWeight: 700 }}>{s.n}</span>
-                </div>
-                <div className="pbar"><div className="pfill" style={{ width: s.pct + '%', background: s.c }} /></div>
+        {/* Publication status */}
+        <div className="card card-p">
+          <div className="card-title" style={{ marginBottom: 18 }}>Статус публикаций</div>
+          {statusRows.map(s => (
+            <div key={s.l} style={{ marginBottom: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, marginBottom: 6, fontWeight: 500 }}>
+                <span style={{ color: 'var(--text-2)' }}>{s.l}</span>
+                <span style={{ fontWeight: 800, color: 'var(--text)', fontSize: 13 }}>{s.n}</span>
               </div>
-            ))}
-          </div>
-
-          <div className="card card-p">
-            <div className="card-title" style={{ marginBottom: 12 }}>🏆 Топ постов</div>
-            {sum.top_posts.slice(0, 3).map((p, i) => (
-              <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                <div style={{ width: 22, height: 22, borderRadius: 4, background: ['#fbbf24', '#9ca3af', '#cd7c2f'][i], color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{i + 1}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="trunc" style={{ fontSize: 13, fontWeight: 600 }}>{p.title}</div>
-                  <div style={{ fontSize: 11, color: 'var(--gray-400)' }}>👁 {fmtN(p.views)} · ❤️ {p.reactions}</div>
-                </div>
+              <div className="pbar">
+                <div className="pfill" style={{ width: s.pct + '%', background: s.c }} />
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
+
+        {/* Top posts */}
+        <div className="card card-p">
+          <div className="card-title" style={{ marginBottom: 16 }}>Топ постов</div>
+          {sum.top_posts.slice(0, 3).map((p, i) => (
+            <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+              <div style={{
+                width: 24, height: 24,
+                borderRadius: 6,
+                background: [
+                  'linear-gradient(135deg, #f59e0b, #fbbf24)',
+                  'linear-gradient(135deg, #6b7280, #9ca3af)',
+                  'linear-gradient(135deg, #92400e, #b45309)',
+                ][i],
+                color: '#fff',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 10, fontWeight: 800, flexShrink: 0,
+              }}>
+                {i + 1}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="trunc" style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 2, letterSpacing: '-0.01em' }}>
+                  {p.title}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                  {fmtN(p.views)} просм · {p.reactions} реакций
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+
       </div>
     </div>
   )
