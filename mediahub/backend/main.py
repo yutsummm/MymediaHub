@@ -355,7 +355,7 @@ def vk_get_group_name(access_token: str, group_id: str) -> str:
     except Exception as e:
         raise ValueError(f"Ошибка связи с VK: {e}")
 
-def vk_upload_photo_to_wall(access_token: str, group_id: str, file_path: str) -> str:
+def vk_upload_photo_to_wall(access_token: str, group_id: str, image_data: bytes, filename: str = "photo.jpg") -> str:
     clean_id = group_id.lstrip("-")
     r = http_requests.get(
         "https://api.vk.com/method/photos.getWallUploadServer",
@@ -367,8 +367,7 @@ def vk_upload_photo_to_wall(access_token: str, group_id: str, file_path: str) ->
         raise ValueError(data["error"].get("error_msg", "VK getWallUploadServer error"))
     upload_url = data["response"]["upload_url"]
 
-    with open(file_path, "rb") as f:
-        r2 = http_requests.post(upload_url, files={"photo": f}, timeout=60)
+    r2 = http_requests.post(upload_url, files={"photo": (filename, image_data)}, timeout=60)
     upload_result = r2.json()
 
     r3 = http_requests.post(
@@ -668,16 +667,24 @@ def publish_post(post_id: int):
             try:
                 message = f"{post_dict['title']}\n\n{post_dict['content']}"
                 attachments = []
+                backend_base = os.getenv("BACKEND_URL", "https://backend-production-30d6.up.railway.app").rstrip("/")
                 for item in (post_dict.get("media") or []):
                     if item.get("type") == "image":
                         fname = os.path.basename(item["url"])
                         fpath = os.path.join(UPLOAD_DIR, fname)
-                        if os.path.exists(fpath):
-                            try:
-                                att = vk_upload_photo_to_wall(vk["access_token"], vk["group_id"], fpath)
-                                attachments.append(att)
-                            except Exception:
-                                pass
+                        try:
+                            if os.path.exists(fpath):
+                                with open(fpath, "rb") as f:
+                                    image_data = f.read()
+                            else:
+                                img_url = f"{backend_base}{item['url']}"
+                                resp = http_requests.get(img_url, timeout=30)
+                                resp.raise_for_status()
+                                image_data = resp.content
+                            att = vk_upload_photo_to_wall(vk["access_token"], vk["group_id"], image_data, fname)
+                            attachments.append(att)
+                        except Exception:
+                            pass
                 vk_post_id = vk_wall_post(vk["access_token"], vk["group_id"], message, attachments)
                 c.execute(
                     "INSERT INTO notifications (user_id, message, type, is_read) VALUES (1, %s, %s, 0)",
