@@ -16,9 +16,24 @@ export const metadata: Metadata = {
   icons: { icon: '/logo.png' },
 }
 
+const themeInitScript = `
+(function() {
+  try {
+    var t = localStorage.getItem('mediahub-theme');
+    if (t !== 'light' && t !== 'dark') t = 'dark';
+    document.documentElement.setAttribute('data-theme', t);
+  } catch (_) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+})();
+`
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ru" className={sans.variable}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body>
         <AuthProvider>
           <ToastProvider>

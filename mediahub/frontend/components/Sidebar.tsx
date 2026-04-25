@@ -1,6 +1,9 @@
 'use client'
+import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
+
+type Theme = 'dark' | 'light'
 
 const NAV = [
   { href: '/dashboard',     icon: '◈', label: 'Дашборд' },
@@ -19,6 +22,19 @@ export default function Sidebar({ unread = 0 }: { unread?: number }) {
   const pathname = usePathname()
   const router = useRouter()
   const { user, logout } = useAuth()
+  const [theme, setTheme] = useState<Theme>('dark')
+
+  useEffect(() => {
+    const initial = (document.documentElement.getAttribute('data-theme') as Theme) || 'dark'
+    setTheme(initial)
+  }, [])
+
+  function toggleTheme() {
+    const next: Theme = theme === 'light' ? 'dark' : 'light'
+    setTheme(next)
+    document.documentElement.setAttribute('data-theme', next)
+    try { localStorage.setItem('mediahub-theme', next) } catch {}
+  }
 
   function handleLogout() {
     logout()
@@ -67,6 +83,17 @@ export default function Sidebar({ unread = 0 }: { unread?: number }) {
             <span className={`user-role-lbl ${ROLE_CLASS[user.role] ?? ''}`}>
               {ROLE_LABEL[user.role]}
             </span>
+          </div>
+          <div
+            className="theme-toggle"
+            role="switch"
+            aria-checked={theme === 'light'}
+            tabIndex={0}
+            onClick={toggleTheme}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleTheme() } }}
+            title={theme === 'light' ? 'Светлая тема — переключить на тёмную' : 'Тёмная тема — переключить на светлую'}
+          >
+            <div className="theme-toggle-thumb">{theme === 'light' ? '☀' : '☾'}</div>
           </div>
           <button
             onClick={handleLogout}
