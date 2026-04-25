@@ -41,6 +41,11 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://mediahub:mediahub123@loca
 
 # ── Pydantic models ──────────────────────────────────────────────────────────
 
+class MediaItem(BaseModel):
+    url: str
+    type: str      # "image" | "video"
+    filename: str
+
 class PostCreate(BaseModel):
     title: str
     content: str
@@ -75,11 +80,6 @@ class LoginRequest(BaseModel):
 class VkSettingsSave(BaseModel):
     group_id: str
     access_token: str
-
-class MediaItem(BaseModel):
-    url: str
-    type: str      # "image" | "video"
-    filename: str
 
 # ── DB ───────────────────────────────────────────────────────────────────────
 
