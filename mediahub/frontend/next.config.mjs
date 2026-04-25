@@ -8,7 +8,8 @@ const nextConfig = {
     const backendUrl = (process.env.BACKEND_URL || fallback).replace(/\/$/, '')
     console.log(`[next.config] proxying /api/* -> ${backendUrl}`)
     return [
-      { source: '/api/:path*', destination: `${backendUrl}/api/:path*` },
+      { source: '/api/:path*',     destination: `${backendUrl}/api/:path*` },
+      { source: '/uploads/:path*', destination: `${backendUrl}/uploads/:path*` },
     ]
   },
 }

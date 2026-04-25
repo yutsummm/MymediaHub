@@ -3,13 +3,14 @@ MediaHub — Медиахаб для молодёжных центров
 FastAPI + PostgreSQL backend
 """
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List
 import psycopg2
 import psycopg2.extras
-import json, os, random
+import json, os, random, uuid, shutil
 import requests as http_requests
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -17,6 +18,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = FastAPI(title="MediaHub API", version="1.0.0")
+
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 ALLOWED_ORIGINS = [
     o.strip().rstrip("/")
     for o in os.getenv(
@@ -46,6 +50,7 @@ class PostCreate(BaseModel):
     scheduled_at: Optional[str] = None
     template_type: Optional[str] = None
     author_id: int = 1
+    media: List[MediaItem] = []
 
 class PostUpdate(BaseModel):
     title: Optional[str] = None
@@ -54,6 +59,7 @@ class PostUpdate(BaseModel):
     platforms: Optional[List[str]] = None
     tags: Optional[List[str]] = None
     scheduled_at: Optional[str] = None
+    media: Optional[List[MediaItem]] = None
 
 class GenerateRequest(BaseModel):
     template_type: str
@@ -70,6 +76,11 @@ class VkSettingsSave(BaseModel):
     group_id: str
     access_token: str
 
+class MediaItem(BaseModel):
+    url: str
+    type: str      # "image" | "video"
+    filename: str
+
 # ── DB ───────────────────────────────────────────────────────────────────────
 
 def get_db():
@@ -79,12 +90,14 @@ def row_to_dict(row):
     if row is None:
         return None
     d = dict(row)
-    for key in ("platforms", "tags"):
+    for key in ("platforms", "tags", "media"):
         if key in d and isinstance(d[key], str):
             try:
                 d[key] = json.loads(d[key])
             except Exception:
                 d[key] = []
+        elif key not in d:
+            d[key] = []
     return d
 
 def init_db():
@@ -154,6 +167,8 @@ def init_db():
             connected_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI')
         )
     """)
+
+    c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS media TEXT DEFAULT '[]'")
 
     c.execute("SELECT COUNT(*) FROM users")
     if c.fetchone()["count"] == 0:
@@ -267,6 +282,34 @@ def init_db():
 def root():
     return {"status": "ok", "service": "MediaHub API"}
 
+# ── File upload ──────────────────────────────────────────────────────────────
+
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+ALLOWED_VIDEO_TYPES = {"video/mp4", "video/quicktime", "video/webm", "video/x-msvideo"}
+MAX_IMAGE_SIZE = 10 * 1024 * 1024   # 10 MB
+MAX_VIDEO_SIZE = 100 * 1024 * 1024  # 100 MB
+
+@app.post("/api/upload")
+async def upload_file(file: UploadFile = File(...)):
+    content_type = file.content_type or ""
+    if content_type not in ALLOWED_IMAGE_TYPES | ALLOWED_VIDEO_TYPES:
+        raise HTTPException(400, f"Неподдерживаемый тип файла: {content_type}")
+
+    ext = (file.filename or "file").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "bin"
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    filepath = os.path.join(UPLOAD_DIR, filename)
+
+    data = await file.read()
+    max_size = MAX_VIDEO_SIZE if content_type in ALLOWED_VIDEO_TYPES else MAX_IMAGE_SIZE
+    if len(data) > max_size:
+        raise HTTPException(400, f"Файл слишком большой (макс. {max_size // 1024 // 1024} МБ)")
+
+    with open(filepath, "wb") as f:
+        f.write(data)
+
+    file_type = "video" if content_type in ALLOWED_VIDEO_TYPES else "image"
+    return {"url": f"/uploads/{filename}", "type": file_type, "filename": file.filename or filename}
+
 # ── VK API helpers ───────────────────────────────────────────────────────────
 
 VK_API_VERSION = "5.199"
@@ -291,11 +334,48 @@ def vk_get_group_name(access_token: str, group_id: str) -> str:
     except Exception as e:
         raise ValueError(f"Ошибка связи с VK: {e}")
 
-def vk_wall_post(access_token: str, group_id: str, message: str) -> int:
+def vk_upload_photo_to_wall(access_token: str, group_id: str, file_path: str) -> str:
     clean_id = group_id.lstrip("-")
+    r = http_requests.get(
+        "https://api.vk.com/method/photos.getWallUploadServer",
+        params={"group_id": clean_id, "access_token": access_token, "v": VK_API_VERSION},
+        timeout=10,
+    )
+    data = r.json()
+    if "error" in data:
+        raise ValueError(data["error"].get("error_msg", "VK getWallUploadServer error"))
+    upload_url = data["response"]["upload_url"]
+
+    with open(file_path, "rb") as f:
+        r2 = http_requests.post(upload_url, files={"photo": f}, timeout=60)
+    upload_result = r2.json()
+
+    r3 = http_requests.post(
+        "https://api.vk.com/method/photos.saveWallPhoto",
+        data={
+            "group_id": clean_id,
+            "photo": upload_result["photo"],
+            "server": upload_result["server"],
+            "hash": upload_result["hash"],
+            "access_token": access_token,
+            "v": VK_API_VERSION,
+        },
+        timeout=15,
+    )
+    saved = r3.json()
+    if "error" in saved:
+        raise ValueError(saved["error"].get("error_msg", "VK saveWallPhoto error"))
+    photo = saved["response"][0]
+    return f"photo{photo['owner_id']}_{photo['id']}"
+
+def vk_wall_post(access_token: str, group_id: str, message: str, attachments: List[str] = []) -> int:
+    clean_id = group_id.lstrip("-")
+    params: dict = {"owner_id": f"-{clean_id}", "message": message, "access_token": access_token, "v": VK_API_VERSION}
+    if attachments:
+        params["attachments"] = ",".join(attachments)
     r = http_requests.post(
         "https://api.vk.com/method/wall.post",
-        data={"owner_id": f"-{clean_id}", "message": message, "access_token": access_token, "v": VK_API_VERSION},
+        data=params,
         timeout=15,
     )
     data = r.json()
@@ -423,8 +503,8 @@ def create_post(body: PostCreate):
     conn = get_db()
     c = conn.cursor()
     c.execute(
-        "INSERT INTO posts (title,content,status,platforms,tags,scheduled_at,author_id,template_type) VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (body.title, body.content, body.status, json.dumps(body.platforms), json.dumps(body.tags), body.scheduled_at, body.author_id, body.template_type),
+        "INSERT INTO posts (title,content,status,platforms,tags,scheduled_at,author_id,template_type,media) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (body.title, body.content, body.status, json.dumps(body.platforms), json.dumps(body.tags), body.scheduled_at, body.author_id, body.template_type, json.dumps([m.dict() for m in body.media])),
     )
     pid = c.fetchone()["id"]
     conn.commit()
@@ -448,6 +528,7 @@ def update_post(post_id: int, body: PostUpdate):
     if body.platforms  is not None: updates.append("platforms=%s");    params.append(json.dumps(body.platforms))
     if body.tags       is not None: updates.append("tags=%s");         params.append(json.dumps(body.tags))
     if body.scheduled_at is not None: updates.append("scheduled_at=%s"); params.append(body.scheduled_at)
+    if body.media      is not None: updates.append("media=%s");        params.append(json.dumps([m.dict() for m in body.media]))
     if updates:
         params.append(post_id)
         c.execute(f"UPDATE posts SET {', '.join(updates)} WHERE id=%s", params)
@@ -497,7 +578,18 @@ def publish_post(post_id: int):
         if vk:
             try:
                 message = f"{post_dict['title']}\n\n{post_dict['content']}"
-                vk_post_id = vk_wall_post(vk["access_token"], vk["group_id"], message)
+                attachments = []
+                for item in (post_dict.get("media") or []):
+                    if item.get("type") == "image":
+                        fname = os.path.basename(item["url"])
+                        fpath = os.path.join(UPLOAD_DIR, fname)
+                        if os.path.exists(fpath):
+                            try:
+                                att = vk_upload_photo_to_wall(vk["access_token"], vk["group_id"], fpath)
+                                attachments.append(att)
+                            except Exception:
+                                pass
+                vk_post_id = vk_wall_post(vk["access_token"], vk["group_id"], message, attachments)
                 c.execute(
                     "INSERT INTO notifications (user_id, message, type, is_read) VALUES (1, %s, %s, 0)",
                     (f"Пост «{post_dict['title']}» опубликован в группу ВКонтакте", "success"),
@@ -660,3 +752,5 @@ def mark_read(notif_id: int):
 def startup():
     init_db()
     print("✅  MediaHub API запущен!  →  http://localhost:8000")
+
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")

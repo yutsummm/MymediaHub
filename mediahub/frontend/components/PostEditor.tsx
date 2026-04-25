@@ -5,7 +5,7 @@ import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
 import { api } from '@/lib/api'
 import { useToast } from '@/contexts/ToastContext'
 import { applyEmojiSuggestion, getEmojiSuggestions } from '@/lib/postUtils'
-import type { Post, Template } from '@/lib/types'
+import type { MediaItem, Post, Template } from '@/lib/types'
 
 const TICO: Record<string, string> = { announcement: '◈', results: '✓', vacancy: '↗', grant: '◎' }
 const STEPS = [{ n: 1, l: 'Шаблон' }, { n: 2, l: 'Данные' }, { n: 3, l: 'Редактор' }, { n: 4, l: 'Публикация' }]
@@ -26,6 +26,9 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
   const [tags, setTags] = useState<string[]>(editPost?.tags ?? [])
   const [status, setStatus] = useState<'draft' | 'scheduled' | 'published'>(editPost?.status ?? 'draft')
   const [schedAt, setSchedAt] = useState(editPost?.scheduled_at ? editPost.scheduled_at.slice(0, 16) : '')
+  const [media, setMedia] = useState<MediaItem[]>(editPost?.media ?? [])
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [gen, setGen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [tagIn, setTagIn] = useState('')
@@ -50,7 +53,7 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
     setSaving(true)
     try {
       const body = {
-        title, content, status, platforms, tags,
+        title, content, status, platforms, tags, media,
         scheduled_at: status === 'scheduled' ? (schedAt || null) : null,
         template_type: tmplType || null,
       }
@@ -60,6 +63,22 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
       router.push('/posts')
     } catch (e: unknown) { showToast((e as Error).message, 'error') }
     finally { setSaving(false) }
+  }
+
+  async function handleFiles(files: FileList | null) {
+    if (!files || files.length === 0) return
+    setUploading(true)
+    try {
+      for (const file of Array.from(files)) {
+        const item = await api.uploadFile(file)
+        setMedia(prev => [...prev, item])
+      }
+    } catch (e: unknown) { showToast((e as Error).message, 'error') }
+    finally { setUploading(false) }
+  }
+
+  function removeMedia(url: string) {
+    setMedia(prev => prev.filter(m => m.url !== url))
   }
 
   function togglePl(pl: string) {
@@ -276,6 +295,49 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
                 )}
               </div>
             )}
+            {/* Media upload */}
+            <div className="fg">
+              <label>Фото и видео</label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm"
+                style={{ display: 'none' }}
+                onChange={e => handleFiles(e.target.files)}
+              />
+              {media.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+                  {media.map(item => (
+                    <div key={item.url} style={{ position: 'relative', borderRadius: 'var(--r-md)', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                      {item.type === 'image' ? (
+                        <img src={item.url} alt={item.filename} style={{ width: 96, height: 96, objectFit: 'cover', display: 'block' }} />
+                      ) : (
+                        <div style={{ width: 96, height: 96, background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                          <span style={{ fontSize: 28 }}>▶</span>
+                          <span style={{ fontSize: 9, color: 'var(--text-3)', textAlign: 'center', padding: '0 4px', wordBreak: 'break-all' }}>{item.filename}</span>
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeMedia(item.url)}
+                        style={{ position: 'absolute', top: 3, right: 3, width: 20, height: 20, borderRadius: '50%', background: 'rgba(0,0,0,0.65)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 12, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                style={{ alignSelf: 'flex-start' }}
+              >
+                {uploading ? 'Загружаем...' : '+ Добавить фото / видео'}
+              </button>
+            </div>
+
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
               {!isEdit && <button className="btn btn-secondary" onClick={() => setStep(tmplType ? 2 : 1)}>← Назад</button>}
               {isEdit && <button className="btn btn-secondary" onClick={() => router.push('/posts')}>Отмена</button>}

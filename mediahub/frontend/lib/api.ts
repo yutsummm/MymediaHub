@@ -64,6 +64,25 @@ export const api = {
     req<import('./types').Notification[]>(`/api/notifications${user_id ? `?user_id=${user_id}` : ''}`),
   markRead: (id: number) => req<{ ok: boolean }>(`/api/notifications/${id}/read`, { method: 'PUT' }),
 
+  uploadFile: async (file: File): Promise<import('./types').MediaItem> => {
+    const form = new FormData()
+    form.append('file', file)
+    const url = `${BASE}/api/upload`
+    let res: Response
+    try {
+      res = await fetch(url, { method: 'POST', body: form })
+    } catch (e) {
+      throw new Error(`Сеть недоступна: ${(e as Error).message}`)
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      let detail: string | undefined
+      try { detail = JSON.parse(text)?.detail } catch {}
+      throw new Error(detail ?? `${res.status} ${res.statusText}`)
+    }
+    return res.json()
+  },
+
   getVkSettings: () => req<import('./types').VkSettings>('/api/settings/vk'),
   saveVkSettings: (group_id: string, access_token: string) =>
     req<import('./types').VkSettings>('/api/settings/vk', {

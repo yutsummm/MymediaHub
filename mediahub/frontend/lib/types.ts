@@ -7,6 +7,12 @@ export interface User {
   created_at: string
 }
 
+export interface MediaItem {
+  url: string
+  type: 'image' | 'video'
+  filename: string
+}
+
 export interface Post {
   id: number
   title: string
@@ -24,6 +30,7 @@ export interface Post {
   author_name?: string
   template_type: string | null
   created_at: string
+  media: MediaItem[]
 }
 
 export interface TemplateField {
