@@ -1,4 +1,6 @@
-const BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/$/, '')
+// На проде используем относительные URL — Next.js rewrites проксирует /api/* на бэк
+// (см. next.config.mjs / BACKEND_URL). Локально NEXT_PUBLIC_API_URL=http://localhost:8000.
+const BASE = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '')
 
 async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
   const url = `${BASE}${path}`
