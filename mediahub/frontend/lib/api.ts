@@ -1,13 +1,21 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\/$/, '')
 
 async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(init.headers ?? {}) },
-    ...init,
-  })
+  const url = `${BASE}${path}`
+  let res: Response
+  try {
+    res = await fetch(url, {
+      headers: { 'Content-Type': 'application/json', ...(init.headers ?? {}) },
+      ...init,
+    })
+  } catch (e) {
+    throw new Error(`Сеть недоступна (${url}): ${(e as Error).message}`)
+  }
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    throw new Error((err as { detail?: string }).detail ?? 'Ошибка сервера')
+    const text = await res.text().catch(() => '')
+    let detail: string | undefined
+    try { detail = JSON.parse(text)?.detail } catch {}
+    throw new Error(detail ?? `${res.status} ${res.statusText} — ${url}`)
   }
   return res.json()
 }
