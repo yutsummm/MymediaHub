@@ -418,7 +418,12 @@ def vk_get_group_name(access_token: str, group_id: str) -> str:
         data = r.json()
         if "error" in data:
             raise ValueError(data["error"].get("error_msg", "VK API error"))
-        groups = data.get("response", {}).get("groups", [])
+        response = data.get("response", {})
+        # API v5.196+ returns {"groups": [...]}; older versions return [...]
+        if isinstance(response, list):
+            groups = response
+        else:
+            groups = response.get("groups", [])
         if not groups:
             raise ValueError("Группа не найдена")
         return groups[0].get("name", "")
@@ -499,7 +504,10 @@ def get_vk_settings():
 
 @app.post("/api/settings/vk")
 def save_vk_settings(body: VkSettingsSave):
-    group_name = vk_get_group_name(body.access_token, body.group_id)
+    try:
+        group_name = vk_get_group_name(body.access_token, body.group_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT id FROM vk_settings WHERE id=1")
