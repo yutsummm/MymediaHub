@@ -25,14 +25,21 @@ async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
 const body = (data: unknown) => JSON.stringify(data)
 
 export const api = {
-  login: (email: string) =>
+  login: (email: string, password: string) =>
     req<{ user: import('./types').User; token: string }>('/api/auth/login', {
-      method: 'POST', body: body({ email, password: 'demo' }),
+      method: 'POST', body: body({ email, password }),
+    }),
+  register: (name: string, email: string, password: string) =>
+    req<{ user: import('./types').User; token: string }>('/api/auth/register', {
+      method: 'POST', body: body({ name, email, password }),
     }),
 
   getUsers: () => req<import('./types').User[]>('/api/users'),
   updateUserRole: (id: number, role: string) =>
     req<import('./types').User>(`/api/users/${id}/role`, { method: 'PUT', body: body({ role }) }),
+  createUser: (name: string, email: string, role: string, password: string) =>
+    req<import('./types').User>('/api/users', { method: 'POST', body: body({ name, email, role, password }) }),
+  deleteUser: (id: number) => req<{ ok: boolean }>(`/api/users/${id}`, { method: 'DELETE' }),
 
   getPosts: (params?: Record<string, string>) => {
     const qs = params ? '?' + new URLSearchParams(params).toString() : ''

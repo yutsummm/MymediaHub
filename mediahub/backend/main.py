@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 import psycopg2
 import psycopg2.extras
-import json, os, random, uuid, shutil
+import json, os, random, uuid, shutil, hashlib
 import requests as http_requests
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -38,6 +38,14 @@ app.add_middleware(
 )
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://mediahub:mediahub123@localhost:5432/mediahub")
+
+# ── Password helpers ─────────────────────────────────────────────────────────
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+def verify_password(password: str, hashed: str) -> bool:
+    return hash_password(password) == hashed
 
 # ── Pydantic models ──────────────────────────────────────────────────────────
 
@@ -81,6 +89,17 @@ class VkSettingsSave(BaseModel):
     group_id: str
     access_token: str
 
+class RegisterRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+
+class UserCreate(BaseModel):
+    name: str
+    email: str
+    role: str = "editor"
+    password: str
+
 # ── DB ───────────────────────────────────────────────────────────────────────
 
 def get_db():
@@ -90,6 +109,7 @@ def row_to_dict(row):
     if row is None:
         return None
     d = dict(row)
+    d.pop("password_hash", None)
     for key in ("platforms", "tags", "media"):
         if key in d and isinstance(d[key], str):
             try:
@@ -169,6 +189,7 @@ def init_db():
     """)
 
     c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS media TEXT DEFAULT '[]'")
+    c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
 
     c.execute("SELECT COUNT(*) FROM users")
     if c.fetchone()["count"] == 0:
@@ -439,7 +460,36 @@ def login(req: LoginRequest):
     user = c.fetchone()
     conn.close()
     if not user:
-        raise HTTPException(401, "Неверный email")
+        raise HTTPException(401, "Пользователь не найден")
+    ph = user.get("password_hash")
+    if ph and not verify_password(req.password, ph):
+        raise HTTPException(401, "Неверный пароль")
+    return {"user": row_to_dict(user), "token": "demo-token"}
+
+@app.post("/api/auth/register")
+def register(req: RegisterRequest):
+    if not req.name.strip():
+        raise HTTPException(400, "Введите имя")
+    if not req.email.strip():
+        raise HTTPException(400, "Введите email")
+    if len(req.password) < 6:
+        raise HTTPException(400, "Пароль должен содержать минимум 6 символов")
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id FROM users WHERE email=%s", (req.email.lower().strip(),))
+    if c.fetchone():
+        conn.close()
+        raise HTTPException(409, "Пользователь с таким email уже существует")
+    avatar = "".join(p[0].upper() for p in req.name.strip().split()[:2])
+    c.execute(
+        "INSERT INTO users (name, email, role, avatar, password_hash) VALUES (%s,%s,%s,%s,%s) RETURNING id",
+        (req.name.strip(), req.email.lower().strip(), "editor", avatar, hash_password(req.password)),
+    )
+    uid = c.fetchone()["id"]
+    conn.commit()
+    c.execute("SELECT * FROM users WHERE id=%s", (uid,))
+    user = c.fetchone()
+    conn.close()
     return {"user": row_to_dict(user), "token": "demo-token"}
 
 # ── Users ────────────────────────────────────────────────────────────────────
@@ -463,6 +513,45 @@ def update_role(user_id: int, body: UserUpdate):
     user = c.fetchone()
     conn.close()
     return row_to_dict(user)
+
+@app.post("/api/users")
+def create_user(body: UserCreate):
+    if not body.name.strip():
+        raise HTTPException(400, "Введите имя")
+    if not body.email.strip():
+        raise HTTPException(400, "Введите email")
+    if len(body.password) < 6:
+        raise HTTPException(400, "Пароль должен содержать минимум 6 символов")
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id FROM users WHERE email=%s", (body.email.lower().strip(),))
+    if c.fetchone():
+        conn.close()
+        raise HTTPException(409, "Пользователь с таким email уже существует")
+    avatar = "".join(p[0].upper() for p in body.name.strip().split()[:2])
+    c.execute(
+        "INSERT INTO users (name, email, role, avatar, password_hash) VALUES (%s,%s,%s,%s,%s) RETURNING id",
+        (body.name.strip(), body.email.lower().strip(), body.role, avatar, hash_password(body.password)),
+    )
+    uid = c.fetchone()["id"]
+    conn.commit()
+    c.execute("SELECT * FROM users WHERE id=%s", (uid,))
+    user = c.fetchone()
+    conn.close()
+    return row_to_dict(user)
+
+@app.delete("/api/users/{user_id}")
+def delete_user(user_id: int):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id FROM users WHERE id=%s", (user_id,))
+    if not c.fetchone():
+        conn.close()
+        raise HTTPException(404, "Пользователь не найден")
+    c.execute("DELETE FROM users WHERE id=%s", (user_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
 
 # ── Posts ────────────────────────────────────────────────────────────────────
 

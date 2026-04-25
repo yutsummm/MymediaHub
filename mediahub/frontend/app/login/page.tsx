@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
 import { api } from '@/lib/api'
 
@@ -14,6 +15,7 @@ export default function LoginPage() {
   const { login } = useAuth()
   const router = useRouter()
   const [email, setEmail] = useState('admin@mediahub.ru')
+  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
 
@@ -21,7 +23,7 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true); setErr('')
     try {
-      const { user } = await api.login(email)
+      const { user } = await api.login(email, password || 'demo')
       login(user)
       router.push('/dashboard')
     } catch (ex: unknown) {
@@ -33,19 +35,12 @@ export default function LoginPage() {
 
   return (
     <div className="login-bg">
-      {/* Radial gradient orbs — GPU-safe, fixed position */}
       <div className="login-orb login-orb-1" />
       <div className="login-orb login-orb-2" />
 
-      {/* Outer shell (double-bezel architecture) */}
       <div className="login-shell">
-        {/* Inner core */}
         <div className="login-card">
-
-          {/* Eyebrow tag */}
           <div className="login-eyebrow">Медиаплатформа</div>
-
-          {/* Logo mark — содержит название и слоган внутри */}
           <img src="/logo.png" alt="Медиа-Хаб — пространство идей и контента" className="login-logo-mark" />
 
           <form onSubmit={submit} className="login-form">
@@ -64,9 +59,10 @@ export default function LoginPage() {
               <label>Пароль</label>
               <input
                 type="password"
-                defaultValue="password"
-                readOnly
+                value={password}
+                onChange={e => setPassword(e.target.value)}
                 placeholder="••••••••"
+                autoComplete="current-password"
               />
             </div>
 
@@ -82,7 +78,13 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Demo accounts */}
+          <div style={{ textAlign: 'center', marginTop: 12, fontSize: 12, color: 'var(--text-3)' }}>
+            Нет аккаунта?{' '}
+            <Link href="/register" style={{ color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
+              Зарегистрироваться
+            </Link>
+          </div>
+
           <div className="login-demos">
             <p className="login-demos-label">Демо-аккаунты</p>
             <div className="login-demos-list">
@@ -90,7 +92,7 @@ export default function LoginPage() {
                 <button
                   key={d.email}
                   type="button"
-                  onClick={() => setEmail(d.email)}
+                  onClick={() => { setEmail(d.email); setPassword('') }}
                   className={`login-demo-btn${email === d.email ? ' active' : ''}`}
                 >
                   <span className="login-demo-name">{d.label}</span>
@@ -99,7 +101,6 @@ export default function LoginPage() {
               ))}
             </div>
           </div>
-
         </div>
       </div>
     </div>
