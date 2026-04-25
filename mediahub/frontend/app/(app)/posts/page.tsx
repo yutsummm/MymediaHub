@@ -54,7 +54,15 @@ export default function PostsPage() {
 
   async function handlePublish(p: Post) {
     setPub(p.id)
-    try { await api.publishPost(p.id); showToast('Пост опубликован!', 'success'); load() }
+    try {
+      const result = await api.publishPost(p.id)
+      if ((result as any).vk_photo_errors?.length) {
+        showToast(`Пост опубликован, но фото не загружено: ${(result as any).vk_photo_errors[0]}`, 'error')
+      } else {
+        showToast('Пост опубликован!', 'success')
+      }
+      load()
+    }
     catch (e: unknown) { showToast((e as Error).message, 'error') }
     finally { setPub(null) }
   }
