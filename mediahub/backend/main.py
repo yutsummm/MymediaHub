@@ -85,6 +85,10 @@ class LoginRequest(BaseModel):
     email: str
     password: str
 
+class AIEnhanceRequest(BaseModel):
+    text: str
+    mode: str  # 'creative' | 'russify'
+
 class VkSettingsSave(BaseModel):
     group_id: str
     access_token: str
@@ -330,6 +334,74 @@ async def upload_file(file: UploadFile = File(...)):
 
     file_type = "video" if content_type in ALLOWED_VIDEO_TYPES else "image"
     return {"url": f"/uploads/{filename}", "type": file_type, "filename": file.filename or filename}
+
+# ── AI Enhance ───────────────────────────────────────────────────────────────
+
+_AI_PROMPTS = {
+    "creative": (
+        "Ты — опытный SMM-специалист и копирайтер молодёжного медиацентра. "
+        "Перепиши текст поста: сделай его ярким, цепляющим и живым для молодёжной аудитории. "
+        "Сохрани основной смысл и все ключевые факты (даты, места, имена, цифры). "
+        "Используй эмодзи там, где это уместно. "
+        "Верни ТОЛЬКО готовый текст — без пояснений, без кавычек, без предисловий."
+    ),
+    "russify": (
+        "Ты — редактор русского языка. "
+        "Замени все англицизмы, иностранный сленг и заимствованные слова на естественные русские аналоги, "
+        "которые органично вписываются в контекст и не режут слух. "
+        "Не меняй смысл, тон и структуру текста. Все факты, даты, имена и эмодзи оставь без изменений. "
+        "Верни ТОЛЬКО готовый текст — без пояснений, без кавычек, без предисловий."
+    ),
+}
+
+@app.post("/api/ai-enhance")
+def ai_enhance(body: AIEnhanceRequest):
+    if not body.text.strip():
+        raise HTTPException(400, "Текст не может быть пустым")
+
+    system_prompt = _AI_PROMPTS.get(body.mode)
+    if not system_prompt:
+        raise HTTPException(400, "Неверный режим. Допустимые значения: creative, russify")
+
+    groq_key = os.getenv("GROQ_API_KEY", "")
+    if not groq_key:
+        raise HTTPException(503, (
+            "GROQ_API_KEY не настроен. "
+            "Получите бесплатный ключ на console.groq.com и добавьте его в .env"
+        ))
+
+    try:
+        resp = http_requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+            json={
+                "model": "llama-3.1-8b-instant",
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": body.text},
+                ],
+                "temperature": 0.75 if body.mode == "creative" else 0.25,
+                "max_tokens": 2000,
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        enhanced = result["choices"][0]["message"]["content"].strip()
+        return {"text": enhanced}
+    except http_requests.exceptions.Timeout:
+        raise HTTPException(504, "Превышено время ожидания ответа от ИИ (30 с)")
+    except http_requests.exceptions.HTTPError as e:
+        detail = ""
+        try:
+            detail = e.response.json().get("error", {}).get("message", "")
+        except Exception:
+            pass
+        raise HTTPException(502, f"Ошибка Groq API: {detail or str(e)}")
+    except http_requests.exceptions.RequestException as e:
+        raise HTTPException(502, f"Ошибка связи с ИИ: {str(e)}")
+    except (KeyError, IndexError):
+        raise HTTPException(502, "Неожиданный формат ответа от ИИ")
 
 # ── VK API helpers ───────────────────────────────────────────────────────────
 

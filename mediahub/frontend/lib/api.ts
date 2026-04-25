@@ -63,6 +63,11 @@ export const api = {
       method: 'POST', body: body({ template_type, fields }),
     }),
 
+  enhanceText: (text: string, mode: 'creative' | 'russify') =>
+    req<{ text: string }>('/api/ai-enhance', {
+      method: 'POST', body: body({ text, mode }),
+    }),
+
   getAnalyticsSummary: () => req<import('./types').AnalyticsSummary>('/api/analytics/summary'),
   getTimeline: (period: string) =>
     req<import('./types').TimelinePoint[]>(`/api/analytics/timeline?period=${period}`),

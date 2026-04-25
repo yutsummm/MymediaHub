@@ -33,6 +33,9 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
   const [saving, setSaving] = useState(false)
   const [tagIn, setTagIn] = useState('')
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
+  const [aiModalOpen, setAiModalOpen] = useState(false)
+  const [aiLoading, setAiLoading] = useState<'creative' | 'russify' | null>(null)
+  const [prevContent, setPrevContent] = useState<string | null>(null)
 
   useEffect(() => { api.getTemplates().then(setTmpls).catch(console.error) }, [])
 
@@ -94,12 +97,24 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
   }
 
   const tmplFields = tmpls.find(t => t.type === tmplType)?.fields ?? []
-  const isFromScratch = !isEdit && tmplType === ''
-  const emojiSuggestions = isFromScratch ? getEmojiSuggestions(`${title}\n${content}`) : []
+  const emojiSuggestions = getEmojiSuggestions(`${title}\n${content}`)
 
   function applySuggestion(id: string) {
     setTitle(prev => applyEmojiSuggestion(prev, id))
     setContent(prev => applyEmojiSuggestion(prev, id))
+  }
+
+  async function enhanceWithAI(mode: 'creative' | 'russify') {
+    if (!content.trim()) { showToast('Сначала введите текст поста', 'error'); return }
+    setAiLoading(mode)
+    try {
+      const d = await api.enhanceText(content, mode)
+      setPrevContent(content)
+      setContent(d.text)
+      setAiModalOpen(false)
+      showToast(mode === 'creative' ? '✨ Текст улучшен!' : '🔤 Русификация применена!', 'success')
+    } catch (e: unknown) { showToast((e as Error).message, 'error') }
+    finally { setAiLoading(null) }
   }
 
   function applyAllSuggestions() {
@@ -228,7 +243,28 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
               <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="Введите заголовок..." />
             </div>
             <div className="fg">
-              <label>Текст поста</label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <label style={{ marginBottom: 0 }}>Текст поста</label>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  {prevContent !== null && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => { setContent(prevContent); setPrevContent(null) }}
+                      title="Отменить изменения ИИ"
+                    >
+                      ↩ Отменить ИИ
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm ai-assist-btn"
+                    onClick={() => setAiModalOpen(true)}
+                  >
+                    <span className="ai-assist-icon">✦</span> ИИ-помощник
+                  </button>
+                </div>
+              </div>
               <div className="emoji-textarea-wrap">
                 <textarea
                   ref={textareaRef}
@@ -236,22 +272,19 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
                   onChange={e => setContent(e.target.value)}
                   rows={10}
                   placeholder="Введите текст поста..."
-                  className={isFromScratch ? 'emoji-textarea' : ''}
+                  className="emoji-textarea"
                 />
-                {isFromScratch && (
-                  <button
-                    type="button"
-                    className="emoji-fab"
-                    onClick={() => setEmojiPickerOpen(true)}
-                    title="Открыть меню эмодзи"
-                  >
-                    ✨ Эмодзи
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="emoji-fab"
+                  onClick={() => setEmojiPickerOpen(true)}
+                  title="Открыть меню эмодзи"
+                >
+                  ✨ Эмодзи
+                </button>
               </div>
             </div>
-            {isFromScratch && (
-              <div className="emoji-hints">
+            <div className="emoji-hints">
                 <div className="emoji-hints-head">
                   <div>
                     <div className="emoji-hints-title">Подсказки для эмодзи</div>
@@ -294,7 +327,6 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
                   </div>
                 )}
               </div>
-            )}
             {/* Media upload */}
             <div className="fg">
               <label>Фото и видео</label>
@@ -417,7 +449,7 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
           </div>
         )}
       </div>
-      {isFromScratch && emojiPickerOpen && (
+      {emojiPickerOpen && (
         <div className="overlay" onClick={() => setEmojiPickerOpen(false)}>
           <div className="modal emoji-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-hd">
@@ -449,6 +481,47 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
               )}
               <button type="button" className="btn btn-primary" onClick={() => setEmojiPickerOpen(false)}>
                 Готово
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {aiModalOpen && (
+        <div className="overlay" onClick={() => { if (!aiLoading) setAiModalOpen(false) }}>
+          <div className="modal ai-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-hd">
+              <div>
+                <div className="card-title">✦ ИИ-помощник</div>
+                <div className="ts tg" style={{ marginTop: 4 }}>Выберите, что сделать с текстом поста</div>
+              </div>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => { if (!aiLoading) setAiModalOpen(false) }}>
+                Закрыть
+              </button>
+            </div>
+            <div className="ai-modal-bd">
+              <button
+                className="ai-mode-card"
+                onClick={() => enhanceWithAI('creative')}
+                disabled={!!aiLoading}
+              >
+                <span className="ai-mode-icon">✨</span>
+                <div className="ai-mode-body">
+                  <div className="ai-mode-title">Улучшить текст</div>
+                  <div className="ai-mode-desc">Сделает пост ярким и цепляющим для молодёжной аудитории, сохранив все факты</div>
+                </div>
+                {aiLoading === 'creative' && <span className="ai-spinner" />}
+              </button>
+              <button
+                className="ai-mode-card"
+                onClick={() => enhanceWithAI('russify')}
+                disabled={!!aiLoading}
+              >
+                <span className="ai-mode-icon">🔤</span>
+                <div className="ai-mode-body">
+                  <div className="ai-mode-title">Русифицировать</div>
+                  <div className="ai-mode-desc">Заменит англицизмы и заимствования на естественные русские слова</div>
+                </div>
+                {aiLoading === 'russify' && <span className="ai-spinner" />}
               </button>
             </div>
           </div>
