@@ -828,6 +828,94 @@ select option { background: var(--bg-2); color: var(--text); }
   color: var(--text);
 }
 
+/* ─── Emoji helper ─── */
+.emoji-textarea-wrap { position: relative; }
+.emoji-textarea { padding-bottom: 54px; }
+
+.emoji-fab {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid rgba(245,158,11,0.28);
+  border-radius: var(--r-full);
+  background: rgba(245,158,11,0.14);
+  color: #fde68a;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.18s var(--spring);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+}
+.emoji-fab:hover:not(:disabled) { transform: translateY(-1px); background: rgba(245,158,11,0.2); }
+.emoji-fab:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.emoji-modal { max-width: 760px; }
+.emoji-modal-bd { padding: 18px 22px; }
+.emoji-modal-bd aside {
+  width: 100% !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.emoji-hints {
+  margin-bottom: 18px;
+  padding: 14px;
+  border-radius: var(--r-lg);
+  background: linear-gradient(180deg, rgba(245,158,11,0.08), rgba(255,255,255,0.02));
+  border: 1px solid rgba(245,158,11,0.18);
+}
+.emoji-hints-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.emoji-hints-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #fde68a;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+.emoji-hints-copy,
+.emoji-hints-empty,
+.emoji-hint-meta { font-size: 12px; color: var(--text-2); }
+
+.emoji-hint-list { display: grid; gap: 10px; }
+.emoji-hint-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: rgba(255,255,255,0.035);
+  border: 1px solid var(--border);
+}
+.emoji-hint-mark {
+  width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--r-full);
+  background: rgba(245,158,11,0.16);
+  color: #fbbf24;
+  font-size: 13px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.emoji-hint-body { flex: 1; min-width: 0; }
+.emoji-hint-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
 /* ─── Toast ─── */
 .toast {
   background: var(--bg-2);

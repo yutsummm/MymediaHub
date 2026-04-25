@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/contexts/ToastContext'
@@ -20,11 +20,13 @@ const PI: Record<string, string> = { vk: 'ВК', telegram: 'TG' }
 
 export default function PostsPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { user } = useAuth()
   const { showToast } = useToast()
   const [posts, setPosts] = useState<Post[]>([])
   const [search, setSearch] = useState('')
   const [stFilter, setStFilter] = useState('')
+  const [dateFilter, setDateFilter] = useState(searchParams.get('date') ?? '')
   const [pub, setPub] = useState<number | null>(null)
 
   function load() {
@@ -34,7 +36,14 @@ export default function PostsPage() {
   }
   useEffect(load, [stFilter])
 
-  const filtered = search ? posts.filter(p => p.title.toLowerCase().includes(search.toLowerCase())) : posts
+  const filtered = posts.filter(p => {
+    if (search && !p.title.toLowerCase().includes(search.toLowerCase())) return false
+    if (dateFilter) {
+      const dt = (p.scheduled_at ?? p.published_at ?? p.created_at ?? '').slice(0, 10)
+      if (dt !== dateFilter) return false
+    }
+    return true
+  })
   const canEdit = user?.role !== 'observer'
 
   async function handleDelete(p: Post) {
@@ -60,6 +69,12 @@ export default function PostsPage() {
           <option value="scheduled">Запланированы</option>
           <option value="draft">Черновики</option>
         </select>
+        {dateFilter && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', background: 'var(--accent-light)', border: '1px solid var(--accent)', borderRadius: 'var(--r-md)', fontSize: 12, color: 'var(--accent)', fontWeight: 600 }}>
+            {new Date(dateFilter + 'T00:00').toLocaleDateString('ru-RU', { day: '2-digit', month: 'long' })}
+            <span style={{ cursor: 'pointer', opacity: 0.7 }} onClick={() => setDateFilter('')}>×</span>
+          </div>
+        )}
         <span className="ts tg" style={{ marginLeft: 'auto' }}>{filtered.length} постов</span>
         {canEdit && <button className="btn btn-primary" onClick={() => router.push('/posts/new')}>+ Создать пост</button>}
       </div>

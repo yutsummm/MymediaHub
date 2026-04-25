@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import { useToast } from '@/contexts/ToastContext'
 import { api } from '@/lib/api'
 import type { Notification } from '@/lib/types'
 
@@ -9,6 +10,7 @@ const TCOL: Record<string, string> = { success: 'var(--green)', info: 'var(--blu
 
 export default function NotificationsPage() {
   const { user } = useAuth()
+  const { showToast } = useToast()
   const [notifs, setNotifs] = useState<Notification[]>([])
 
   function load() {
@@ -17,8 +19,10 @@ export default function NotificationsPage() {
   useEffect(load, [user?.id])
 
   async function markRead(id: number) {
-    await api.markRead(id)
-    load()
+    try {
+      await api.markRead(id)
+      load()
+    } catch (e: unknown) { showToast((e as Error).message, 'error') }
   }
 
   const unread = notifs.filter(n => !n.is_read).length

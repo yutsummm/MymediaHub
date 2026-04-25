@@ -1,8 +1,10 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
 import { api } from '@/lib/api'
 import { useToast } from '@/contexts/ToastContext'
+import { applyEmojiSuggestion, getEmojiSuggestions } from '@/lib/postUtils'
 import type { Post, Template } from '@/lib/types'
 
 const TICO: Record<string, string> = { announcement: '◈', results: '✓', vacancy: '↗', grant: '◎' }
@@ -12,6 +14,7 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
   const router = useRouter()
   const { showToast } = useToast()
   const isEdit = !!editPost
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
 
   const [step, setStep] = useState(isEdit ? 3 : 1)
   const [tmplType, setTmplType] = useState(editPost?.template_type ?? '')
@@ -26,10 +29,13 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
   const [gen, setGen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [tagIn, setTagIn] = useState('')
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
 
   useEffect(() => { api.getTemplates().then(setTmpls).catch(console.error) }, [])
 
   async function generateText() {
+    const empty = tmplFields.filter(f => !fields[f.key]?.trim()).map(f => f.label)
+    if (empty.length) { showToast(`Заполните: ${empty.join(', ')}`, 'error'); return }
     setGen(true)
     try {
       const d = await api.generateText(tmplType, fields)
@@ -43,7 +49,11 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
     if (!content.trim()) { showToast('Введите текст', 'error'); return }
     setSaving(true)
     try {
-      const body = { title, content, status, platforms, tags, scheduled_at: schedAt || null, template_type: tmplType || null }
+      const body = {
+        title, content, status, platforms, tags,
+        scheduled_at: status === 'scheduled' ? (schedAt || null) : null,
+        template_type: tmplType || null,
+      }
       if (isEdit) await api.updatePost(editPost!.id, body)
       else await api.createPost(body)
       showToast(isEdit ? 'Пост обновлён!' : 'Пост создан!', 'success')
@@ -65,6 +75,46 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
   }
 
   const tmplFields = tmpls.find(t => t.type === tmplType)?.fields ?? []
+  const isFromScratch = !isEdit && tmplType === ''
+  const emojiSuggestions = isFromScratch ? getEmojiSuggestions(`${title}\n${content}`) : []
+
+  function applySuggestion(id: string) {
+    setTitle(prev => applyEmojiSuggestion(prev, id))
+    setContent(prev => applyEmojiSuggestion(prev, id))
+  }
+
+  function applyAllSuggestions() {
+    let nextTitle = title
+    let nextContent = content
+    for (const suggestion of emojiSuggestions) {
+      nextTitle = applyEmojiSuggestion(nextTitle, suggestion.id)
+      nextContent = applyEmojiSuggestion(nextContent, suggestion.id)
+    }
+    setTitle(nextTitle)
+    setContent(nextContent)
+    showToast('Эмодзи-подсказки добавлены в текст', 'success')
+  }
+
+  function insertEmoji(emoji: string) {
+    const textarea = textareaRef.current
+    if (!textarea) {
+      setContent(prev => `${prev}${emoji}`)
+      return
+    }
+    const start = textarea.selectionStart ?? content.length
+    const end = textarea.selectionEnd ?? content.length
+    const nextValue = `${content.slice(0, start)}${emoji}${content.slice(end)}`
+    setContent(nextValue)
+    requestAnimationFrame(() => {
+      textarea.focus()
+      const nextPos = start + emoji.length
+      textarea.setSelectionRange(nextPos, nextPos)
+    })
+  }
+
+  function handleEmojiPick(emojiData: EmojiClickData) {
+    insertEmoji(emojiData.emoji)
+  }
 
   return (
     <div className="content">
@@ -120,13 +170,24 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
           <div className="card card-p">
             <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 6, color: 'var(--text)', letterSpacing: '-0.02em' }}>Заполните данные</h2>
             <p className="ts tg" style={{ marginBottom: 20 }}>Текст будет сгенерирован по шаблону</p>
-            {tmplFields.map(f => (
-              <div key={f.key} className="fg">
-                <label>{f.label}</label>
-                <input type="text" placeholder={f.placeholder} value={fields[f.key] ?? ''}
-                  onChange={e => setFields(p => ({ ...p, [f.key]: e.target.value }))} />
-              </div>
-            ))}
+            {tmplFields.map(f => {
+              const isNumeric = f.key === 'participants'
+              return (
+                <div key={f.key} className="fg">
+                  <label>{f.label}</label>
+                  <input
+                    type="text"
+                    inputMode={isNumeric ? 'numeric' : 'text'}
+                    placeholder={f.placeholder}
+                    value={fields[f.key] ?? ''}
+                    onChange={e => {
+                      const val = isNumeric ? e.target.value.replace(/\D/g, '') : e.target.value
+                      setFields(p => ({ ...p, [f.key]: val }))
+                    }}
+                  />
+                </div>
+              )
+            })}
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
               <button className="btn btn-secondary" onClick={() => setStep(1)}>← Назад</button>
               <button className="btn btn-primary" onClick={generateText} disabled={gen}>
@@ -149,8 +210,72 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
             </div>
             <div className="fg">
               <label>Текст поста</label>
-              <textarea value={content} onChange={e => setContent(e.target.value)} rows={10} placeholder="Введите текст поста..." />
+              <div className="emoji-textarea-wrap">
+                <textarea
+                  ref={textareaRef}
+                  value={content}
+                  onChange={e => setContent(e.target.value)}
+                  rows={10}
+                  placeholder="Введите текст поста..."
+                  className={isFromScratch ? 'emoji-textarea' : ''}
+                />
+                {isFromScratch && (
+                  <button
+                    type="button"
+                    className="emoji-fab"
+                    onClick={() => setEmojiPickerOpen(true)}
+                    title="Открыть меню эмодзи"
+                  >
+                    ✨ Эмодзи
+                  </button>
+                )}
+              </div>
             </div>
+            {isFromScratch && (
+              <div className="emoji-hints">
+                <div className="emoji-hints-head">
+                  <div>
+                    <div className="emoji-hints-title">Подсказки для эмодзи</div>
+                    <div className="emoji-hints-copy">
+                      Когда в тексте встречаются знакомые слова, редактор предлагает, какие эмодзи можно добавить.
+                    </div>
+                  </div>
+                  {emojiSuggestions.length > 0 && (
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={applyAllSuggestions}>
+                      Добавить всё
+                    </button>
+                  )}
+                </div>
+                {emojiSuggestions.length > 0 ? (
+                  <div className="emoji-hint-list">
+                    {emojiSuggestions.map(suggestion => (
+                      <div key={suggestion.id} className="emoji-hint-item">
+                        <div className="emoji-hint-mark">!</div>
+                        <div className="emoji-hint-body">
+                          <div className="emoji-hint-label">
+                            Можно добавить: {suggestion.label} {suggestion.emoji}
+                          </div>
+                          <div className="emoji-hint-meta">
+                            Найдено совпадений: {suggestion.count}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => applySuggestion(suggestion.id)}
+                        >
+                          Добавить
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="emoji-hints-empty">
+                    Пока подсказок нет. Если напишешь слова вроде «Роза», «Сердце» или «Огонь», здесь появятся рекомендации.
+                  </div>
+                )}
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
               {!isEdit && <button className="btn btn-secondary" onClick={() => setStep(tmplType ? 2 : 1)}>← Назад</button>}
               {isEdit && <button className="btn btn-secondary" onClick={() => router.push('/posts')}>Отмена</button>}
@@ -230,6 +355,43 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
           </div>
         )}
       </div>
+      {isFromScratch && emojiPickerOpen && (
+        <div className="overlay" onClick={() => setEmojiPickerOpen(false)}>
+          <div className="modal emoji-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-hd">
+              <div>
+                <div className="card-title">Выбор эмодзи</div>
+                <div className="ts tg" style={{ marginTop: 4 }}>Выбери эмодзи, и он вставится в текст в позицию курсора.</div>
+              </div>
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEmojiPickerOpen(false)}>
+                Закрыть
+              </button>
+            </div>
+            <div className="modal-bd emoji-modal-bd">
+              <EmojiPicker
+                onEmojiClick={handleEmojiPick}
+                autoFocusSearch={false}
+                skinTonesDisabled
+                previewConfig={{ showPreview: false }}
+                lazyLoadEmojis
+                theme={Theme.DARK}
+                width="100%"
+                height={420}
+              />
+            </div>
+            <div className="modal-ft">
+              {emojiSuggestions.length > 0 && (
+                <button type="button" className="btn btn-secondary" onClick={applyAllSuggestions}>
+                  Добавить подсказанные эмодзи
+                </button>
+              )}
+              <button type="button" className="btn btn-primary" onClick={() => setEmojiPickerOpen(false)}>
+                Готово
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
