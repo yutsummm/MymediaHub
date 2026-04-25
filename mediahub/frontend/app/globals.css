@@ -108,6 +108,28 @@ body::after {
   letter-spacing: -0.04em;
 }
 
+.logo-mark-wrap {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  position: relative;
+  box-shadow: 0 0 16px var(--accent-glow);
+}
+
+.logo-mark-img {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60px;
+  height: auto;
+  object-fit: contain;
+  object-position: top center;
+  pointer-events: none;
+}
+
 .logo-text {
   color: var(--text);
   font-weight: 750;
@@ -1025,6 +1047,22 @@ select option { background: var(--bg-2); color: var(--text); }
   box-shadow: 0 0 28px var(--accent-glow);
   letter-spacing: -0.05em;
   margin-bottom: 16px;
+}
+
+.login-logo-mark {
+  display: block;
+  width: 240px;
+  max-width: 70%;
+  height: auto;
+  margin: 4px auto 22px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 40px var(--accent-glow));
+  animation: logo-float 5s ease-in-out infinite;
+}
+
+@keyframes logo-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-5px); }
 }
 
 .login-title {

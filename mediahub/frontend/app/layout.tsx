@@ -12,7 +12,8 @@ const sans = Plus_Jakarta_Sans({
 })
 
 export const metadata: Metadata = {
-  title: 'MediaHub — Медиахаб для молодёжных центров',
+  title: 'Медиа-Хаб — пространство идей и контента',
+  icons: { icon: '/logo.png' },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

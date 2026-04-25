@@ -45,11 +45,8 @@ export default function LoginPage() {
           {/* Eyebrow tag */}
           <div className="login-eyebrow">Медиаплатформа</div>
 
-          {/* Logo mark */}
-          <div className="login-logo-icon">M</div>
-
-          <h1 className="login-title">MediaHub</h1>
-          <p className="login-sub">Войдите в свой аккаунт</p>
+          {/* Logo mark — содержит название и слоган внутри */}
+          <img src="/logo.png" alt="Медиа-Хаб — пространство идей и контента" className="login-logo-mark" />
 
           <form onSubmit={submit} className="login-form">
             <div className="fg">

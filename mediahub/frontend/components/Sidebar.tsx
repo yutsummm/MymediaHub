@@ -29,9 +29,11 @@ export default function Sidebar({ unread = 0 }: { unread?: number }) {
     <div className="sidebar">
       {/* Logo */}
       <div className="sidebar-logo">
-        <div className="logo-icon">M</div>
+        <div className="logo-mark-wrap" aria-label="Медиа-Хаб">
+          <img src="/logo.png" alt="" className="logo-mark-img" />
+        </div>
         <div>
-          <div className="logo-text">MediaHub</div>
+          <div className="logo-text">Медиа-Хаб</div>
           <div className="logo-sub">Молодёжные центры КК</div>
         </div>
       </div>
