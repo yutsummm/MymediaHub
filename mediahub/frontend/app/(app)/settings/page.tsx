@@ -165,8 +165,26 @@ export default function SettingsPage() {
 
         {showVkForm && (
           <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-            <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 14, lineHeight: 1.6 }}>
-              Чтобы получить токен группы: откройте управление группой → <strong>Настройки → Работа с API → Создать ключ</strong> и выберите разрешение <strong>wall</strong>.
+            <div style={{
+              background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)',
+              borderRadius: 'var(--r-md)', padding: '10px 14px', marginBottom: 14, fontSize: 12,
+              color: 'var(--text-2)', lineHeight: 1.7,
+            }}>
+              <strong style={{ color: 'var(--text)' }}>Как получить токен с поддержкой фото:</strong><br />
+              1. Зайдите на <strong>vk.com/dev</strong> → <strong>Мои приложения → Создать приложение</strong> (тип: Standalone)<br />
+              2. В настройках приложения скопируйте <strong>ID приложения</strong><br />
+              3. Откройте в браузере:<br />
+              <span style={{
+                display: 'block', fontFamily: 'monospace', fontSize: 11,
+                background: 'var(--surface-2)', padding: '4px 8px', borderRadius: 4,
+                marginTop: 4, wordBreak: 'break-all', userSelect: 'all',
+              }}>
+                https://oauth.vk.com/authorize?client_id=ВАШ_APP_ID&display=page&redirect_uri=https://oauth.vk.com/blank.html&scope=wall,photos,groups&response_type=token&v=5.199
+              </span>
+              4. После входа токен будет в адресной строке после <strong>access_token=</strong><br />
+              <span style={{ color: 'var(--text-3)', marginTop: 4, display: 'block' }}>
+                Токен группы (из «Работа с API») подходит только для публикации текста — фото с ним не загружаются.
+              </span>
             </div>
             <div className="fg">
               <label>ID группы <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(числовой, без минуса)</span></label>

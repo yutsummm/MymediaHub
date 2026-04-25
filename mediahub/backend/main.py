@@ -764,7 +764,10 @@ def publish_post(post_id: int):
                             att = vk_upload_photo_to_wall(vk["access_token"], vk["group_id"], image_data, fname)
                             attachments.append(att)
                         except Exception as photo_err:
-                            photo_errors.append(str(photo_err))
+                            msg = str(photo_err)
+                            if "unavailable with group auth" in msg or "group authorization" in msg.lower():
+                                msg = "Токен группы не поддерживает загрузку фото. Используйте пользовательский токен с правами wall,photos (см. Настройки VK)"
+                            photo_errors.append(msg)
                 vk_post_id = vk_wall_post(vk["access_token"], vk["group_id"], message, attachments)
                 if photo_errors:
                     notif_msg = (
