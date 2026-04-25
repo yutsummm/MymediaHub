@@ -63,4 +63,11 @@ export const api = {
   getNotifications: (user_id?: number) =>
     req<import('./types').Notification[]>(`/api/notifications${user_id ? `?user_id=${user_id}` : ''}`),
   markRead: (id: number) => req<{ ok: boolean }>(`/api/notifications/${id}/read`, { method: 'PUT' }),
+
+  getVkSettings: () => req<import('./types').VkSettings>('/api/settings/vk'),
+  saveVkSettings: (group_id: string, access_token: string) =>
+    req<import('./types').VkSettings>('/api/settings/vk', {
+      method: 'POST', body: body({ group_id, access_token }),
+    }),
+  deleteVkSettings: () => req<{ connected: boolean }>('/api/settings/vk', { method: 'DELETE' }),
 }

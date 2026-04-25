@@ -10,6 +10,7 @@ from typing import Optional, List
 import psycopg2
 import psycopg2.extras
 import json, os, random
+import requests as http_requests
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
@@ -64,6 +65,10 @@ class UserUpdate(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+class VkSettingsSave(BaseModel):
+    group_id: str
+    access_token: str
 
 # ── DB ───────────────────────────────────────────────────────────────────────
 
@@ -137,6 +142,16 @@ def init_db():
             type TEXT DEFAULT 'info',
             is_read INTEGER DEFAULT 0,
             created_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI')
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS vk_settings (
+            id INTEGER PRIMARY KEY DEFAULT 1,
+            group_id TEXT NOT NULL,
+            access_token TEXT NOT NULL,
+            group_name TEXT DEFAULT '',
+            connected_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI')
         )
     """)
 
@@ -251,6 +266,88 @@ def init_db():
 @app.get("/")
 def root():
     return {"status": "ok", "service": "MediaHub API"}
+
+# ── VK API helpers ───────────────────────────────────────────────────────────
+
+VK_API_VERSION = "5.199"
+
+def vk_get_group_name(access_token: str, group_id: str) -> str:
+    clean_id = group_id.lstrip("-")
+    try:
+        r = http_requests.get(
+            "https://api.vk.com/method/groups.getById",
+            params={"group_id": clean_id, "access_token": access_token, "v": VK_API_VERSION},
+            timeout=10,
+        )
+        data = r.json()
+        if "error" in data:
+            raise ValueError(data["error"].get("error_msg", "VK API error"))
+        groups = data.get("response", {}).get("groups", [])
+        if not groups:
+            raise ValueError("Группа не найдена")
+        return groups[0].get("name", "")
+    except ValueError:
+        raise
+    except Exception as e:
+        raise ValueError(f"Ошибка связи с VK: {e}")
+
+def vk_wall_post(access_token: str, group_id: str, message: str) -> int:
+    clean_id = group_id.lstrip("-")
+    r = http_requests.post(
+        "https://api.vk.com/method/wall.post",
+        data={"owner_id": f"-{clean_id}", "message": message, "access_token": access_token, "v": VK_API_VERSION},
+        timeout=15,
+    )
+    data = r.json()
+    if "error" in data:
+        raise ValueError(data["error"].get("error_msg", "VK wall.post error"))
+    return data["response"]["post_id"]
+
+# ── VK Settings ───────────────────────────────────────────────────────────────
+
+@app.get("/api/settings/vk")
+def get_vk_settings():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id, group_id, group_name, connected_at FROM vk_settings WHERE id=1")
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return {"connected": False}
+    d = dict(row)
+    d["connected"] = True
+    return d
+
+@app.post("/api/settings/vk")
+def save_vk_settings(body: VkSettingsSave):
+    group_name = vk_get_group_name(body.access_token, body.group_id)
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id FROM vk_settings WHERE id=1")
+    exists = c.fetchone()
+    now = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    if exists:
+        c.execute(
+            "UPDATE vk_settings SET group_id=%s, access_token=%s, group_name=%s, connected_at=%s WHERE id=1",
+            (body.group_id.lstrip("-"), body.access_token, group_name, now),
+        )
+    else:
+        c.execute(
+            "INSERT INTO vk_settings (id, group_id, access_token, group_name, connected_at) VALUES (1, %s, %s, %s, %s)",
+            (body.group_id.lstrip("-"), body.access_token, group_name, now),
+        )
+    conn.commit()
+    conn.close()
+    return {"connected": True, "group_id": body.group_id.lstrip("-"), "group_name": group_name, "connected_at": now}
+
+@app.delete("/api/settings/vk")
+def delete_vk_settings():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM vk_settings WHERE id=1")
+    conn.commit()
+    conn.close()
+    return {"connected": False}
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -377,8 +474,9 @@ def delete_post(post_id: int):
 def publish_post(post_id: int):
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT id FROM posts WHERE id=%s", (post_id,))
-    if not c.fetchone():
+    c.execute("SELECT * FROM posts WHERE id=%s", (post_id,))
+    post = c.fetchone()
+    if not post:
         conn.close()
         raise HTTPException(404)
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
@@ -387,10 +485,41 @@ def publish_post(post_id: int):
         (now, random.randint(300, 1500), random.randint(20, 120), random.randint(5, 40), random.randint(3, 25), post_id),
     )
     conn.commit()
+
+    post_dict = row_to_dict(post)
+    vk_post_id = None
+    vk_error = None
+
+    platforms = post_dict.get("platforms", [])
+    if "vk" in platforms:
+        c.execute("SELECT group_id, access_token FROM vk_settings WHERE id=1")
+        vk = c.fetchone()
+        if vk:
+            try:
+                message = f"{post_dict['title']}\n\n{post_dict['content']}"
+                vk_post_id = vk_wall_post(vk["access_token"], vk["group_id"], message)
+                c.execute(
+                    "INSERT INTO notifications (user_id, message, type, is_read) VALUES (1, %s, %s, 0)",
+                    (f"Пост «{post_dict['title']}» опубликован в группу ВКонтакте", "success"),
+                )
+                conn.commit()
+            except Exception as e:
+                vk_error = str(e)
+                c.execute(
+                    "INSERT INTO notifications (user_id, message, type, is_read) VALUES (1, %s, %s, 0)",
+                    (f"Ошибка публикации в VK: {vk_error}", "error"),
+                )
+                conn.commit()
+
     c.execute("SELECT * FROM posts WHERE id=%s", (post_id,))
     row = c.fetchone()
     conn.close()
-    return row_to_dict(row)
+    result = row_to_dict(row)
+    if vk_post_id is not None:
+        result["vk_post_id"] = vk_post_id
+    if vk_error is not None:
+        result["vk_error"] = vk_error
+    return result
 
 # ── Calendar ─────────────────────────────────────────────────────────────────
 

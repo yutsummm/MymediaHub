@@ -79,3 +79,10 @@ export interface Notification {
   is_read: number
   created_at: string
 }
+
+export interface VkSettings {
+  connected: boolean
+  group_id?: string
+  group_name?: string
+  connected_at?: string
+}
