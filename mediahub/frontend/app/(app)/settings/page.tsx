@@ -26,12 +26,6 @@ export default function SettingsPage() {
   const [vkSaving, setVkSaving] = useState(false)
   const [vkDisconnecting, setVkDisconnecting] = useState(false)
   const [showVkForm, setShowVkForm] = useState(false)
-  const [vkMode, setVkMode] = useState<'token' | 'oauth'>('oauth')
-  const [oauthAppId, setOauthAppId] = useState('')
-  const [oauthAppSecret, setOauthAppSecret] = useState('')
-  const [oauthCode, setOauthCode] = useState('')
-  const [oauthGroupId, setOauthGroupId] = useState('')
-  const [oauthSaving, setOauthSaving] = useState(false)
 
   // Invite user state
   const [showInvite, setShowInvite] = useState(false)
@@ -66,28 +60,6 @@ export default function SettingsPage() {
       showToast(`Группа «${result.group_name}» подключена`, 'success')
     } catch (e: unknown) { showToast((e as Error).message, 'error') }
     finally { setVkSaving(false) }
-  }
-
-  function openOauthUrl() {
-    if (!oauthAppId.trim()) { showToast('Введите App ID приложения', 'error'); return }
-    const url = `https://oauth.vk.com/authorize?client_id=${oauthAppId.trim()}&display=page&redirect_uri=https://oauth.vk.com/blank.html&scope=wall,photos,groups&response_type=code&v=5.199`
-    window.open(url, '_blank')
-  }
-
-  async function connectVkOAuth() {
-    if (!oauthAppId.trim()) { showToast('Введите App ID', 'error'); return }
-    if (!oauthAppSecret.trim()) { showToast('Введите App Secret', 'error'); return }
-    if (!oauthCode.trim()) { showToast('Введите код авторизации', 'error'); return }
-    if (!oauthGroupId.trim()) { showToast('Введите ID группы', 'error'); return }
-    setOauthSaving(true)
-    try {
-      const result = await api.vkOAuthExchange(oauthAppId.trim(), oauthAppSecret.trim(), oauthCode.trim(), oauthGroupId.trim())
-      setVk(result)
-      setOauthAppId(''); setOauthAppSecret(''); setOauthCode(''); setOauthGroupId('')
-      setShowVkForm(false)
-      showToast(`Группа «${result.group_name}» подключена с поддержкой фото!`, 'success')
-    } catch (e: unknown) { showToast((e as Error).message, 'error') }
-    finally { setOauthSaving(false) }
   }
 
   async function disconnectVk() {
@@ -193,91 +165,44 @@ export default function SettingsPage() {
 
         {showVkForm && (
           <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-            {/* Mode tabs */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-              {(['oauth', 'token'] as const).map(m => (
-                <button key={m} onClick={() => setVkMode(m)} style={{
-                  padding: '6px 16px', fontSize: 12, fontWeight: 600, borderRadius: 'var(--r-md)',
-                  border: `1px solid ${vkMode === m ? 'var(--accent)' : 'var(--border)'}`,
-                  background: vkMode === m ? 'var(--accent-light)' : 'transparent',
-                  color: vkMode === m ? 'var(--accent)' : 'var(--text-2)', cursor: 'pointer',
-                }}>
-                  {m === 'oauth' ? '✨ OAuth (текст + фото)' : 'Токен группы (только текст)'}
-                </button>
-              ))}
+            <div style={{
+              background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)',
+              borderRadius: 'var(--r-md)', padding: '12px 16px', marginBottom: 16, fontSize: 12,
+              color: 'var(--text-2)', lineHeight: 1.8,
+            }}>
+              <strong style={{ color: 'var(--text)', fontSize: 13 }}>Как создать токен сообщества (с поддержкой фото):</strong><br />
+              <br />
+              <strong>1.</strong> Откройте свою группу ВКонтакте<br />
+              <strong>2.</strong> <strong>Управление</strong> (под аватаркой группы) → <strong>Работа с API</strong><br />
+              <strong>3.</strong> Вкладка <strong>«Ключи доступа»</strong> → <strong>«Создать ключ»</strong><br />
+              <strong>4.</strong> Отметьте права доступа:<br />
+              &nbsp;&nbsp;&nbsp;&nbsp;✓ <strong>Фотографии</strong> (для загрузки изображений)<br />
+              &nbsp;&nbsp;&nbsp;&nbsp;✓ <strong>Стена</strong> (для публикации постов)<br />
+              &nbsp;&nbsp;&nbsp;&nbsp;✓ <strong>Управление сообществом</strong><br />
+              <strong>5.</strong> Подтвердите по SMS — VK покажет токен вида <code style={{ background: 'var(--surface-2)', padding: '1px 6px', borderRadius: 4 }}>vk1.a.XXXXX...</code><br />
+              <strong>6.</strong> Скопируйте токен и вставьте ниже<br />
+              <br />
+              <strong>ID группы</strong> найдёте там же — в адресной строке: <code style={{ background: 'var(--surface-2)', padding: '1px 6px', borderRadius: 4 }}>vk.com/club<strong>123456</strong></code>
             </div>
-
-            {vkMode === 'oauth' ? (
-              <>
-                <div style={{
-                  background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)',
-                  borderRadius: 'var(--r-md)', padding: '10px 14px', marginBottom: 14, fontSize: 12,
-                  color: 'var(--text-2)', lineHeight: 1.7,
-                }}>
-                  <strong style={{ color: 'var(--text)' }}>Как подключить с поддержкой фото:</strong><br />
-                  1. Зайдите на <strong>vk.com/dev</strong> → Мои приложения → Создать (тип: <strong>Standalone</strong>)<br />
-                  2. Скопируйте <strong>ID приложения</strong> и <strong>Защищённый ключ</strong> из настроек<br />
-                  3. Введите их ниже, нажмите <strong>«Открыть VK»</strong>, авторизуйтесь<br />
-                  4. Из адресной строки скопируйте значение <strong>code=XXXXX</strong> (до символа &amp;) и вставьте ниже
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-                  <div className="fg">
-                    <label>App ID <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(ID приложения VK)</span></label>
-                    <input type="text" inputMode="numeric" placeholder="12345678"
-                      value={oauthAppId} onChange={e => setOauthAppId(e.target.value.replace(/[^\d]/g, ''))} />
-                  </div>
-                  <div className="fg">
-                    <label>App Secret <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(Защищённый ключ)</span></label>
-                    <input type="password" placeholder="xxxxxxxxxxxxxxxxxxxxxxxx"
-                      value={oauthAppSecret} onChange={e => setOauthAppSecret(e.target.value)} autoComplete="off" />
-                  </div>
-                </div>
-                <div className="fg">
-                  <label>ID группы <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(числовой, без минуса)</span></label>
-                  <input type="text" inputMode="numeric" placeholder="238076799"
-                    value={oauthGroupId} onChange={e => setOauthGroupId(e.target.value.replace(/[^\d]/g, ''))} />
-                </div>
-                <button className="btn btn-secondary" onClick={openOauthUrl} style={{ marginBottom: 12 }}>
-                  Открыть VK для авторизации ↗
-                </button>
-                <div className="fg">
-                  <label>Код авторизации <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(значение code= из адресной строки)</span></label>
-                  <input type="text" placeholder="Вставьте код из URL..."
-                    value={oauthCode} onChange={e => setOauthCode(e.target.value.trim())} autoComplete="off" />
-                </div>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <button className="btn btn-secondary" onClick={() => { setShowVkForm(false); setOauthAppId(''); setOauthAppSecret(''); setOauthCode(''); setOauthGroupId('') }}>
-                    Отмена
-                  </button>
-                  <button className="btn btn-primary" onClick={connectVkOAuth} disabled={oauthSaving}>
-                    {oauthSaving ? 'Подключаем...' : 'Подключить'}
-                    {!oauthSaving && <span className="btn-icon">✓</span>}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="fg">
-                  <label>ID группы <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(числовой, без минуса)</span></label>
-                  <input type="text" inputMode="numeric" placeholder="Например: 123456789"
-                    value={vkGroupId} onChange={e => setVkGroupId(e.target.value.replace(/[^\d]/g, ''))} />
-                </div>
-                <div className="fg">
-                  <label>Токен доступа группы</label>
-                  <input type="password" placeholder="vk1.a.XXXXXXXX..."
-                    value={vkToken} onChange={e => setVkToken(e.target.value)} autoComplete="off" />
-                </div>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <button className="btn btn-secondary" onClick={() => { setShowVkForm(false); setVkGroupId(''); setVkToken('') }}>
-                    Отмена
-                  </button>
-                  <button className="btn btn-primary" onClick={connectVk} disabled={vkSaving}>
-                    {vkSaving ? 'Проверяем...' : 'Подключить'}
-                    {!vkSaving && <span className="btn-icon">✓</span>}
-                  </button>
-                </div>
-              </>
-            )}
+            <div className="fg">
+              <label>ID группы <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(только цифры)</span></label>
+              <input type="text" inputMode="numeric" placeholder="238076799"
+                value={vkGroupId} onChange={e => setVkGroupId(e.target.value.replace(/[^\d]/g, ''))} />
+            </div>
+            <div className="fg">
+              <label>Токен доступа сообщества <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(с правами «Фото» + «Стена»)</span></label>
+              <input type="password" placeholder="vk1.a.XXXXXXXX..."
+                value={vkToken} onChange={e => setVkToken(e.target.value)} autoComplete="off" />
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn btn-secondary" onClick={() => { setShowVkForm(false); setVkGroupId(''); setVkToken('') }}>
+                Отмена
+              </button>
+              <button className="btn btn-primary" onClick={connectVk} disabled={vkSaving}>
+                {vkSaving ? 'Проверяем...' : 'Подключить'}
+                {!vkSaving && <span className="btn-icon">✓</span>}
+              </button>
+            </div>
           </div>
         )}
       </div>

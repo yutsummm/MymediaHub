@@ -838,8 +838,9 @@ def publish_post(post_id: int):
                                 "community token",
                                 "group token",
                                 "error_code: 15",
+                                "no access to call this method",
                             ]):
-                                msg = "Токен группы не поддерживает загрузку фото. Для публикации фото подключите VK через OAuth (✨ OAuth вкладка в Настройках)"
+                                msg = "У токена сообщества нет права «Фотографии». Создайте новый токен в Управление → Работа с API с галочкой «Фотографии»"
                             photo_errors.append(msg)
                 vk_post_id = vk_wall_post(vk["access_token"], vk["group_id"], message, attachments)
                 if photo_errors:
