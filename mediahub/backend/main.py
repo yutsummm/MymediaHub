@@ -93,6 +93,12 @@ class VkSettingsSave(BaseModel):
     group_id: str
     access_token: str
 
+class VkOAuthExchange(BaseModel):
+    app_id: str
+    app_secret: str
+    code: str
+    group_id: str
+
 class RegisterRequest(BaseModel):
     name: str
     email: str
@@ -412,7 +418,7 @@ def vk_get_group_name(access_token: str, group_id: str) -> str:
     try:
         r = http_requests.get(
             "https://api.vk.com/method/groups.getById",
-            params={"group_id": clean_id, "access_token": access_token, "v": VK_API_VERSION},
+            params={"group_ids": clean_id, "access_token": access_token, "v": VK_API_VERSION},
             timeout=10,
         )
         data = r.json()
@@ -452,7 +458,10 @@ def vk_upload_photo_to_wall(access_token: str, group_id: str, image_data: bytes,
     r2.raise_for_status()
     upload_result = r2.json()
     if "error" in upload_result:
-        raise ValueError(upload_result.get("error", "VK photo upload error"))
+        err = upload_result["error"]
+        raise ValueError(err if isinstance(err, str) else str(err))
+    if not upload_result.get("photo") or not upload_result.get("server"):
+        raise ValueError(f"Неожиданный ответ от VK при загрузке фото: {upload_result}")
 
     r3 = http_requests.post(
         "https://api.vk.com/method/photos.saveWallPhoto",
@@ -526,6 +535,48 @@ def save_vk_settings(body: VkSettingsSave):
     conn.commit()
     conn.close()
     return {"connected": True, "group_id": body.group_id.lstrip("-"), "group_name": group_name, "connected_at": now}
+
+@app.post("/api/vk/oauth-exchange")
+def vk_oauth_exchange(body: VkOAuthExchange):
+    r = http_requests.get(
+        "https://oauth.vk.com/access_token",
+        params={
+            "client_id": body.app_id,
+            "client_secret": body.app_secret,
+            "redirect_uri": "https://oauth.vk.com/blank.html",
+            "code": body.code,
+        },
+        timeout=10,
+    )
+    data = r.json()
+    if "error" in data:
+        raise HTTPException(400, data.get("error_description") or data.get("error", "OAuth ошибка"))
+    access_token = data.get("access_token")
+    if not access_token:
+        raise HTTPException(400, "Токен не получен от VK")
+    try:
+        group_name = vk_get_group_name(access_token, body.group_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id FROM vk_settings WHERE id=1")
+    exists = c.fetchone()
+    now = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    clean_id = body.group_id.lstrip("-")
+    if exists:
+        c.execute(
+            "UPDATE vk_settings SET group_id=%s, access_token=%s, group_name=%s, connected_at=%s WHERE id=1",
+            (clean_id, access_token, group_name, now),
+        )
+    else:
+        c.execute(
+            "INSERT INTO vk_settings (id, group_id, access_token, group_name, connected_at) VALUES (1, %s, %s, %s, %s)",
+            (clean_id, access_token, group_name, now),
+        )
+    conn.commit()
+    conn.close()
+    return {"connected": True, "group_id": clean_id, "group_name": group_name, "connected_at": now}
 
 @app.delete("/api/settings/vk")
 def delete_vk_settings():
@@ -773,8 +824,16 @@ def publish_post(post_id: int):
                             attachments.append(att)
                         except Exception as photo_err:
                             msg = str(photo_err)
-                            if "unavailable with group auth" in msg or "group authorization" in msg.lower():
-                                msg = "Токен группы не поддерживает загрузку фото. Используйте пользовательский токен с правами wall,photos (см. Настройки VK)"
+                            if any(kw in msg.lower() for kw in [
+                                "unavailable with group auth",
+                                "group authorization",
+                                "access denied",
+                                "this action is not available",
+                                "community token",
+                                "group token",
+                                "error_code: 15",
+                            ]):
+                                msg = "Токен группы не поддерживает загрузку фото. Для публикации фото подключите VK через OAuth (✨ OAuth вкладка в Настройках)"
                             photo_errors.append(msg)
                 vk_post_id = vk_wall_post(vk["access_token"], vk["group_id"], message, attachments)
                 if photo_errors:

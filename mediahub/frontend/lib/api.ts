@@ -101,4 +101,8 @@ export const api = {
       method: 'POST', body: body({ group_id, access_token }),
     }),
   deleteVkSettings: () => req<{ connected: boolean }>('/api/settings/vk', { method: 'DELETE' }),
+  vkOAuthExchange: (app_id: string, app_secret: string, code: string, group_id: string) =>
+    req<import('./types').VkSettings>('/api/vk/oauth-exchange', {
+      method: 'POST', body: body({ app_id, app_secret, code, group_id }),
+    }),
 }
