@@ -329,24 +329,36 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
               </div>
             {/* Media upload */}
             <div className="fg">
-              <label>Фото и видео</label>
+              <label>Фото, видео и документы</label>
               <input
                 ref={fileInputRef}
                 type="file"
                 multiple
-                accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm"
+                accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime,video/webm,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/csv"
                 style={{ display: 'none' }}
                 onChange={e => handleFiles(e.target.files)}
               />
               {media.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
-                  {media.map(item => (
+                  {media.map(item => {
+                    const ext = (item.filename.split('.').pop() || '').toLowerCase()
+                    const docIcon = ext === 'pdf' ? '📕'
+                      : ['doc', 'docx'].includes(ext) ? '📘'
+                      : ['xls', 'xlsx', 'csv'].includes(ext) ? '📊'
+                      : ['ppt', 'pptx'].includes(ext) ? '📙'
+                      : '📄'
+                    return (
                     <div key={item.url} style={{ position: 'relative', borderRadius: 'var(--r-md)', overflow: 'hidden', border: '1px solid var(--border)' }}>
                       {item.type === 'image' ? (
                         <img src={item.url} alt={item.filename} style={{ width: 96, height: 96, objectFit: 'cover', display: 'block' }} />
-                      ) : (
+                      ) : item.type === 'video' ? (
                         <div style={{ width: 96, height: 96, background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                           <span style={{ fontSize: 28 }}>▶</span>
+                          <span style={{ fontSize: 9, color: 'var(--text-3)', textAlign: 'center', padding: '0 4px', wordBreak: 'break-all' }}>{item.filename}</span>
+                        </div>
+                      ) : (
+                        <div style={{ width: 96, height: 96, background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                          <span style={{ fontSize: 28 }}>{docIcon}</span>
                           <span style={{ fontSize: 9, color: 'var(--text-3)', textAlign: 'center', padding: '0 4px', wordBreak: 'break-all' }}>{item.filename}</span>
                         </div>
                       )}
@@ -356,7 +368,8 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
                         style={{ position: 'absolute', top: 3, right: 3, width: 20, height: 20, borderRadius: '50%', background: 'rgba(0,0,0,0.65)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 12, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                       >×</button>
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
               <button
@@ -366,7 +379,7 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
                 disabled={uploading}
                 style={{ alignSelf: 'flex-start' }}
               >
-                {uploading ? 'Загружаем...' : '+ Добавить фото / видео'}
+                {uploading ? 'Загружаем...' : '+ Добавить фото / видео / документ'}
               </button>
             </div>
 

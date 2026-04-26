@@ -317,13 +317,25 @@ def root():
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 ALLOWED_VIDEO_TYPES = {"video/mp4", "video/quicktime", "video/webm", "video/x-msvideo"}
+ALLOWED_DOC_TYPES = {
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "text/plain",
+    "text/csv",
+}
 MAX_IMAGE_SIZE = 10 * 1024 * 1024   # 10 MB
 MAX_VIDEO_SIZE = 100 * 1024 * 1024  # 100 MB
+MAX_DOC_SIZE = 50 * 1024 * 1024     # 50 MB (VK doc limit is 200 MB)
 
 @app.post("/api/upload")
 async def upload_file(file: UploadFile = File(...)):
     content_type = file.content_type or ""
-    if content_type not in ALLOWED_IMAGE_TYPES | ALLOWED_VIDEO_TYPES:
+    if content_type not in ALLOWED_IMAGE_TYPES | ALLOWED_VIDEO_TYPES | ALLOWED_DOC_TYPES:
         raise HTTPException(400, f"Неподдерживаемый тип файла: {content_type}")
 
     ext = (file.filename or "file").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "bin"
@@ -331,14 +343,24 @@ async def upload_file(file: UploadFile = File(...)):
     filepath = os.path.join(UPLOAD_DIR, filename)
 
     data = await file.read()
-    max_size = MAX_VIDEO_SIZE if content_type in ALLOWED_VIDEO_TYPES else MAX_IMAGE_SIZE
+    if content_type in ALLOWED_VIDEO_TYPES:
+        max_size = MAX_VIDEO_SIZE
+    elif content_type in ALLOWED_DOC_TYPES:
+        max_size = MAX_DOC_SIZE
+    else:
+        max_size = MAX_IMAGE_SIZE
     if len(data) > max_size:
         raise HTTPException(400, f"Файл слишком большой (макс. {max_size // 1024 // 1024} МБ)")
 
     with open(filepath, "wb") as f:
         f.write(data)
 
-    file_type = "video" if content_type in ALLOWED_VIDEO_TYPES else "image"
+    if content_type in ALLOWED_VIDEO_TYPES:
+        file_type = "video"
+    elif content_type in ALLOWED_DOC_TYPES:
+        file_type = "doc"
+    else:
+        file_type = "image"
     return {"url": f"/uploads/{filename}", "type": file_type, "filename": file.filename or filename}
 
 # ── AI Enhance ───────────────────────────────────────────────────────────────
@@ -515,6 +537,44 @@ def vk_upload_video_to_wall(access_token: str, group_id: str, video_data: bytes,
         raise ValueError(err if isinstance(err, str) else str(err))
 
     return f"video{owner_id}_{video_id}"
+
+def vk_upload_doc_to_wall(access_token: str, group_id: str, doc_data: bytes, filename: str = "doc.pdf", title: str = "") -> str:
+    clean_id = group_id.lstrip("-")
+    r = http_requests.get(
+        "https://api.vk.com/method/docs.getWallUploadServer",
+        params={"group_id": clean_id, "access_token": access_token, "v": VK_API_VERSION},
+        timeout=10,
+    )
+    data = r.json()
+    if "error" in data:
+        raise ValueError(data["error"].get("error_msg", "VK docs.getWallUploadServer error"))
+    upload_url = data["response"]["upload_url"]
+
+    r2 = http_requests.post(upload_url, files={"file": (filename, doc_data, "application/octet-stream")}, timeout=300)
+    r2.raise_for_status()
+    upload_result = r2.json()
+    if "error" in upload_result:
+        err = upload_result["error"]
+        raise ValueError(err if isinstance(err, str) else str(err))
+    if not upload_result.get("file"):
+        raise ValueError(f"Неожиданный ответ от VK при загрузке документа: {upload_result}")
+
+    r3 = http_requests.post(
+        "https://api.vk.com/method/docs.save",
+        data={
+            "file": upload_result["file"],
+            "title": title or filename,
+            "access_token": access_token,
+            "v": VK_API_VERSION,
+        },
+        timeout=15,
+    )
+    saved = r3.json()
+    if "error" in saved:
+        raise ValueError(saved["error"].get("error_msg", "VK docs.save error"))
+    resp = saved["response"]
+    doc = resp["doc"] if isinstance(resp, dict) and "doc" in resp else (resp[0] if isinstance(resp, list) else resp)
+    return f"doc{doc['owner_id']}_{doc['id']}"
 
 def vk_wall_post(access_token: str, group_id: str, message: str, attachments: List[str] = []) -> int:
     clean_id = group_id.lstrip("-")
@@ -850,9 +910,10 @@ def publish_post(post_id: int):
                 backend_base = os.getenv("BACKEND_URL", "https://backend-production-30d6.up.railway.app").rstrip("/")
                 for item in (post_dict.get("media") or []):
                     item_type = item.get("type")
-                    if item_type not in ("image", "video"):
+                    if item_type not in ("image", "video", "doc"):
                         continue
                     fname = os.path.basename(item["url"])
+                    orig_name = item.get("filename") or fname
                     fpath = os.path.join(UPLOAD_DIR, fname)
                     try:
                         if os.path.exists(fpath):
@@ -865,11 +926,16 @@ def publish_post(post_id: int):
                             file_data = resp.content
                         if item_type == "image":
                             att = vk_upload_photo_to_wall(vk["access_token"], vk["group_id"], file_data, fname)
-                        else:
+                        elif item_type == "video":
                             att = vk_upload_video_to_wall(
                                 vk["access_token"], vk["group_id"], file_data, fname,
                                 title=post_dict.get("title", ""),
                                 description=post_dict.get("content", ""),
+                            )
+                        else:
+                            att = vk_upload_doc_to_wall(
+                                vk["access_token"], vk["group_id"], file_data, orig_name,
+                                title=post_dict.get("title", "") or orig_name,
                             )
                         attachments.append(att)
                     except Exception as media_err:

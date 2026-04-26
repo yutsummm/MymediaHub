@@ -9,7 +9,7 @@ export interface User {
 
 export interface MediaItem {
   url: string
-  type: 'image' | 'video'
+  type: 'image' | 'video' | 'doc'
   filename: string
 }
 
