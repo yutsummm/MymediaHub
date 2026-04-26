@@ -105,4 +105,11 @@ export const api = {
     req<import('./types').VkSettings>('/api/vk/oauth-exchange', {
       method: 'POST', body: body({ app_id, app_secret, code, group_id }),
     }),
+
+  getTgSettings: () => req<import('./types').TgSettings>('/api/settings/telegram'),
+  saveTgSettings: (bot_token: string, chat_id: string) =>
+    req<import('./types').TgSettings>('/api/settings/telegram', {
+      method: 'POST', body: body({ bot_token, chat_id }),
+    }),
+  deleteTgSettings: () => req<{ connected: boolean }>('/api/settings/telegram', { method: 'DELETE' }),
 }

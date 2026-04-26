@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/contexts/ToastContext'
-import type { User, VkSettings } from '@/lib/types'
+import type { User, VkSettings, TgSettings } from '@/lib/types'
 
 const ROLES = [
   { v: 'admin',    l: 'Администратор', d: 'Полный доступ ко всем функциям' },
@@ -27,6 +27,14 @@ export default function SettingsPage() {
   const [vkDisconnecting, setVkDisconnecting] = useState(false)
   const [showVkForm, setShowVkForm] = useState(false)
 
+  // Telegram integration state
+  const [tg, setTg] = useState<TgSettings | null>(null)
+  const [tgBotToken, setTgBotToken] = useState('')
+  const [tgChatId, setTgChatId] = useState('')
+  const [tgSaving, setTgSaving] = useState(false)
+  const [tgDisconnecting, setTgDisconnecting] = useState(false)
+  const [showTgForm, setShowTgForm] = useState(false)
+
   // Invite user state
   const [showInvite, setShowInvite] = useState(false)
   const [invite, setInvite] = useState(EMPTY_INVITE)
@@ -39,7 +47,34 @@ export default function SettingsPage() {
       setVk(s)
       if (s.connected) setShowVkForm(false)
     }).catch(console.error)
+    api.getTgSettings().then(s => {
+      setTg(s)
+      if (s.connected) setShowTgForm(false)
+    }).catch(console.error)
   }, [])
+
+  async function connectTg() {
+    if (!tgBotToken.trim()) { showToast('Введите токен бота', 'error'); return }
+    if (!tgChatId.trim()) { showToast('Введите ID канала или @username', 'error'); return }
+    setTgSaving(true)
+    try {
+      const result = await api.saveTgSettings(tgBotToken.trim(), tgChatId.trim())
+      setTg(result)
+      setTgBotToken(''); setTgChatId(''); setShowTgForm(false)
+      showToast(`Канал «${result.chat_title}» подключён`, 'success')
+    } catch (e: unknown) { showToast((e as Error).message, 'error') }
+    finally { setTgSaving(false) }
+  }
+
+  async function disconnectTg() {
+    setTgDisconnecting(true)
+    try {
+      await api.deleteTgSettings()
+      setTg({ connected: false })
+      showToast('Telegram-канал отключён', 'success')
+    } catch (e: unknown) { showToast((e as Error).message, 'error') }
+    finally { setTgDisconnecting(false) }
+  }
 
   async function changeRole(id: number, role: string) {
     try {
@@ -208,6 +243,105 @@ export default function SettingsPage() {
               <button className="btn btn-primary" onClick={connectVk} disabled={vkSaving}>
                 {vkSaving ? 'Проверяем...' : 'Подключить'}
                 {!vkSaving && <span className="btn-icon">✓</span>}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Telegram Integration */}
+      <div className="card card-p" style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div>
+            <div className="card-title" style={{ marginBottom: 4 }}>Подключение Telegram</div>
+            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+              При публикации поста с платформой «Telegram» он автоматически выкладывается в канал
+            </div>
+          </div>
+          {tg?.connected && (
+            <span style={{
+              fontSize: 11, fontWeight: 700, padding: '3px 10px',
+              borderRadius: 20, background: 'rgba(34,197,94,0.15)',
+              color: '#22c55e', border: '1px solid rgba(34,197,94,0.3)',
+              letterSpacing: '0.05em',
+            }}>
+              Подключено
+            </span>
+          )}
+        </div>
+
+        {tg?.connected ? (
+          <div>
+            <div style={{
+              background: 'var(--surface-2)', border: '1px solid var(--border)',
+              borderRadius: 'var(--r-lg)', padding: '12px 16px', marginBottom: 14,
+              display: 'flex', alignItems: 'center', gap: 12,
+            }}>
+              <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="32" height="32" rx="8" fill="#229ED9"/>
+                <path d="M22.95 9.51l-2.4 11.34c-.18.8-.66 1-1.34.62l-3.7-2.73-1.78 1.72c-.2.2-.36.36-.74.36l.26-3.76 6.84-6.18c.3-.26-.06-.4-.46-.14l-8.46 5.32-3.64-1.14c-.79-.25-.81-.79.16-1.17l14.24-5.49c.66-.24 1.24.16 1.02 1.15z" fill="white"/>
+              </svg>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)' }}>{tg.chat_title}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
+                  ID: {tg.chat_id} · Подключено: {tg.connected_at?.slice(0, 10)}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn btn-secondary" onClick={() => setShowTgForm(v => !v)}>
+                {showTgForm ? 'Скрыть' : 'Изменить'}
+              </button>
+              <button
+                className="btn btn-secondary"
+                style={{ color: 'var(--error, #ef4444)' }}
+                onClick={disconnectTg}
+                disabled={tgDisconnecting}
+              >
+                {tgDisconnecting ? 'Отключаем...' : 'Отключить'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button className="btn btn-primary" onClick={() => setShowTgForm(true)} style={{ marginBottom: showTgForm ? 16 : 0 }}>
+            Подключить канал Telegram
+            <span className="btn-icon">↗</span>
+          </button>
+        )}
+
+        {showTgForm && (
+          <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+            <div style={{
+              background: 'rgba(34,158,217,0.08)', border: '1px solid rgba(34,158,217,0.25)',
+              borderRadius: 'var(--r-md)', padding: '12px 16px', marginBottom: 16, fontSize: 12,
+              color: 'var(--text-2)', lineHeight: 1.8,
+            }}>
+              <strong style={{ color: 'var(--text)', fontSize: 13 }}>Как подключить Telegram-канал:</strong><br />
+              <br />
+              <strong>1.</strong> В Telegram найдите <strong>@BotFather</strong> → отправьте команду <code style={{ background: 'var(--surface-2)', padding: '1px 6px', borderRadius: 4 }}>/newbot</code><br />
+              <strong>2.</strong> Задайте имя и юзернейм бота — получите <strong>токен</strong> вида <code style={{ background: 'var(--surface-2)', padding: '1px 6px', borderRadius: 4 }}>123456:ABC-...</code><br />
+              <strong>3.</strong> Откройте свой канал → <strong>Управление каналом → Администраторы</strong> → добавьте бота с правом <strong>«Публикация сообщений»</strong><br />
+              <strong>4.</strong> Введите данные ниже:<br />
+              &nbsp;&nbsp;&nbsp;&nbsp;• <strong>Токен бота</strong> — из BotFather<br />
+              &nbsp;&nbsp;&nbsp;&nbsp;• <strong>ID канала</strong> — для публичного: <code style={{ background: 'var(--surface-2)', padding: '1px 6px', borderRadius: 4 }}>@username</code>; для приватного: числовой <code style={{ background: 'var(--surface-2)', padding: '1px 6px', borderRadius: 4 }}>-100xxxxxxxxxx</code>
+            </div>
+            <div className="fg">
+              <label>Токен бота</label>
+              <input type="password" placeholder="123456:ABC-DEF..."
+                value={tgBotToken} onChange={e => setTgBotToken(e.target.value.trim())} autoComplete="off" />
+            </div>
+            <div className="fg">
+              <label>ID канала или @username</label>
+              <input type="text" placeholder="@mychannel или -1001234567890"
+                value={tgChatId} onChange={e => setTgChatId(e.target.value.trim())} />
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn btn-secondary" onClick={() => { setShowTgForm(false); setTgBotToken(''); setTgChatId('') }}>
+                Отмена
+              </button>
+              <button className="btn btn-primary" onClick={connectTg} disabled={tgSaving}>
+                {tgSaving ? 'Проверяем...' : 'Подключить'}
+                {!tgSaving && <span className="btn-icon">✓</span>}
               </button>
             </div>
           </div>

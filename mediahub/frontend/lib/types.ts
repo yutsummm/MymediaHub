@@ -93,3 +93,10 @@ export interface VkSettings {
   group_name?: string
   connected_at?: string
 }
+
+export interface TgSettings {
+  connected: boolean
+  chat_id?: string
+  chat_title?: string
+  connected_at?: string
+}

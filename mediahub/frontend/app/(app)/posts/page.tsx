@@ -57,12 +57,17 @@ export default function PostsPage() {
     try {
       const result = await api.publishPost(p.id)
       const r = result as any
-      if (r.vk_error) {
-        showToast(`Пост сохранён, но публикация в VK не удалась: ${r.vk_error}`, 'error')
-      } else if (r.vk_photo_errors?.length) {
-        showToast(`Пост опубликован в VK, но фото не загружено: ${r.vk_photo_errors[0]}`, 'error')
-      } else if (r.vk_post_id) {
-        showToast(`Пост опубликован в VK (id: ${r.vk_post_id})`, 'success')
+      const errs: string[] = []
+      const okParts: string[] = []
+      if (r.vk_error) errs.push(`VK: ${r.vk_error}`)
+      else if (r.vk_post_id) okParts.push(`VK (id: ${r.vk_post_id})`)
+      if (r.vk_photo_errors?.length) errs.push(`VK медиа: ${r.vk_photo_errors[0]}`)
+      if (r.tg_error) errs.push(`Telegram: ${r.tg_error}`)
+      else if (r.tg_message_ids?.length) okParts.push(`Telegram (${r.tg_message_ids.length} сообщ.)`)
+      if (errs.length) {
+        showToast(`Опубликован${okParts.length ? ' в ' + okParts.join(', ') : ''}, ошибки: ${errs.join(' · ')}`, 'error')
+      } else if (okParts.length) {
+        showToast(`Пост опубликован: ${okParts.join(', ')}`, 'success')
       } else {
         showToast('Пост опубликован!', 'success')
       }

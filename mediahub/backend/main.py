@@ -93,6 +93,10 @@ class VkSettingsSave(BaseModel):
     group_id: str
     access_token: str
 
+class TgSettingsSave(BaseModel):
+    bot_token: str
+    chat_id: str
+
 class VkOAuthExchange(BaseModel):
     app_id: str
     app_secret: str
@@ -194,6 +198,16 @@ def init_db():
             group_id TEXT NOT NULL,
             access_token TEXT NOT NULL,
             group_name TEXT DEFAULT '',
+            connected_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI')
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS tg_settings (
+            id INTEGER PRIMARY KEY DEFAULT 1,
+            bot_token TEXT NOT NULL,
+            chat_id TEXT NOT NULL,
+            chat_title TEXT DEFAULT '',
             connected_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI')
         )
     """)
@@ -597,6 +611,96 @@ def vk_wall_post(access_token: str, group_id: str, message: str, attachments: Li
         raise ValueError(data["error"].get("error_msg", "VK wall.post error"))
     return data["response"]["post_id"]
 
+# ── Telegram API helpers ─────────────────────────────────────────────────────
+
+TG_CAPTION_LIMIT = 1024
+TG_MESSAGE_LIMIT = 4096
+
+def tg_api(bot_token: str, method: str, **kwargs) -> dict:
+    url = f"https://api.telegram.org/bot{bot_token}/{method}"
+    r = http_requests.post(url, timeout=kwargs.pop("_timeout", 30), **kwargs)
+    try:
+        data = r.json()
+    except Exception:
+        raise ValueError(f"Некорректный ответ Telegram ({r.status_code})")
+    if not data.get("ok"):
+        raise ValueError(data.get("description", "Telegram API error"))
+    return data["result"]
+
+def tg_get_chat_title(bot_token: str, chat_id: str) -> str:
+    res = tg_api(bot_token, "getChat", data={"chat_id": chat_id})
+    return res.get("title") or res.get("username") or str(res.get("id", ""))
+
+def _resolve_media_bytes(item: dict, backend_base: str) -> tuple[bytes, str]:
+    fname = os.path.basename(item["url"])
+    fpath = os.path.join(UPLOAD_DIR, fname)
+    if os.path.exists(fpath):
+        with open(fpath, "rb") as f:
+            return f.read(), item.get("filename") or fname
+    file_url = f"{backend_base}{item['url']}"
+    resp = http_requests.get(file_url, timeout=120)
+    resp.raise_for_status()
+    return resp.content, item.get("filename") or fname
+
+def tg_send_post(bot_token: str, chat_id: str, message: str, media: List[dict], backend_base: str) -> List[int]:
+    photos_videos = [m for m in media if m.get("type") in ("image", "video")]
+    docs = [m for m in media if m.get("type") == "doc"]
+    posted_ids: List[int] = []
+
+    caption_with_media = len(message) <= TG_CAPTION_LIMIT and (photos_videos or docs)
+    sent_text_separately = False
+
+    if message and not caption_with_media:
+        for chunk_start in range(0, len(message), TG_MESSAGE_LIMIT):
+            chunk = message[chunk_start:chunk_start + TG_MESSAGE_LIMIT]
+            res = tg_api(bot_token, "sendMessage", data={"chat_id": chat_id, "text": chunk})
+            posted_ids.append(res.get("message_id"))
+        sent_text_separately = True
+
+    if photos_videos:
+        if len(photos_videos) == 1:
+            item = photos_videos[0]
+            file_bytes, fname = _resolve_media_bytes(item, backend_base)
+            method = "sendPhoto" if item["type"] == "image" else "sendVideo"
+            field = "photo" if item["type"] == "image" else "video"
+            data = {"chat_id": chat_id}
+            if not sent_text_separately and message:
+                data["caption"] = message[:TG_CAPTION_LIMIT]
+            res = tg_api(bot_token, method, data=data, files={field: (fname, file_bytes)}, _timeout=300)
+            posted_ids.append(res.get("message_id"))
+        else:
+            files = {}
+            media_payload = []
+            for idx, item in enumerate(photos_videos[:10]):
+                file_bytes, fname = _resolve_media_bytes(item, backend_base)
+                attach_key = f"file{idx}"
+                files[attach_key] = (fname, file_bytes)
+                m = {"type": "photo" if item["type"] == "image" else "video", "media": f"attach://{attach_key}"}
+                if idx == 0 and not sent_text_separately and message:
+                    m["caption"] = message[:TG_CAPTION_LIMIT]
+                media_payload.append(m)
+            res = tg_api(
+                bot_token, "sendMediaGroup",
+                data={"chat_id": chat_id, "media": json.dumps(media_payload)},
+                files=files, _timeout=600,
+            )
+            if isinstance(res, list):
+                posted_ids.extend(m.get("message_id") for m in res)
+
+    for idx, item in enumerate(docs):
+        file_bytes, fname = _resolve_media_bytes(item, backend_base)
+        data = {"chat_id": chat_id}
+        if idx == 0 and not sent_text_separately and not photos_videos and message:
+            data["caption"] = message[:TG_CAPTION_LIMIT]
+        res = tg_api(bot_token, "sendDocument", data=data, files={"document": (fname, file_bytes)}, _timeout=300)
+        posted_ids.append(res.get("message_id"))
+
+    if not posted_ids and message:
+        res = tg_api(bot_token, "sendMessage", data={"chat_id": chat_id, "text": message[:TG_MESSAGE_LIMIT]})
+        posted_ids.append(res.get("message_id"))
+
+    return posted_ids
+
 # ── VK Settings ───────────────────────────────────────────────────────────────
 
 @app.get("/api/settings/vk")
@@ -684,6 +788,55 @@ def delete_vk_settings():
     conn = get_db()
     c = conn.cursor()
     c.execute("DELETE FROM vk_settings WHERE id=1")
+    conn.commit()
+    conn.close()
+    return {"connected": False}
+
+# ── Telegram Settings ────────────────────────────────────────────────────────
+
+@app.get("/api/settings/telegram")
+def get_tg_settings():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id, chat_id, chat_title, connected_at FROM tg_settings WHERE id=1")
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return {"connected": False}
+    d = dict(row)
+    d["connected"] = True
+    return d
+
+@app.post("/api/settings/telegram")
+def save_tg_settings(body: TgSettingsSave):
+    try:
+        chat_title = tg_get_chat_title(body.bot_token, body.chat_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id FROM tg_settings WHERE id=1")
+    exists = c.fetchone()
+    now = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    if exists:
+        c.execute(
+            "UPDATE tg_settings SET bot_token=%s, chat_id=%s, chat_title=%s, connected_at=%s WHERE id=1",
+            (body.bot_token, body.chat_id, chat_title, now),
+        )
+    else:
+        c.execute(
+            "INSERT INTO tg_settings (id, bot_token, chat_id, chat_title, connected_at) VALUES (1, %s, %s, %s, %s)",
+            (body.bot_token, body.chat_id, chat_title, now),
+        )
+    conn.commit()
+    conn.close()
+    return {"connected": True, "chat_id": body.chat_id, "chat_title": chat_title, "connected_at": now}
+
+@app.delete("/api/settings/telegram")
+def delete_tg_settings():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("DELETE FROM tg_settings WHERE id=1")
     conn.commit()
     conn.close()
     return {"connected": False}
@@ -975,6 +1128,32 @@ def publish_post(post_id: int):
                 )
                 conn.commit()
 
+    tg_message_ids: list = []
+    tg_error = None
+    if "telegram" in platforms:
+        c.execute("SELECT bot_token, chat_id FROM tg_settings WHERE id=1")
+        tg = c.fetchone()
+        if tg:
+            try:
+                tg_message = f"{post_dict['title']}\n\n{post_dict['content']}" if post_dict.get("title") else post_dict.get("content", "")
+                backend_base = os.getenv("BACKEND_URL", "https://backend-production-30d6.up.railway.app").rstrip("/")
+                tg_message_ids = tg_send_post(
+                    tg["bot_token"], tg["chat_id"], tg_message,
+                    post_dict.get("media") or [], backend_base,
+                )
+                c.execute(
+                    "INSERT INTO notifications (user_id, message, type, is_read) VALUES (1, %s, %s, 0)",
+                    (f"Пост «{post_dict['title']}» опубликован в Telegram", "success"),
+                )
+                conn.commit()
+            except Exception as e:
+                tg_error = str(e)
+                c.execute(
+                    "INSERT INTO notifications (user_id, message, type, is_read) VALUES (1, %s, %s, 0)",
+                    (f"Ошибка публикации в Telegram: {tg_error}", "error"),
+                )
+                conn.commit()
+
     c.execute("SELECT * FROM posts WHERE id=%s", (post_id,))
     row = c.fetchone()
     conn.close()
@@ -985,6 +1164,10 @@ def publish_post(post_id: int):
         result["vk_error"] = vk_error
     if photo_errors:
         result["vk_photo_errors"] = photo_errors
+    if tg_message_ids:
+        result["tg_message_ids"] = tg_message_ids
+    if tg_error is not None:
+        result["tg_error"] = tg_error
     return result
 
 # ── Calendar ─────────────────────────────────────────────────────────────────
