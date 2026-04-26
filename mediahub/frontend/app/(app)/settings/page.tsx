@@ -28,7 +28,8 @@ export default function SettingsPage() {
   const [showVkForm, setShowVkForm] = useState(false)
   const [vkMode, setVkMode] = useState<'token' | 'oauth'>('oauth')
   const [oauthAppId, setOauthAppId] = useState('')
-  const [oauthToken, setOauthToken] = useState('')
+  const [oauthAppSecret, setOauthAppSecret] = useState('')
+  const [oauthCode, setOauthCode] = useState('')
   const [oauthGroupId, setOauthGroupId] = useState('')
   const [oauthSaving, setOauthSaving] = useState(false)
 
@@ -69,18 +70,20 @@ export default function SettingsPage() {
 
   function openOauthUrl() {
     if (!oauthAppId.trim()) { showToast('Введите App ID приложения', 'error'); return }
-    const url = `https://oauth.vk.com/authorize?client_id=${oauthAppId.trim()}&display=page&redirect_uri=https://oauth.vk.com/blank.html&scope=wall,photos,groups&response_type=token&v=5.199`
+    const url = `https://oauth.vk.com/authorize?client_id=${oauthAppId.trim()}&display=page&redirect_uri=https://oauth.vk.com/blank.html&scope=wall,photos,groups&response_type=code&v=5.199`
     window.open(url, '_blank')
   }
 
   async function connectVkOAuth() {
+    if (!oauthAppId.trim()) { showToast('Введите App ID', 'error'); return }
+    if (!oauthAppSecret.trim()) { showToast('Введите App Secret', 'error'); return }
+    if (!oauthCode.trim()) { showToast('Введите код авторизации', 'error'); return }
     if (!oauthGroupId.trim()) { showToast('Введите ID группы', 'error'); return }
-    if (!oauthToken.trim()) { showToast('Вставьте токен из адресной строки', 'error'); return }
     setOauthSaving(true)
     try {
-      const result = await api.saveVkSettings(oauthGroupId.trim(), oauthToken.trim())
+      const result = await api.vkOAuthExchange(oauthAppId.trim(), oauthAppSecret.trim(), oauthCode.trim(), oauthGroupId.trim())
       setVk(result)
-      setOauthAppId(''); setOauthToken(''); setOauthGroupId('')
+      setOauthAppId(''); setOauthAppSecret(''); setOauthCode(''); setOauthGroupId('')
       setShowVkForm(false)
       showToast(`Группа «${result.group_name}» подключена с поддержкой фото!`, 'success')
     } catch (e: unknown) { showToast((e as Error).message, 'error') }
@@ -213,9 +216,9 @@ export default function SettingsPage() {
                 }}>
                   <strong style={{ color: 'var(--text)' }}>Как подключить с поддержкой фото:</strong><br />
                   1. Зайдите на <strong>vk.com/dev</strong> → Мои приложения → Создать (тип: <strong>Standalone</strong>)<br />
-                  2. Скопируйте <strong>ID приложения</strong>, введите его ниже<br />
-                  3. Нажмите <strong>«Открыть VK»</strong> и авторизуйтесь<br />
-                  4. Из адресной строки скопируйте значение <strong>access_token=XXXXX</strong> (до символа &amp;) и вставьте ниже
+                  2. Скопируйте <strong>ID приложения</strong> и <strong>Защищённый ключ</strong> из настроек<br />
+                  3. Введите их ниже, нажмите <strong>«Открыть VK»</strong>, авторизуйтесь<br />
+                  4. Из адресной строки скопируйте значение <strong>code=XXXXX</strong> (до символа &amp;) и вставьте ниже
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
                   <div className="fg">
@@ -224,21 +227,26 @@ export default function SettingsPage() {
                       value={oauthAppId} onChange={e => setOauthAppId(e.target.value.replace(/[^\d]/g, ''))} />
                   </div>
                   <div className="fg">
-                    <label>ID группы <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(числовой, без минуса)</span></label>
-                    <input type="text" inputMode="numeric" placeholder="238076799"
-                      value={oauthGroupId} onChange={e => setOauthGroupId(e.target.value.replace(/[^\d]/g, ''))} />
+                    <label>App Secret <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(Защищённый ключ)</span></label>
+                    <input type="password" placeholder="xxxxxxxxxxxxxxxxxxxxxxxx"
+                      value={oauthAppSecret} onChange={e => setOauthAppSecret(e.target.value)} autoComplete="off" />
                   </div>
+                </div>
+                <div className="fg">
+                  <label>ID группы <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(числовой, без минуса)</span></label>
+                  <input type="text" inputMode="numeric" placeholder="238076799"
+                    value={oauthGroupId} onChange={e => setOauthGroupId(e.target.value.replace(/[^\d]/g, ''))} />
                 </div>
                 <button className="btn btn-secondary" onClick={openOauthUrl} style={{ marginBottom: 12 }}>
                   Открыть VK для авторизации ↗
                 </button>
                 <div className="fg">
-                  <label>Токен доступа <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(значение access_token= из адресной строки)</span></label>
-                  <input type="password" placeholder="Вставьте токен из URL..."
-                    value={oauthToken} onChange={e => setOauthToken(e.target.value.trim())} autoComplete="off" />
+                  <label>Код авторизации <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(значение code= из адресной строки)</span></label>
+                  <input type="text" placeholder="Вставьте код из URL..."
+                    value={oauthCode} onChange={e => setOauthCode(e.target.value.trim())} autoComplete="off" />
                 </div>
                 <div style={{ display: 'flex', gap: 10 }}>
-                  <button className="btn btn-secondary" onClick={() => { setShowVkForm(false); setOauthAppId(''); setOauthToken(''); setOauthGroupId('') }}>
+                  <button className="btn btn-secondary" onClick={() => { setShowVkForm(false); setOauthAppId(''); setOauthAppSecret(''); setOauthCode(''); setOauthGroupId('') }}>
                     Отмена
                   </button>
                   <button className="btn btn-primary" onClick={connectVkOAuth} disabled={oauthSaving}>
