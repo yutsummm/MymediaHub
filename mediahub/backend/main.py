@@ -481,6 +481,41 @@ def vk_upload_photo_to_wall(access_token: str, group_id: str, image_data: bytes,
     photo = saved["response"][0]
     return f"photo{photo['owner_id']}_{photo['id']}"
 
+def vk_upload_video_to_wall(access_token: str, group_id: str, video_data: bytes, filename: str = "video.mp4", title: str = "", description: str = "") -> str:
+    clean_id = group_id.lstrip("-")
+    r = http_requests.post(
+        "https://api.vk.com/method/video.save",
+        data={
+            "group_id": clean_id,
+            "name": title or filename,
+            "description": description,
+            "wallpost": 0,
+            "access_token": access_token,
+            "v": VK_API_VERSION,
+        },
+        timeout=15,
+    )
+    data = r.json()
+    if "error" in data:
+        raise ValueError(data["error"].get("error_msg", "VK video.save error"))
+    resp = data["response"]
+    upload_url = resp["upload_url"]
+    owner_id = resp["owner_id"]
+    video_id = resp["video_id"]
+
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "mp4"
+    mime_map = {"mp4": "video/mp4", "mov": "video/quicktime", "webm": "video/webm", "avi": "video/x-msvideo", "mkv": "video/x-matroska"}
+    content_type = mime_map.get(ext, "video/mp4")
+
+    r2 = http_requests.post(upload_url, files={"video_file": (filename, video_data, content_type)}, timeout=600)
+    r2.raise_for_status()
+    upload_result = r2.json()
+    if "error" in upload_result:
+        err = upload_result["error"]
+        raise ValueError(err if isinstance(err, str) else str(err))
+
+    return f"video{owner_id}_{video_id}"
+
 def vk_wall_post(access_token: str, group_id: str, message: str, attachments: List[str] = []) -> int:
     clean_id = group_id.lstrip("-")
     params: dict = {
@@ -814,34 +849,43 @@ def publish_post(post_id: int):
                 attachments = []
                 backend_base = os.getenv("BACKEND_URL", "https://backend-production-30d6.up.railway.app").rstrip("/")
                 for item in (post_dict.get("media") or []):
-                    if item.get("type") == "image":
-                        fname = os.path.basename(item["url"])
-                        fpath = os.path.join(UPLOAD_DIR, fname)
-                        try:
-                            if os.path.exists(fpath):
-                                with open(fpath, "rb") as f:
-                                    image_data = f.read()
-                            else:
-                                img_url = f"{backend_base}{item['url']}"
-                                resp = http_requests.get(img_url, timeout=30)
-                                resp.raise_for_status()
-                                image_data = resp.content
-                            att = vk_upload_photo_to_wall(vk["access_token"], vk["group_id"], image_data, fname)
-                            attachments.append(att)
-                        except Exception as photo_err:
-                            msg = str(photo_err)
-                            if any(kw in msg.lower() for kw in [
-                                "unavailable with group auth",
-                                "group authorization",
-                                "access denied",
-                                "this action is not available",
-                                "community token",
-                                "group token",
-                                "error_code: 15",
-                                "no access to call this method",
-                            ]):
-                                msg = "У токена сообщества нет права «Фотографии». Создайте новый токен в Управление → Работа с API с галочкой «Фотографии»"
-                            photo_errors.append(msg)
+                    item_type = item.get("type")
+                    if item_type not in ("image", "video"):
+                        continue
+                    fname = os.path.basename(item["url"])
+                    fpath = os.path.join(UPLOAD_DIR, fname)
+                    try:
+                        if os.path.exists(fpath):
+                            with open(fpath, "rb") as f:
+                                file_data = f.read()
+                        else:
+                            file_url = f"{backend_base}{item['url']}"
+                            resp = http_requests.get(file_url, timeout=120)
+                            resp.raise_for_status()
+                            file_data = resp.content
+                        if item_type == "image":
+                            att = vk_upload_photo_to_wall(vk["access_token"], vk["group_id"], file_data, fname)
+                        else:
+                            att = vk_upload_video_to_wall(
+                                vk["access_token"], vk["group_id"], file_data, fname,
+                                title=post_dict.get("title", ""),
+                                description=post_dict.get("content", ""),
+                            )
+                        attachments.append(att)
+                    except Exception as media_err:
+                        msg = str(media_err)
+                        if any(kw in msg.lower() for kw in [
+                            "unavailable with group auth",
+                            "group authorization",
+                            "access denied",
+                            "this action is not available",
+                            "community token",
+                            "group token",
+                            "error_code: 15",
+                            "no access to call this method",
+                        ]):
+                            msg = f"Нет прав на загрузку {item_type}. Получите пользовательский токен в Настройках (кнопка «Получить токен ВК»)"
+                        photo_errors.append(msg)
                 vk_post_id = vk_wall_post(vk["access_token"], vk["group_id"], message, attachments)
                 if photo_errors:
                     notif_msg = (
