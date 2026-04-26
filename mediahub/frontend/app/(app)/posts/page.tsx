@@ -56,8 +56,13 @@ export default function PostsPage() {
     setPub(p.id)
     try {
       const result = await api.publishPost(p.id)
-      if ((result as any).vk_photo_errors?.length) {
-        showToast(`Пост опубликован, но фото не загружено: ${(result as any).vk_photo_errors[0]}`, 'error')
+      const r = result as any
+      if (r.vk_error) {
+        showToast(`Пост сохранён, но публикация в VK не удалась: ${r.vk_error}`, 'error')
+      } else if (r.vk_photo_errors?.length) {
+        showToast(`Пост опубликован в VK, но фото не загружено: ${r.vk_photo_errors[0]}`, 'error')
+      } else if (r.vk_post_id) {
+        showToast(`Пост опубликован в VK (id: ${r.vk_post_id})`, 'success')
       } else {
         showToast('Пост опубликован!', 'success')
       }

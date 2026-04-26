@@ -483,7 +483,13 @@ def vk_upload_photo_to_wall(access_token: str, group_id: str, image_data: bytes,
 
 def vk_wall_post(access_token: str, group_id: str, message: str, attachments: List[str] = []) -> int:
     clean_id = group_id.lstrip("-")
-    params: dict = {"owner_id": f"-{clean_id}", "message": message, "access_token": access_token, "v": VK_API_VERSION}
+    params: dict = {
+        "owner_id": f"-{clean_id}",
+        "from_group": 1,
+        "message": message,
+        "access_token": access_token,
+        "v": VK_API_VERSION,
+    }
     if attachments:
         params["attachments"] = ",".join(attachments)
     r = http_requests.post(
