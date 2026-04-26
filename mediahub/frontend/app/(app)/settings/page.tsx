@@ -170,29 +170,36 @@ export default function SettingsPage() {
               borderRadius: 'var(--r-md)', padding: '12px 16px', marginBottom: 16, fontSize: 12,
               color: 'var(--text-2)', lineHeight: 1.8,
             }}>
-              <strong style={{ color: 'var(--text)', fontSize: 13 }}>Как создать токен сообщества (с поддержкой фото):</strong><br />
+              <strong style={{ color: 'var(--text)', fontSize: 13 }}>Получение пользовательского токена (для постов с фото):</strong><br />
               <br />
-              <strong>1.</strong> Откройте свою группу ВКонтакте<br />
-              <strong>2.</strong> <strong>Управление</strong> (под аватаркой группы) → <strong>Работа с API</strong><br />
-              <strong>3.</strong> Вкладка <strong>«Ключи доступа»</strong> → <strong>«Создать ключ»</strong><br />
-              <strong>4.</strong> Отметьте права доступа:<br />
-              &nbsp;&nbsp;&nbsp;&nbsp;✓ <strong>Фотографии</strong> (для загрузки изображений)<br />
-              &nbsp;&nbsp;&nbsp;&nbsp;✓ <strong>Стена</strong> (для публикации постов)<br />
-              &nbsp;&nbsp;&nbsp;&nbsp;✓ <strong>Управление сообществом</strong><br />
-              <strong>5.</strong> Подтвердите по SMS — VK покажет токен вида <code style={{ background: 'var(--surface-2)', padding: '1px 6px', borderRadius: 4 }}>vk1.a.XXXXX...</code><br />
-              <strong>6.</strong> Скопируйте токен и вставьте ниже<br />
+              <strong>1.</strong> Нажмите кнопку <strong>«Получить токен ВК»</strong> ниже — откроется страница авторизации<br />
+              <strong>2.</strong> Авторизуйтесь и нажмите <strong>«Разрешить»</strong><br />
+              <strong>3.</strong> После этого браузер откроет белую страницу с длинным URL в адресной строке<br />
+              <strong>4.</strong> В URL найдите <code style={{ background: 'var(--surface-2)', padding: '1px 6px', borderRadius: 4 }}>access_token=</code> и скопируйте всё значение <strong>до символа &amp;</strong><br />
+              <strong>5.</strong> Введите ID группы и вставьте токен ниже<br />
               <br />
-              <strong>ID группы</strong> найдёте там же — в адресной строке: <code style={{ background: 'var(--surface-2)', padding: '1px 6px', borderRadius: 4 }}>vk.com/club<strong>123456</strong></code>
+              <span style={{ color: 'var(--text-3)' }}>Вы должны быть <strong>администратором или редактором</strong> группы. Токен бессрочный, хранится только у вас на сервере.</span><br />
+              <br />
+              <strong>ID группы</strong>: число из URL <code style={{ background: 'var(--surface-2)', padding: '1px 6px', borderRadius: 4 }}>vk.com/club<strong>123456</strong></code>
             </div>
+            <a
+              href="https://oauth.vk.com/authorize?client_id=2685278&scope=wall,photos,groups,manage,offline&redirect_uri=https://oauth.vk.com/blank.html&display=page&response_type=token&revoke=1&v=5.199"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-secondary"
+              style={{ display: 'inline-flex', marginBottom: 14, textDecoration: 'none' }}
+            >
+              Получить токен ВК ↗
+            </a>
             <div className="fg">
               <label>ID группы <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(только цифры)</span></label>
               <input type="text" inputMode="numeric" placeholder="238076799"
                 value={vkGroupId} onChange={e => setVkGroupId(e.target.value.replace(/[^\d]/g, ''))} />
             </div>
             <div className="fg">
-              <label>Токен доступа сообщества <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(с правами «Фото» + «Стена»)</span></label>
+              <label>Токен доступа <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(значение access_token= из URL)</span></label>
               <input type="password" placeholder="vk1.a.XXXXXXXX..."
-                value={vkToken} onChange={e => setVkToken(e.target.value)} autoComplete="off" />
+                value={vkToken} onChange={e => setVkToken(e.target.value.trim())} autoComplete="off" />
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button className="btn btn-secondary" onClick={() => { setShowVkForm(false); setVkGroupId(''); setVkToken('') }}>
