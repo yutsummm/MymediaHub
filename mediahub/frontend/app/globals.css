@@ -1397,16 +1397,161 @@ select option { background: var(--bg-2); color: var(--text); }
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ─── Responsive ─── */
-@media (max-width: 900px) {
-  .stats-grid, .grid4 { grid-template-columns: repeat(2,1fr); }
-  .grid2 { grid-template-columns: 1fr; }
+/* ─── Mobile drawer chrome (used at <=900px) ─── */
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 99;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.22s var(--ease-o);
+}
+.sidebar-backdrop.show { opacity: 1; pointer-events: auto; }
+
+.sidebar-close {
+  display: none;
+  background: transparent;
+  border: none;
+  color: var(--text-2);
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--r-md);
+  font-family: inherit;
+}
+.sidebar-close:hover { background: var(--surface-h); color: var(--text); }
+
+.nav-burger {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: 38px;
+  height: 38px;
+  padding: 0 9px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.18s, border-color 0.18s;
+}
+.nav-burger:hover { background: var(--surface-h); border-color: var(--border-2); }
+.nav-burger span {
+  display: block;
+  height: 2px;
+  width: 100%;
+  background: var(--text);
+  border-radius: 2px;
 }
 
-@media (max-width: 768px) {
+/* ─── Responsive ─── */
+@media (max-width: 1100px) {
+  .stats-grid, .grid4 { grid-template-columns: repeat(2,1fr); }
+}
+
+@media (max-width: 900px) {
   :root { --sidebar-w: 0px; }
-  .sidebar { display: none; }
+
+  /* Drawer behaviour */
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.28s var(--spring);
+    width: min(86vw, 320px);
+    box-shadow: 24px 0 60px rgba(0,0,0,0.4);
+  }
+  .sidebar.open { transform: translateX(0); }
+
+  .sidebar-close { display: inline-flex; align-items: center; justify-content: center; }
+  .nav-burger    { display: inline-flex; }
+
+  .main-layout { margin-left: 0; }
+
+  .topbar { padding: 0 14px; height: 56px; }
+  .topbar-title { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar-date { display: none; }
+  .topbar-actions { gap: 8px; }
+
   .content { padding: 16px; }
-  .stats-grid, .grid2, .grid4 { grid-template-columns: 1fr; }
-  .topbar { padding: 0 16px; }
+
+  .stats-grid, .grid2, .grid4 { grid-template-columns: 1fr; gap: 12px; margin-bottom: 18px; }
+  .grid3 { grid-template-columns: repeat(2,1fr); }
+
+  .card-p { padding: 16px; }
+  .card-header { padding: 14px 16px; }
+
+  /* Forms get a touch-friendly min height */
+  input[type=text],
+  input[type=email],
+  input[type=password],
+  input[type=datetime-local],
+  textarea,
+  select {
+    font-size: 16px; /* Prevents iOS zoom-on-focus */
+    padding: 12px 14px;
+  }
+
+  .filters-bar { gap: 8px; }
+  .srch { min-width: 0; flex: 1; }
+
+  /* Tables — already wrapped in .tbl-wrap, just compact paddings */
+  th, td { padding: 10px 12px; font-size: 12.5px; }
+
+  /* Calendar — compact tiles, no week header overflow */
+  .cal-cell { min-height: 78px; padding: 5px; }
+  .cal-date { width: 22px; height: 22px; font-size: 11px; }
+  .cal-post { font-size: 9.5px; padding: 2px 4px; }
+  .cal-head { padding: 7px 2px; font-size: 8.5px; }
+
+  /* Modal — fill screen, allow taps outside */
+  .overlay { padding: 0; align-items: flex-end; }
+  .modal {
+    max-width: 100%;
+    width: 100%;
+    max-height: 92vh;
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    animation: slideUpSheet 0.32s var(--spring);
+  }
+  .modal-hd, .modal-bd, .modal-ft { padding-left: 18px; padding-right: 18px; }
+  .modal-ft { flex-wrap: wrap; }
+
+  /* Step row: smaller separators */
+  .step-row { flex-wrap: wrap; gap: 8px 0; }
+  .step-sep { width: 14px; }
+  .step-lbl { font-size: 9.5px; }
+
+  /* Login page tweaks */
+  .login-bg { padding: 16px; }
+  .login-card { padding: 28px 22px; }
+  .login-title { font-size: 22px; }
+}
+
+@media (max-width: 560px) {
+  .grid3 { grid-template-columns: 1fr; }
+  .topbar-actions .btn { padding: 7px 12px; font-size: 12px; }
+  .topbar-actions .btn .btn-icon { display: none; }
+
+  /* Stats — 2 cols on phones still readable */
+  .stats-grid { grid-template-columns: repeat(2,1fr); }
+  .stat-card { padding: 14px; }
+  .stat-value { font-size: 22px; }
+  .stat-icon { width: 32px; height: 32px; font-size: 14px; margin-bottom: 10px; }
+
+  .filters-bar { flex-direction: column; align-items: stretch; }
+  .filters-bar > * { width: 100%; }
+}
+
+@keyframes slideUpSheet {
+  from { transform: translateY(100%); opacity: 0; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+@media (hover: none) {
+  .nav-item:hover  { transform: none; }
+  .stat-card:hover { transform: none; }
+  .tmpl-card:hover { transform: none; }
 }

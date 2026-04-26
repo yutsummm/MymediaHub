@@ -20,6 +20,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const [unread, setUnread] = useState(0)
+  const [navOpen, setNavOpen] = useState(false)
+
+  useEffect(() => { setNavOpen(false) }, [pathname])
 
   useEffect(() => {
     if (!loading && !user) router.replace('/login')
@@ -40,16 +43,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div style={{ display: 'flex', width: '100%' }}>
-      <Sidebar unread={unread} />
+      <Sidebar unread={unread} open={navOpen} onClose={() => setNavOpen(false)} />
 
       <div className="main-layout">
         {/* Topbar */}
         <div className="topbar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <button
+              type="button"
+              className="nav-burger"
+              aria-label="Открыть меню"
+              onClick={() => setNavOpen(true)}
+            >
+              <span /><span /><span />
+            </button>
             <span className="topbar-title">{title}</span>
           </div>
           <div className="topbar-actions">
-            <span style={{ fontSize: 11.5, color: 'var(--text-3)', fontWeight: 500, letterSpacing: '0.02em' }}>
+            <span className="topbar-date" style={{ fontSize: 11.5, color: 'var(--text-3)', fontWeight: 500, letterSpacing: '0.02em' }}>
               {today}
             </span>
             {user.role !== 'observer' && (
