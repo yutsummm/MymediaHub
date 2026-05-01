@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
+import { useGroup } from '@/contexts/GroupContext'
 import Sidebar from '@/components/Sidebar'
 import { api } from '@/lib/api'
 
@@ -17,6 +18,7 @@ const TITLES: Record<string, string> = {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
+  const { groups, loading: groupsLoading } = useGroup()
   const router = useRouter()
   const pathname = usePathname()
   const [unread, setUnread] = useState(0)
@@ -29,6 +31,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, [user, loading, router])
 
   useEffect(() => {
+    if (!loading && !groupsLoading && user && groups.length === 0) {
+      router.replace('/groups/new')
+    }
+  }, [user, loading, groups, groupsLoading, router])
+
+  useEffect(() => {
     if (user) {
       api.getNotifications(user.id)
         .then(ns => setUnread(ns.filter(n => !n.is_read).length))
@@ -36,7 +44,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }, [user, pathname])
 
-  if (loading || !user) return null
+  if (loading || groupsLoading || !user) return null
 
   const title = TITLES[pathname] ?? (pathname.includes('/edit') ? 'Редактировать пост' : pathname)
   const today = new Date().toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -63,7 +71,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <span className="topbar-date" style={{ fontSize: 11.5, color: 'var(--text-3)', fontWeight: 500, letterSpacing: '0.02em' }}>
               {today}
             </span>
-            {user.role !== 'observer' && (
+            {groups.length > 0 && groups[0]?.role !== 'observer' && (
               <button className="btn btn-primary btn-sm" onClick={() => router.push('/posts/new')}>
                 Новый пост
                 <span className="btn-icon" style={{ width: 20, height: 20, fontSize: 12 }}>+</span>

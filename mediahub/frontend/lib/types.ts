@@ -100,3 +100,42 @@ export interface TgSettings {
   chat_title?: string
   connected_at?: string
 }
+
+export type GroupRole = 'admin' | 'editor' | 'observer'
+
+export interface Group {
+  id: number
+  name: string
+  description: string
+  avatar: string
+  role: GroupRole
+  created_by?: number
+  created_at: string
+}
+
+export interface GroupMember {
+  id: number
+  name: string
+  email: string
+  avatar: string
+  role: GroupRole
+  joined_at: string
+}
+
+export interface InviteLink {
+  id: number
+  token: string
+  role: GroupRole
+  expires_at: string
+  used_count: number
+  max_uses: number | null
+  created_at?: string
+}
+
+export interface InvitePreview {
+  group_id: number
+  group_name: string
+  group_description: string
+  role: GroupRole
+  expires_at: string
+}

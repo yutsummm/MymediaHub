@@ -23,8 +23,8 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true); setErr('')
     try {
-      const { user } = await api.login(email, password || 'demo')
-      login(user)
+      const { user, token } = await api.login(email, password || 'demo')
+      login(user, token)
       router.push('/dashboard')
     } catch (ex: unknown) {
       setErr((ex as Error).message)

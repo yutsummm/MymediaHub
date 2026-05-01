@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
+import { useGroup } from '@/contexts/GroupContext'
 
 type Theme = 'dark' | 'light'
 
@@ -30,7 +31,9 @@ export default function Sidebar({
   const pathname = usePathname()
   const router = useRouter()
   const { user, logout } = useAuth()
+  const { groups, currentGroup, switchGroup } = useGroup()
   const [theme, setTheme] = useState<Theme>('dark')
+  const [showGroups, setShowGroups] = useState(false)
 
   useEffect(() => {
     const initial = (document.documentElement.getAttribute('data-theme') as Theme) || 'dark'
@@ -79,6 +82,101 @@ export default function Sidebar({
           >×</button>
         </div>
 
+        {/* Groups Switcher */}
+        {groups.length > 0 && (
+          <div style={{ padding: '0 12px 16px', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Группа
+            </div>
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setShowGroups(!showGroups)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: 'var(--r-md)',
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-secondary)',
+                  color: 'var(--text-1)',
+                  fontSize: 14,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  justifyContent: 'space-between',
+                }}
+              >
+                <span style={{ minWidth: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                  {currentGroup?.name || 'Выберите группу'}
+                </span>
+                <span style={{ fontSize: 10, flexShrink: 0 }}>▼</span>
+              </button>
+              {showGroups && (
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  right: 0,
+                  marginTop: 4,
+                  borderRadius: 'var(--r-md)',
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg-secondary)',
+                  zIndex: 10,
+                  maxHeight: 300,
+                  overflowY: 'auto',
+                }}>
+                  {groups.map(g => (
+                    <button
+                      key={g.id}
+                      onClick={() => {
+                        switchGroup(g.id)
+                        setShowGroups(false)
+                        onClose?.()
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        border: 'none',
+                        background: currentGroup?.id === g.id ? 'rgba(139,92,246,0.1)' : 'transparent',
+                        color: currentGroup?.id === g.id ? 'var(--accent)' : 'var(--text-2)',
+                        fontSize: 13,
+                        fontWeight: currentGroup?.id === g.id ? 600 : 400,
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        borderBottom: '1px solid var(--border)',
+                      }}
+                    >
+                      {g.name}
+                      {currentGroup?.id === g.id && <span style={{ marginLeft: 8 }}>✓</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => {
+                router.push('/groups/new')
+                onClose?.()
+              }}
+              style={{
+                width: '100%',
+                marginTop: 8,
+                padding: '8px 12px',
+                borderRadius: 'var(--r-md)',
+                border: '1px solid var(--border)',
+                background: 'transparent',
+                color: 'var(--accent)',
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
+            >
+              + Новая группа
+            </button>
+          </div>
+        )}
+
         {/* Navigation */}
         <nav className="sidebar-nav">
           <div className="nav-section">Навигация</div>
@@ -105,8 +203,8 @@ export default function Sidebar({
             <div className="avatar">{user.name[0].toUpperCase()}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="user-name">{user.name}</div>
-              <span className={`user-role-lbl ${ROLE_CLASS[user.role] ?? ''}`}>
-                {ROLE_LABEL[user.role]}
+              <span className={`user-role-lbl ${ROLE_CLASS[currentGroup?.role || user.role] ?? ''}`}>
+                {ROLE_LABEL[currentGroup?.role || user.role]}
               </span>
             </div>
             <div

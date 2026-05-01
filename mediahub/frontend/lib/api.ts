@@ -2,12 +2,27 @@
 // (см. next.config.mjs / BACKEND_URL). Локально NEXT_PUBLIC_API_URL=http://localhost:8000.
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '')
 
+let _getToken: () => string | null = () => null
+export function setTokenGetter(fn: () => string | null) {
+  _getToken = fn
+}
+
 async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
   const url = `${BASE}${path}`
+  const token = _getToken()
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (init.headers instanceof Headers) {
+    init.headers.forEach((v, k) => { headers[k] = v })
+  } else if (init.headers) {
+    Object.assign(headers, init.headers)
+  }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
+  }
   let res: Response
   try {
     res = await fetch(url, {
-      headers: { 'Content-Type': 'application/json', ...(init.headers ?? {}) },
+      headers,
       ...init,
     })
   } catch (e) {
@@ -112,4 +127,80 @@ export const api = {
       method: 'POST', body: body({ bot_token, chat_id }),
     }),
   deleteTgSettings: () => req<{ connected: boolean }>('/api/settings/telegram', { method: 'DELETE' }),
+
+  // Groups
+  getGroups: () => req<import('./types').Group[]>('/api/groups'),
+  createGroup: (name: string, description?: string) =>
+    req<import('./types').Group>('/api/groups', {
+      method: 'POST', body: body({ name, description: description || '' }),
+    }),
+  getGroup: (groupId: number) => req<import('./types').Group>(`/api/groups/${groupId}`),
+  updateGroup: (groupId: number, data: { name?: string; description?: string; avatar?: string }) =>
+    req<import('./types').Group>(`/api/groups/${groupId}`, {
+      method: 'PUT', body: body(data),
+    }),
+  deleteGroup: (groupId: number) => req<{ ok: boolean }>(`/api/groups/${groupId}`, { method: 'DELETE' }),
+
+  // Group members
+  getGroupMembers: (groupId: number) =>
+    req<import('./types').GroupMember[]>(`/api/groups/${groupId}/members`),
+  updateMemberRole: (groupId: number, userId: number, role: string) =>
+    req<import('./types').GroupMember>(`/api/groups/${groupId}/members/${userId}/role`, {
+      method: 'PUT', body: body({ role }),
+    }),
+  removeGroupMember: (groupId: number, userId: number) =>
+    req<{ ok: boolean }>(`/api/groups/${groupId}/members/${userId}`, { method: 'DELETE' }),
+
+  // Invite links
+  createInviteLink: (groupId: number, role?: string, expires_hours?: number, max_uses?: number | null) =>
+    req<import('./types').InviteLink>(`/api/groups/${groupId}/invites`, {
+      method: 'POST', body: body({ role: role || 'editor', expires_hours: expires_hours || 24, max_uses }),
+    }),
+  getInviteLinks: (groupId: number) =>
+    req<import('./types').InviteLink[]>(`/api/groups/${groupId}/invites`),
+  revokeInviteLink: (groupId: number, linkId: number) =>
+    req<{ ok: boolean }>(`/api/groups/${groupId}/invites/${linkId}`, { method: 'DELETE' }),
+  getInvitePreview: (token: string) =>
+    req<import('./types').InvitePreview>(`/api/invites/${token}`),
+  acceptInvite: (token: string) =>
+    req<import('./types').Group>(`/api/invites/${token}/accept`, { method: 'POST' }),
+
+  // Group-scoped posts
+  getGroupPosts: (groupId: number, params?: Record<string, string>) => {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return req<{ posts: import('./types').Post[]; total: number }>(`/api/groups/${groupId}/posts${qs}`)
+  },
+  getGroupPost: (groupId: number, postId: number) =>
+    req<import('./types').Post>(`/api/groups/${groupId}/posts/${postId}`),
+  createGroupPost: (groupId: number, data: unknown) =>
+    req<import('./types').Post>(`/api/groups/${groupId}/posts`, {
+      method: 'POST', body: body(data),
+    }),
+  updateGroupPost: (groupId: number, postId: number, data: unknown) =>
+    req<import('./types').Post>(`/api/groups/${groupId}/posts/${postId}`, {
+      method: 'PUT', body: body(data),
+    }),
+  deleteGroupPost: (groupId: number, postId: number) =>
+    req<{ ok: boolean }>(`/api/groups/${groupId}/posts/${postId}`, { method: 'DELETE' }),
+  publishGroupPost: (groupId: number, postId: number) =>
+    req<import('./types').Post>(`/api/groups/${groupId}/posts/${postId}/publish`, { method: 'POST' }),
+
+  // Group-scoped settings
+  getGroupVkSettings: (groupId: number) =>
+    req<import('./types').VkSettings>(`/api/groups/${groupId}/settings/vk`),
+  saveGroupVkSettings: (groupId: number, group_id: string, access_token: string) =>
+    req<import('./types').VkSettings>(`/api/groups/${groupId}/settings/vk`, {
+      method: 'POST', body: body({ group_id, access_token }),
+    }),
+  deleteGroupVkSettings: (groupId: number) =>
+    req<{ connected: boolean }>(`/api/groups/${groupId}/settings/vk`, { method: 'DELETE' }),
+
+  getGroupTgSettings: (groupId: number) =>
+    req<import('./types').TgSettings>(`/api/groups/${groupId}/settings/telegram`),
+  saveGroupTgSettings: (groupId: number, bot_token: string, chat_id: string) =>
+    req<import('./types').TgSettings>(`/api/groups/${groupId}/settings/telegram`, {
+      method: 'POST', body: body({ bot_token, chat_id }),
+    }),
+  deleteGroupTgSettings: (groupId: number) =>
+    req<{ connected: boolean }>(`/api/groups/${groupId}/settings/telegram`, { method: 'DELETE' }),
 }

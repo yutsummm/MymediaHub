@@ -1,0 +1,114 @@
+'use client'
+
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { useAuth } from '@/contexts/AuthContext'
+import { useGroup } from '@/contexts/GroupContext'
+import { api } from '@/lib/api'
+
+export default function CreateGroupPage() {
+  const router = useRouter()
+  const { user } = useAuth()
+  const { refreshGroups } = useGroup()
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState('')
+
+  if (!user) {
+    return <div style={{ padding: 20, textAlign: 'center' }}>Требуется вход...</div>
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    setErr('')
+    if (!name.trim()) {
+      setErr('Введите название группы')
+      return
+    }
+    setLoading(true)
+    try {
+      await api.createGroup(name.trim(), description.trim())
+      await refreshGroups()
+      router.push('/dashboard')
+    } catch (ex: unknown) {
+      setErr((ex as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '20px',
+      background: 'var(--bg)',
+    }}>
+      <div style={{
+        width: '100%',
+        maxWidth: '500px',
+        padding: '40px 30px',
+        borderRadius: 'var(--r-lg)',
+        border: '1px solid var(--border)',
+        background: 'var(--bg-secondary)',
+      }}>
+        <h1 style={{ fontSize: 24, marginBottom: 8, color: 'var(--text-1)' }}>
+          Создайте вашу первую группу
+        </h1>
+        <p style={{ fontSize: 14, color: 'var(--text-3)', marginBottom: 24 }}>
+          Группа — это изолированное рабочее пространство для управления контентом вашего медиа-центра.
+          Вы сможете пригласить других участников и управлять их ролями.
+        </p>
+
+        <form onSubmit={submit}>
+          <div className="fg" style={{ marginBottom: 16 }}>
+            <label>Название группы</label>
+            <input
+              type="text"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="например: МЦ «Зеркало»"
+              autoFocus
+            />
+          </div>
+
+          <div className="fg" style={{ marginBottom: 20 }}>
+            <label>Описание (опционально)</label>
+            <textarea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="Например: Медиа-центр Красноярска"
+              rows={3}
+              style={{ fontFamily: 'inherit' }}
+            />
+          </div>
+
+          {err && <div style={{
+            padding: '10px 12px',
+            borderRadius: 'var(--r-md)',
+            background: 'rgba(239,68,68,0.1)',
+            border: '1px solid rgba(239,68,68,0.3)',
+            color: '#ef4444',
+            fontSize: 14,
+            marginBottom: 20,
+          }}>
+            {err}
+          </div>}
+
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={loading}
+            style={{ width: '100%' }}
+          >
+            {loading ? 'Создаём...' : 'Создать группу'}
+            {!loading && <span className="btn-icon">→</span>}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}

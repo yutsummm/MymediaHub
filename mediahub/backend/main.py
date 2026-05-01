@@ -3,7 +3,7 @@ MediaHub — Медиахаб для молодёжных центров
 FastAPI + PostgreSQL backend
 """
 
-from fastapi import FastAPI, HTTPException, Query, UploadFile, File
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -14,6 +14,7 @@ import json, os, random, uuid, shutil, hashlib
 import requests as http_requests
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+from jose import jwt, JWTError
 
 load_dotenv()
 
@@ -46,6 +47,33 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, hashed: str) -> bool:
     return hash_password(password) == hashed
+
+# ── JWT helpers ──────────────────────────────────────────────────────────────
+
+JWT_SECRET = os.getenv("JWT_SECRET", "changeme-in-production-2025")
+JWT_ALGORITHM = "HS256"
+
+def create_token(user_id: int) -> str:
+    expire = datetime.utcnow() + timedelta(hours=72)
+    return jwt.encode({"sub": str(user_id), "exp": expire}, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def get_current_user_id(authorization: str = Header(None)) -> int:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Требуется авторизация")
+    try:
+        token = authorization.split(" ", 1)[1]
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return int(payload["sub"])
+    except (JWTError, KeyError, ValueError, IndexError):
+        raise HTTPException(401, "Недействительный токен")
+
+def require_group_member(group_id: int, user_id: int, conn) -> str:
+    c = conn.cursor()
+    c.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s", (group_id, user_id))
+    row = c.fetchone()
+    if not row:
+        raise HTTPException(403, "Нет доступа к этой группе")
+    return row["role"]
 
 # ── Pydantic models ──────────────────────────────────────────────────────────
 
@@ -113,6 +141,23 @@ class UserCreate(BaseModel):
     email: str
     role: str = "editor"
     password: str
+
+class GroupCreate(BaseModel):
+    name: str
+    description: str = ""
+
+class GroupUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    avatar: Optional[str] = None
+
+class GroupMemberRoleUpdate(BaseModel):
+    role: str
+
+class InviteLinkCreate(BaseModel):
+    role: str = "editor"
+    expires_hours: int = 24
+    max_uses: Optional[int] = None
 
 # ── DB ───────────────────────────────────────────────────────────────────────
 
@@ -214,6 +259,49 @@ def init_db():
 
     c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS media TEXT DEFAULT '[]'")
     c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
+
+    # ── Groups and memberships ───────────────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS groups (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            avatar TEXT DEFAULT '',
+            created_by INTEGER NOT NULL REFERENCES users(id),
+            created_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI')
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS group_members (
+            id SERIAL PRIMARY KEY,
+            group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            role TEXT NOT NULL DEFAULT 'editor',
+            joined_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI'),
+            UNIQUE (group_id, user_id)
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS invite_links (
+            id SERIAL PRIMARY KEY,
+            group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            token TEXT NOT NULL UNIQUE,
+            role TEXT NOT NULL DEFAULT 'editor',
+            created_by INTEGER NOT NULL REFERENCES users(id),
+            expires_at TEXT NOT NULL,
+            used_count INTEGER DEFAULT 0,
+            max_uses INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI')
+        )
+    """)
+
+    # ── Add group_id to existing tables ──────────────────────────────────────
+    c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id)")
+    c.execute("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id)")
+    c.execute("ALTER TABLE vk_settings ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id)")
+    c.execute("ALTER TABLE tg_settings ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id)")
 
     c.execute("SELECT COUNT(*) FROM users")
     if c.fetchone()["count"] == 0:
@@ -317,6 +405,31 @@ def init_db():
                 (2, "Новый пост на модерации от волонтёра",          "info",    0),
             ],
         )
+
+    # ── Default group migration ──────────────────────────────────────────────────
+    c.execute("SELECT COUNT(*) FROM groups")
+    if c.fetchone()["count"] == 0:
+        c.execute("SELECT id FROM users ORDER BY id ASC LIMIT 1")
+        first_user_row = c.fetchone()
+        if first_user_row:
+            first_user_id = first_user_row["id"]
+            c.execute(
+                "INSERT INTO groups (name, description, created_by) VALUES (%s, %s, %s) RETURNING id",
+                ("Медиа-Хаб", "Группа по умолчанию", first_user_id)
+            )
+            gid = c.fetchone()["id"]
+
+            c.execute("SELECT id FROM users")
+            for u in c.fetchall():
+                c.execute(
+                    "INSERT INTO group_members (group_id, user_id, role) VALUES (%s, %s, 'admin') ON CONFLICT DO NOTHING",
+                    (gid, u["id"])
+                )
+
+            c.execute("UPDATE posts SET group_id=%s WHERE group_id IS NULL", (gid,))
+            c.execute("UPDATE notifications SET group_id=%s WHERE group_id IS NULL", (gid,))
+            c.execute("UPDATE vk_settings SET group_id=%s WHERE group_id IS NULL", (gid,))
+            c.execute("UPDATE tg_settings SET group_id=%s WHERE group_id IS NULL", (gid,))
 
     conn.commit()
     conn.close()
@@ -792,6 +905,66 @@ def delete_vk_settings():
     conn.close()
     return {"connected": False}
 
+# ── Group-scoped VK Settings ────────────────────────────────────────────────
+
+@app.get("/api/groups/{gid}/settings/vk")
+def get_group_vk_settings(gid: int, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    require_group_member(gid, user_id, conn)
+    c.execute("SELECT group_id, group_name, connected_at FROM vk_settings WHERE group_id IN (SELECT id FROM groups WHERE id=%s)", (gid,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return {"connected": False}
+    d = dict(row)
+    d["connected"] = True
+    return d
+
+@app.post("/api/groups/{gid}/settings/vk")
+def save_group_vk_settings(gid: int, body: VkSettingsSave, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role != "admin":
+        conn.close()
+        raise HTTPException(403, "Только администратор может изменять настройки")
+    try:
+        group_name = vk_get_group_name(body.access_token, body.group_id)
+    except ValueError as e:
+        conn.close()
+        raise HTTPException(400, str(e))
+    clean_id = body.group_id.lstrip("-")
+    now = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    c.execute("SELECT group_id FROM vk_settings WHERE group_id=%s", (gid,))
+    exists = c.fetchone()
+    if exists:
+        c.execute(
+            "UPDATE vk_settings SET group_id=%s, access_token=%s, group_name=%s, connected_at=%s WHERE group_id=%s",
+            (clean_id, body.access_token, group_name, now, gid),
+        )
+    else:
+        c.execute(
+            "INSERT INTO vk_settings (group_id, access_token, group_name, connected_at) VALUES (%s, %s, %s, %s)",
+            (gid, body.access_token, group_name, now),
+        )
+    conn.commit()
+    conn.close()
+    return {"connected": True, "group_id": clean_id, "group_name": group_name, "connected_at": now}
+
+@app.delete("/api/groups/{gid}/settings/vk")
+def delete_group_vk_settings(gid: int, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role != "admin":
+        conn.close()
+        raise HTTPException(403, "Только администратор может удалять настройки")
+    c.execute("DELETE FROM vk_settings WHERE group_id=%s", (gid,))
+    conn.commit()
+    conn.close()
+    return {"connected": False}
+
 # ── Telegram Settings ────────────────────────────────────────────────────────
 
 @app.get("/api/settings/telegram")
@@ -841,6 +1014,60 @@ def delete_tg_settings():
     conn.close()
     return {"connected": False}
 
+# ── Group-scoped Telegram Settings ──────────────────────────────────────────
+
+@app.get("/api/groups/{gid}/settings/telegram")
+def get_group_tg_settings(gid: int, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    require_group_member(gid, user_id, conn)
+    c.execute("SELECT chat_id, chat_title, connected_at FROM tg_settings WHERE group_id=%s", (gid,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return {"connected": False}
+    d = dict(row)
+    d["connected"] = True
+    return d
+
+@app.post("/api/groups/{gid}/settings/telegram")
+def save_group_tg_settings(gid: int, body: TgSettingsSave, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role != "admin":
+        conn.close()
+        raise HTTPException(403, "Только администратор может изменять настройки")
+    now = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    c.execute("SELECT group_id FROM tg_settings WHERE group_id=%s", (gid,))
+    exists = c.fetchone()
+    if exists:
+        c.execute(
+            "UPDATE tg_settings SET bot_token=%s, chat_id=%s, connected_at=%s WHERE group_id=%s",
+            (body.bot_token, body.chat_id, now, gid),
+        )
+    else:
+        c.execute(
+            "INSERT INTO tg_settings (group_id, bot_token, chat_id, connected_at) VALUES (%s, %s, %s, %s)",
+            (gid, body.bot_token, body.chat_id, now),
+        )
+    conn.commit()
+    conn.close()
+    return {"connected": True, "chat_id": body.chat_id, "connected_at": now}
+
+@app.delete("/api/groups/{gid}/settings/telegram")
+def delete_group_tg_settings(gid: int, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role != "admin":
+        conn.close()
+        raise HTTPException(403, "Только администратор может удалять настройки")
+    c.execute("DELETE FROM tg_settings WHERE group_id=%s", (gid,))
+    conn.commit()
+    conn.close()
+    return {"connected": False}
+
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
 @app.post("/api/auth/login")
@@ -849,13 +1076,19 @@ def login(req: LoginRequest):
     c = conn.cursor()
     c.execute("SELECT * FROM users WHERE email=%s", (req.email,))
     user = c.fetchone()
-    conn.close()
     if not user:
+        conn.close()
         raise HTTPException(401, "Пользователь не найден")
     ph = user.get("password_hash")
     if ph and not verify_password(req.password, ph):
+        conn.close()
         raise HTTPException(401, "Неверный пароль")
-    return {"user": row_to_dict(user), "token": "demo-token"}
+    user_id = user["id"]
+    token = create_token(user_id)
+    c.execute("SELECT g.id, g.name, g.description, g.avatar, gm.role, g.created_at FROM groups g JOIN group_members gm ON g.id = gm.group_id WHERE gm.user_id=%s ORDER BY g.id", (user_id,))
+    groups = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return {"user": row_to_dict(user), "token": token, "groups": groups}
 
 @app.post("/api/auth/register")
 def register(req: RegisterRequest):
@@ -877,11 +1110,227 @@ def register(req: RegisterRequest):
         (req.name.strip(), req.email.lower().strip(), "editor", avatar, hash_password(req.password)),
     )
     uid = c.fetchone()["id"]
+    c.execute("SELECT id FROM groups ORDER BY id ASC LIMIT 1")
+    default_group = c.fetchone()
+    if default_group:
+        c.execute("INSERT INTO group_members (group_id, user_id, role) VALUES (%s, %s, 'editor') ON CONFLICT DO NOTHING", (default_group["id"], uid))
     conn.commit()
     c.execute("SELECT * FROM users WHERE id=%s", (uid,))
     user = c.fetchone()
+    token = create_token(uid)
+    c.execute("SELECT g.id, g.name, g.description, g.avatar, gm.role, g.created_at FROM groups g JOIN group_members gm ON g.id = gm.group_id WHERE gm.user_id=%s ORDER BY g.id", (uid,))
+    groups = [dict(r) for r in c.fetchall()]
     conn.close()
-    return {"user": row_to_dict(user), "token": "demo-token"}
+    return {"user": row_to_dict(user), "token": token, "groups": groups}
+
+# ── Groups ───────────────────────────────────────────────────────────────────
+
+@app.post("/api/groups")
+def create_group(req: GroupCreate, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO groups (name, description, created_by) VALUES (%s, %s, %s) RETURNING id", (req.name, req.description, user_id))
+    gid = c.fetchone()["id"]
+    c.execute("INSERT INTO group_members (group_id, user_id, role) VALUES (%s, %s, 'admin')", (gid, user_id))
+    conn.commit()
+    c.execute("SELECT id, name, description, avatar, created_by, created_at FROM groups WHERE id=%s", (gid,))
+    group = c.fetchone()
+    conn.close()
+    result = dict(group)
+    result["role"] = "admin"
+    return result
+
+@app.get("/api/groups")
+def get_my_groups(user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT g.id, g.name, g.description, g.avatar, gm.role, g.created_at FROM groups g JOIN group_members gm ON g.id = gm.group_id WHERE gm.user_id=%s ORDER BY g.id", (user_id,))
+    groups = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return groups
+
+@app.get("/api/groups/{gid}")
+def get_group(gid: int, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    c.execute("SELECT id, name, description, avatar, created_by, created_at FROM groups WHERE id=%s", (gid,))
+    group = c.fetchone()
+    conn.close()
+    if not group:
+        raise HTTPException(404, "Группа не найдена")
+    result = dict(group)
+    result["role"] = role
+    return result
+
+@app.put("/api/groups/{gid}")
+def update_group(gid: int, req: GroupUpdate, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role != "admin":
+        conn.close()
+        raise HTTPException(403, "Только администратор может изменять параметры группы")
+    updates = []
+    params = []
+    for field, value in req.dict(exclude_unset=True).items():
+        updates.append(f"{field}=%s")
+        params.append(value)
+    if not updates:
+        conn.close()
+        return get_group(gid, user_id)
+    params.append(gid)
+    c.execute(f"UPDATE groups SET {', '.join(updates)} WHERE id=%s", params)
+    conn.commit()
+    c.execute("SELECT id, name, description, avatar, created_by, created_at FROM groups WHERE id=%s", (gid,))
+    group = c.fetchone()
+    conn.close()
+    result = dict(group)
+    result["role"] = role
+    return result
+
+@app.delete("/api/groups/{gid}")
+def delete_group(gid: int, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role != "admin":
+        conn.close()
+        raise HTTPException(403, "Только администратор может удалять группу")
+    c.execute("DELETE FROM groups WHERE id=%s", (gid,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+@app.get("/api/groups/{gid}/members")
+def get_group_members(gid: int, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    require_group_member(gid, user_id, conn)
+    c.execute("SELECT u.id, u.name, u.email, u.avatar, gm.role, gm.joined_at FROM users u JOIN group_members gm ON u.id = gm.user_id WHERE gm.group_id=%s ORDER BY u.id", (gid,))
+    members = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return members
+
+@app.put("/api/groups/{gid}/members/{uid}/role")
+def update_member_role(gid: int, uid: int, req: GroupMemberRoleUpdate, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role != "admin":
+        conn.close()
+        raise HTTPException(403, "Только администратор может изменять роли")
+    c.execute("UPDATE group_members SET role=%s WHERE group_id=%s AND user_id=%s", (req.role, gid, uid))
+    conn.commit()
+    c.execute("SELECT u.id, u.name, u.email, u.avatar, gm.role, gm.joined_at FROM users u JOIN group_members gm ON u.id = gm.user_id WHERE gm.group_id=%s AND u.id=%s", (gid, uid))
+    member = c.fetchone()
+    conn.close()
+    return dict(member) if member else None
+
+@app.delete("/api/groups/{gid}/members/{uid}")
+def remove_group_member(gid: int, uid: int, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role != "admin" and user_id != uid:
+        conn.close()
+        raise HTTPException(403, "Вы можете удалить только себя из группы")
+    c.execute("DELETE FROM group_members WHERE group_id=%s AND user_id=%s", (gid, uid))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+@app.post("/api/groups/{gid}/invites")
+def create_invite_link(gid: int, req: InviteLinkCreate, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role != "admin":
+        conn.close()
+        raise HTTPException(403, "Только администратор может создавать ссылки приглашения")
+    token = uuid.uuid4().hex
+    expires_at = (datetime.utcnow() + timedelta(hours=req.expires_hours)).isoformat() + "Z"
+    c.execute(
+        "INSERT INTO invite_links (group_id, token, role, created_by, expires_at, max_uses) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+        (gid, token, req.role, user_id, expires_at, req.max_uses)
+    )
+    link_id = c.fetchone()["id"]
+    conn.commit()
+    c.execute("SELECT id, token, role, expires_at, used_count, max_uses, created_at FROM invite_links WHERE id=%s", (link_id,))
+    link = c.fetchone()
+    conn.close()
+    return dict(link)
+
+@app.get("/api/groups/{gid}/invites")
+def get_invite_links(gid: int, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role != "admin":
+        conn.close()
+        raise HTTPException(403, "Только администратор может просматривать ссылки приглашения")
+    c.execute("SELECT id, token, role, expires_at, used_count, max_uses, created_at FROM invite_links WHERE group_id=%s ORDER BY id DESC", (gid,))
+    links = [dict(r) for r in c.fetchall()]
+    conn.close()
+    return links
+
+@app.delete("/api/groups/{gid}/invites/{link_id}")
+def revoke_invite_link(gid: int, link_id: int, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role != "admin":
+        conn.close()
+        raise HTTPException(403, "Только администратор может отзывать ссылки")
+    c.execute("DELETE FROM invite_links WHERE id=%s AND group_id=%s", (link_id, gid))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+@app.get("/api/invites/{token}")
+def get_invite_preview(token: str):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT il.group_id, g.name as group_name, g.description as group_description, il.role, il.expires_at FROM invite_links il JOIN groups g ON il.group_id = g.id WHERE il.token=%s", (token,))
+    link = c.fetchone()
+    conn.close()
+    if not link:
+        raise HTTPException(404, "Ссылка приглашения не найдена")
+    result = dict(link)
+    result["group_id"] = link["group_id"]
+    result["group_name"] = link["group_name"]
+    result["group_description"] = link["group_description"]
+    result["role"] = link["role"]
+    result["expires_at"] = link["expires_at"]
+    return result
+
+@app.post("/api/invites/{token}/accept")
+def accept_invite(token: str, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT group_id, role, expires_at, max_uses, used_count FROM invite_links WHERE token=%s", (token,))
+    link = c.fetchone()
+    conn.close()
+    if not link:
+        raise HTTPException(404, "Ссылка приглашения не найдена")
+    if datetime.fromisoformat(link["expires_at"].rstrip("Z")) < datetime.utcnow():
+        raise HTTPException(410, "Ссылка приглашения истекла")
+    if link["max_uses"] and link["used_count"] >= link["max_uses"]:
+        raise HTTPException(410, "Лимит использований ссылки исчерпан")
+    gid = link["group_id"]
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s", (gid, user_id))
+    if c.fetchone():
+        conn.close()
+        raise HTTPException(409, "Вы уже участник этой группы")
+    c.execute("INSERT INTO group_members (group_id, user_id, role) VALUES (%s, %s, %s)", (gid, link["role"], user_id))
+    c.execute("UPDATE invite_links SET used_count=used_count+1 WHERE token=%s", (token,))
+    conn.commit()
+    c.execute("SELECT g.id, g.name, g.description, g.avatar, gm.role, g.created_at FROM groups g JOIN group_members gm ON g.id = gm.group_id WHERE gm.user_id=%s AND g.id=%s", (user_id, gid))
+    group = c.fetchone()
+    conn.close()
+    return dict(group) if group else {"ok": True}
 
 # ── Users ────────────────────────────────────────────────────────────────────
 
@@ -943,6 +1392,183 @@ def delete_user(user_id: int):
     conn.commit()
     conn.close()
     return {"ok": True}
+
+# ── Group-scoped Posts ──────────────────────────────────────────────────────
+
+@app.get("/api/groups/{gid}/posts")
+def get_group_posts(gid: int, status: Optional[str] = None, platform: Optional[str] = None, tag: Optional[str] = None, limit: int = 100, offset: int = 0, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    require_group_member(gid, user_id, conn)
+    q = "SELECT p.*, u.name as author_name FROM posts p LEFT JOIN users u ON p.author_id=u.id WHERE p.group_id=%s"
+    params: list = [gid]
+    if status:
+        q += " AND p.status=%s"; params.append(status)
+    if platform:
+        q += " AND p.platforms LIKE %s"; params.append(f'%"{platform}"%')
+    if tag:
+        q += " AND p.tags LIKE %s"; params.append(f'%"{tag}"%')
+    q += " ORDER BY p.created_at DESC LIMIT %s OFFSET %s"
+    params += [limit, offset]
+    c.execute(q, params)
+    rows = c.fetchall()
+    c.execute("SELECT COUNT(*) FROM posts WHERE group_id=%s", (gid,))
+    total = c.fetchone()["count"]
+    conn.close()
+    return {"posts": [row_to_dict(r) for r in rows], "total": total}
+
+@app.post("/api/groups/{gid}/posts")
+def create_group_post(gid: int, body: PostCreate, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role == "observer":
+        conn.close()
+        raise HTTPException(403, "Наблюдатели не могут создавать посты")
+    c.execute(
+        "INSERT INTO posts (title,content,status,platforms,tags,scheduled_at,author_id,template_type,media,group_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (body.title, body.content, body.status, json.dumps(body.platforms), json.dumps(body.tags), body.scheduled_at, user_id, body.template_type, json.dumps([m.dict() for m in body.media]), gid),
+    )
+    pid = c.fetchone()["id"]
+    conn.commit()
+    c.execute("SELECT * FROM posts WHERE id=%s", (pid,))
+    row = c.fetchone()
+    conn.close()
+    return row_to_dict(row)
+
+@app.get("/api/groups/{gid}/posts/{post_id}")
+def get_group_post(gid: int, post_id: int, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    require_group_member(gid, user_id, conn)
+    c.execute("SELECT p.*, u.name as author_name FROM posts p LEFT JOIN users u ON p.author_id=u.id WHERE p.id=%s AND p.group_id=%s", (post_id, gid))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(404, "Пост не найден")
+    return row_to_dict(row)
+
+@app.put("/api/groups/{gid}/posts/{post_id}")
+def update_group_post(gid: int, post_id: int, body: PostUpdate, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role == "observer":
+        conn.close()
+        raise HTTPException(403, "Наблюдатели не могут редактировать посты")
+    c.execute("SELECT id FROM posts WHERE id=%s AND group_id=%s", (post_id, gid))
+    if not c.fetchone():
+        conn.close()
+        raise HTTPException(404, "Пост не найден")
+    updates, params = [], []
+    if body.title      is not None: updates.append("title=%s");        params.append(body.title)
+    if body.content    is not None: updates.append("content=%s");      params.append(body.content)
+    if body.status     is not None: updates.append("status=%s");       params.append(body.status)
+    if body.platforms  is not None: updates.append("platforms=%s");    params.append(json.dumps(body.platforms))
+    if body.tags       is not None: updates.append("tags=%s");         params.append(json.dumps(body.tags))
+    if body.scheduled_at is not None: updates.append("scheduled_at=%s"); params.append(body.scheduled_at)
+    if body.media      is not None: updates.append("media=%s");        params.append(json.dumps([m.dict() for m in body.media]))
+    if updates:
+        params.append(post_id)
+        c.execute(f"UPDATE posts SET {', '.join(updates)} WHERE id=%s", params)
+        conn.commit()
+    c.execute("SELECT * FROM posts WHERE id=%s", (post_id,))
+    row = c.fetchone()
+    conn.close()
+    return row_to_dict(row)
+
+@app.delete("/api/groups/{gid}/posts/{post_id}")
+def delete_group_post(gid: int, post_id: int, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role == "observer":
+        conn.close()
+        raise HTTPException(403, "Наблюдатели не могут удалять посты")
+    c.execute("SELECT id FROM posts WHERE id=%s AND group_id=%s", (post_id, gid))
+    if not c.fetchone():
+        conn.close()
+        raise HTTPException(404)
+    c.execute("DELETE FROM posts WHERE id=%s", (post_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+@app.post("/api/groups/{gid}/posts/{post_id}/publish")
+def publish_group_post(gid: int, post_id: int, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role == "observer":
+        conn.close()
+        raise HTTPException(403, "Наблюдатели не могут публиковать посты")
+    c.execute("SELECT * FROM posts WHERE id=%s AND group_id=%s", (post_id, gid))
+    post = c.fetchone()
+    if not post:
+        conn.close()
+        raise HTTPException(404, "Пост не найден")
+    now = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    c.execute(
+        "UPDATE posts SET status='published',published_at=%s,views=%s,reactions=%s,comments=%s,shares=%s WHERE id=%s",
+        (now, random.randint(300, 1500), random.randint(20, 120), random.randint(5, 40), random.randint(3, 25), post_id),
+    )
+    conn.commit()
+    post_dict = row_to_dict(post)
+    vk_post_id = None
+    vk_error = None
+    photo_errors: list = []
+    platforms = post_dict.get("platforms", [])
+    if "vk" in platforms:
+        c.execute("SELECT group_id, access_token FROM vk_settings WHERE group_id=%s", (gid,))
+        vk = c.fetchone()
+        if vk:
+            try:
+                message = f"{post_dict['title']}\n\n{post_dict['content']}"
+                attachments = []
+                backend_base = os.getenv("BACKEND_URL", "https://backend-production-30d6.up.railway.app").rstrip("/")
+                for media in post_dict.get("media", []):
+                    if media.get("type") == "image":
+                        try:
+                            filename = media.get("filename", "image")
+                            image_data = http_requests.get(f"{backend_base}/{media['url']}", timeout=15).content
+                            photo_id = vk_upload_photo_to_wall(vk["access_token"], vk["group_id"], image_data, filename)
+                            attachments.append(photo_id)
+                        except Exception as e:
+                            photo_errors.append(str(e))
+                    elif media.get("type") == "video":
+                        try:
+                            filename = media.get("filename", "video.mp4")
+                            video_data = http_requests.get(f"{backend_base}/{media['url']}", timeout=120).content
+                            video_id = vk_upload_video_to_wall(vk["access_token"], vk["group_id"], video_data, filename, post_dict["title"])
+                            attachments.append(video_id)
+                        except Exception as e:
+                            photo_errors.append(f"Video upload error: {str(e)}")
+                r = http_requests.post(
+                    "https://api.vk.com/method/wall.post",
+                    data={
+                        "owner_id": f"-{vk['group_id']}",
+                        "message": message,
+                        "attachments": ",".join(attachments),
+                        "access_token": vk["access_token"],
+                        "v": VK_API_VERSION,
+                    },
+                    timeout=30,
+                )
+                vk_result = r.json()
+                if "response" in vk_result:
+                    vk_post_id = vk_result["response"].get("post_id")
+                else:
+                    vk_error = vk_result.get("error", {}).get("error_msg", "Unknown VK error")
+            except Exception as e:
+                vk_error = str(e)
+    c.execute("SELECT * FROM posts WHERE id=%s", (post_id,))
+    row = c.fetchone()
+    conn.close()
+    result = row_to_dict(row)
+    result["vk_post_id"] = vk_post_id
+    result["vk_error"] = vk_error
+    result["photo_errors"] = photo_errors
+    return result
 
 # ── Posts ────────────────────────────────────────────────────────────────────
 

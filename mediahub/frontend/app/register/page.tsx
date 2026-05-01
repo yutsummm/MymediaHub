@@ -23,9 +23,9 @@ export default function RegisterPage() {
     if (password !== confirm) { setErr('Пароли не совпадают'); return }
     setLoading(true)
     try {
-      const { user } = await api.register(name.trim(), email.trim(), password)
-      login(user)
-      router.push('/dashboard')
+      const { user, token } = await api.register(name.trim(), email.trim(), password)
+      login(user, token)
+      router.push('/groups/new')
     } catch (ex: unknown) {
       setErr((ex as Error).message)
     } finally {

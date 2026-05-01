@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { AuthProvider } from '@/contexts/AuthContext'
+import { GroupProvider } from '@/contexts/GroupContext'
 import { ToastProvider } from '@/contexts/ToastContext'
 import { Plus_Jakarta_Sans } from 'next/font/google'
 
@@ -43,9 +44,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <AuthProvider>
-          <ToastProvider>
-            {children}
-          </ToastProvider>
+          <GroupProvider>
+            <ToastProvider>
+              {children}
+            </ToastProvider>
+          </GroupProvider>
         </AuthProvider>
       </body>
     </html>
