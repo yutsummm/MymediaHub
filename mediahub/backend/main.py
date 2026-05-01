@@ -429,8 +429,8 @@ def init_db():
 
             c.execute("UPDATE posts SET group_id=%s WHERE group_id IS NULL", (gid,))
             c.execute("UPDATE notifications SET group_id=%s WHERE group_id IS NULL", (gid,))
-            c.execute("UPDATE vk_settings SET group_id=%s WHERE group_id IS NULL", (gid,))
-            c.execute("UPDATE tg_settings SET group_id=%s WHERE group_id IS NULL", (gid,))
+            c.execute("UPDATE vk_settings SET workspace_id=%s WHERE workspace_id IS NULL", (gid,))
+            c.execute("UPDATE tg_settings SET workspace_id=%s WHERE workspace_id IS NULL", (gid,))
 
     conn.commit()
     conn.close()
