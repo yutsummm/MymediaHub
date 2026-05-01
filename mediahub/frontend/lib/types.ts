@@ -31,6 +31,9 @@ export interface Post {
   template_type: string | null
   created_at: string
   media: MediaItem[]
+  location_address: string | null
+  location_lat: number | null
+  location_lng: number | null
 }
 
 export interface TemplateField {

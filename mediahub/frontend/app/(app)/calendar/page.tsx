@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import type { Post } from '@/lib/types'
+import YandexLocationPickerModal from '@/components/YandexLocationPickerModal'
 
 const DAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
@@ -18,6 +19,7 @@ export default function CalendarPage() {
   const [today, setToday] = useState<string>('')
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
+  const [pickerDate, setPickerDate] = useState<string | null>(null)
 
   useEffect(() => {
     const now = new Date()
@@ -73,6 +75,17 @@ export default function CalendarPage() {
   const monthLabel = `${MONTHS[cur.getMonth()]} ${cur.getFullYear()}`
   const totalInMonth = posts.length
 
+  function openCreatePostForDate(date: string, address?: string, lat?: number | null, lng?: number | null) {
+    const params = new URLSearchParams({
+      status: 'scheduled',
+      scheduled_at: `${date}T09:00`,
+    })
+    if (address) params.set('location_address', address)
+    if (lat != null) params.set('location_lat', String(lat))
+    if (lng != null) params.set('location_lng', String(lng))
+    router.push(`/posts/new?${params.toString()}`)
+  }
+
   return (
     <div className="content">
       <div style={{
@@ -126,13 +139,29 @@ export default function CalendarPage() {
             const dp = postsByDay[ds] ?? []
             const isToday = ds === today
             return (
-              <div key={ds} className={`cal-cell${isToday ? ' today' : ''}`}>
+              <div
+                key={ds}
+                className={`cal-cell${isToday ? ' today' : ''}`}
+                onClick={() => setPickerDate(ds)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setPickerDate(ds)
+                  }
+                }}
+                title="Создать пост на эту дату и выбрать адрес"
+              >
                 <div className="cal-date">{d.getDate()}</div>
                 {dp.slice(0, 3).map(p => (
                   <div
                     key={p.id}
                     className={`cal-post cp-${p.status}`}
-                    onClick={() => router.push(`/posts/${p.id}/edit`)}
+                    onClick={event => {
+                      event.stopPropagation()
+                      router.push(`/posts/${p.id}/edit`)
+                    }}
                     title={p.title}
                   >
                     <span style={{ marginRight: 4, opacity: 0.7 }}>{SDOT[p.status]}</span>
@@ -140,7 +169,13 @@ export default function CalendarPage() {
                   </div>
                 ))}
                 {dp.length > 3 && (
-                  <div className="cal-more" onClick={() => router.push(`/posts?date=${ds}`)}>
+                  <div
+                    className="cal-more"
+                    onClick={event => {
+                      event.stopPropagation()
+                      router.push(`/posts?date=${ds}`)
+                    }}
+                  >
                     +{dp.length - 3} ещё
                   </div>
                 )}
@@ -149,6 +184,19 @@ export default function CalendarPage() {
           })}
         </div>
       </div>
+      <YandexLocationPickerModal
+        open={pickerDate !== null}
+        initialAddress=""
+        initialLat={null}
+        initialLng={null}
+        onClose={() => setPickerDate(null)}
+        onSelect={({ address, lat, lng }) => {
+          const date = pickerDate
+          setPickerDate(null)
+          if (!date) return
+          openCreatePostForDate(date, address, lat, lng)
+        }}
+      />
     </div>
   )
 }

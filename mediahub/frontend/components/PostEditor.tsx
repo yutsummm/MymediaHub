@@ -6,11 +6,28 @@ import { api } from '@/lib/api'
 import { useToast } from '@/contexts/ToastContext'
 import { applyEmojiSuggestion, getEmojiSuggestions } from '@/lib/postUtils'
 import type { MediaItem, Post, Template } from '@/lib/types'
+import YandexLocationPickerModal from '@/components/YandexLocationPickerModal'
 
 const TICO: Record<string, string> = { announcement: '◈', results: '✓', vacancy: '↗', grant: '◎' }
 const STEPS = [{ n: 1, l: 'Шаблон' }, { n: 2, l: 'Данные' }, { n: 3, l: 'Редактор' }, { n: 4, l: 'Публикация' }]
 
-export default function PostEditor({ editPost }: { editPost?: Post }) {
+type PostEditorProps = {
+  editPost?: Post
+  initialStatus?: 'draft' | 'scheduled' | 'published'
+  initialScheduledAt?: string
+  initialLocationAddress?: string
+  initialLocationLat?: number | null
+  initialLocationLng?: number | null
+}
+
+export default function PostEditor({
+  editPost,
+  initialStatus,
+  initialScheduledAt,
+  initialLocationAddress,
+  initialLocationLat,
+  initialLocationLng,
+}: PostEditorProps) {
   const router = useRouter()
   const { showToast } = useToast()
   const isEdit = !!editPost
@@ -24,8 +41,11 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
   const [content, setContent] = useState(editPost?.content ?? '')
   const [platforms, setPlatforms] = useState<string[]>(editPost?.platforms ?? ['vk'])
   const [tags, setTags] = useState<string[]>(editPost?.tags ?? [])
-  const [status, setStatus] = useState<'draft' | 'scheduled' | 'published'>(editPost?.status ?? 'draft')
-  const [schedAt, setSchedAt] = useState(editPost?.scheduled_at ? editPost.scheduled_at.slice(0, 16) : '')
+  const [status, setStatus] = useState<'draft' | 'scheduled' | 'published'>(editPost?.status ?? initialStatus ?? 'draft')
+  const [schedAt, setSchedAt] = useState(editPost?.scheduled_at ? editPost.scheduled_at.slice(0, 16) : initialScheduledAt ?? '')
+  const [locationAddress, setLocationAddress] = useState(editPost?.location_address ?? initialLocationAddress ?? '')
+  const [locationLat, setLocationLat] = useState<number | null>(editPost?.location_lat ?? initialLocationLat ?? null)
+  const [locationLng, setLocationLng] = useState<number | null>(editPost?.location_lng ?? initialLocationLng ?? null)
   const [media, setMedia] = useState<MediaItem[]>(editPost?.media ?? [])
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -34,6 +54,7 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
   const [tagIn, setTagIn] = useState('')
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
   const [aiModalOpen, setAiModalOpen] = useState(false)
+  const [locationPickerOpen, setLocationPickerOpen] = useState(false)
   const [aiLoading, setAiLoading] = useState<'creative' | 'russify' | null>(null)
   const [prevContent, setPrevContent] = useState<string | null>(null)
 
@@ -58,6 +79,9 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
       const body = {
         title, content, status, platforms, tags, media,
         scheduled_at: status === 'scheduled' ? (schedAt || null) : null,
+        location_address: locationAddress.trim() || null,
+        location_lat: locationLat,
+        location_lng: locationLng,
         template_type: tmplType || null,
       }
       if (isEdit) await api.updatePost(editPost!.id, body)
@@ -148,6 +172,12 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
 
   function handleEmojiPick(emojiData: EmojiClickData) {
     insertEmoji(emojiData.emoji)
+  }
+
+  function clearLocation() {
+    setLocationAddress('')
+    setLocationLat(null)
+    setLocationLng(null)
   }
 
   return (
@@ -447,6 +477,32 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
               </div>
             )}
 
+            <div className="fg">
+              <label>Адрес / место проведения</label>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  value={locationAddress}
+                  onChange={e => setLocationAddress(e.target.value)}
+                  placeholder="Введите адрес вручную или выберите на карте"
+                  style={{ flex: 1, minWidth: 240 }}
+                />
+                <button type="button" className="btn btn-secondary" onClick={() => setLocationPickerOpen(true)}>
+                  Выбрать на карте
+                </button>
+                {locationAddress && (
+                  <button type="button" className="btn btn-ghost" onClick={clearLocation}>
+                    Очистить
+                  </button>
+                )}
+              </div>
+              {(locationLat !== null && locationLng !== null) && (
+                <div className="ts tg" style={{ marginTop: 8 }}>
+                  Координаты: {locationLat.toFixed(6)}, {locationLng.toFixed(6)}
+                </div>
+              )}
+            </div>
+
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Предпросмотр</div>
               <div className="preview">{content}</div>
@@ -540,6 +596,20 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
           </div>
         </div>
       )}
+      <YandexLocationPickerModal
+        open={locationPickerOpen}
+        initialAddress={locationAddress}
+        initialLat={locationLat}
+        initialLng={locationLng}
+        onClose={() => setLocationPickerOpen(false)}
+        onSelect={({ address, lat, lng }) => {
+          setLocationAddress(address)
+          setLocationLat(lat)
+          setLocationLng(lng)
+          setLocationPickerOpen(false)
+          showToast('Адрес добавлен к посту', 'success')
+        }}
+      />
     </div>
   )
 }

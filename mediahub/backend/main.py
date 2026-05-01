@@ -92,6 +92,9 @@ class PostCreate(BaseModel):
     template_type: Optional[str] = None
     author_id: int = 1
     media: List[MediaItem] = []
+    location_address: Optional[str] = None
+    location_lat: Optional[float] = None
+    location_lng: Optional[float] = None
 
 class PostUpdate(BaseModel):
     title: Optional[str] = None
@@ -101,6 +104,9 @@ class PostUpdate(BaseModel):
     tags: Optional[List[str]] = None
     scheduled_at: Optional[str] = None
     media: Optional[List[MediaItem]] = None
+    location_address: Optional[str] = None
+    location_lat: Optional[float] = None
+    location_lng: Optional[float] = None
 
 class GenerateRequest(BaseModel):
     template_type: str
@@ -259,6 +265,9 @@ def init_db():
 
     c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS media TEXT DEFAULT '[]'")
     c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
+    c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS location_address TEXT")
+    c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS location_lat DOUBLE PRECISION")
+    c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS location_lng DOUBLE PRECISION")
 
     # ── Groups and memberships ───────────────────────────────────────────────
     c.execute("""
@@ -1438,8 +1447,8 @@ def create_group_post(gid: int, body: PostCreate, user_id: int = Depends(get_cur
         conn.close()
         raise HTTPException(403, "Наблюдатели не могут создавать посты")
     c.execute(
-        "INSERT INTO posts (title,content,status,platforms,tags,scheduled_at,author_id,template_type,media,group_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (body.title, body.content, body.status, json.dumps(body.platforms), json.dumps(body.tags), body.scheduled_at, user_id, body.template_type, json.dumps([m.dict() for m in body.media]), gid),
+        "INSERT INTO posts (title,content,status,platforms,tags,scheduled_at,location_address,location_lat,location_lng,author_id,template_type,media,group_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (body.title, body.content, body.status, json.dumps(body.platforms), json.dumps(body.tags), body.scheduled_at, body.location_address, body.location_lat, body.location_lng, user_id, body.template_type, json.dumps([m.dict() for m in body.media]), gid),
     )
     pid = c.fetchone()["id"]
     conn.commit()
@@ -1480,6 +1489,9 @@ def update_group_post(gid: int, post_id: int, body: PostUpdate, user_id: int = D
     if body.tags       is not None: updates.append("tags=%s");         params.append(json.dumps(body.tags))
     if body.scheduled_at is not None: updates.append("scheduled_at=%s"); params.append(body.scheduled_at)
     if body.media      is not None: updates.append("media=%s");        params.append(json.dumps([m.dict() for m in body.media]))
+    if body.location_address is not None: updates.append("location_address=%s"); params.append(body.location_address)
+    if body.location_lat is not None: updates.append("location_lat=%s"); params.append(body.location_lat)
+    if body.location_lng is not None: updates.append("location_lng=%s"); params.append(body.location_lng)
     if updates:
         params.append(post_id)
         c.execute(f"UPDATE posts SET {', '.join(updates)} WHERE id=%s", params)
@@ -1621,8 +1633,8 @@ def create_post(body: PostCreate):
     conn = get_db()
     c = conn.cursor()
     c.execute(
-        "INSERT INTO posts (title,content,status,platforms,tags,scheduled_at,author_id,template_type,media) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (body.title, body.content, body.status, json.dumps(body.platforms), json.dumps(body.tags), body.scheduled_at, body.author_id, body.template_type, json.dumps([m.dict() for m in body.media])),
+        "INSERT INTO posts (title,content,status,platforms,tags,scheduled_at,location_address,location_lat,location_lng,author_id,template_type,media) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (body.title, body.content, body.status, json.dumps(body.platforms), json.dumps(body.tags), body.scheduled_at, body.location_address, body.location_lat, body.location_lng, body.author_id, body.template_type, json.dumps([m.dict() for m in body.media])),
     )
     pid = c.fetchone()["id"]
     conn.commit()
@@ -1647,6 +1659,9 @@ def update_post(post_id: int, body: PostUpdate):
     if body.tags       is not None: updates.append("tags=%s");         params.append(json.dumps(body.tags))
     if body.scheduled_at is not None: updates.append("scheduled_at=%s"); params.append(body.scheduled_at)
     if body.media      is not None: updates.append("media=%s");        params.append(json.dumps([m.dict() for m in body.media]))
+    if body.location_address is not None: updates.append("location_address=%s"); params.append(body.location_address)
+    if body.location_lat is not None: updates.append("location_lat=%s"); params.append(body.location_lat)
+    if body.location_lng is not None: updates.append("location_lng=%s"); params.append(body.location_lng)
     if updates:
         params.append(post_id)
         c.execute(f"UPDATE posts SET {', '.join(updates)} WHERE id=%s", params)
