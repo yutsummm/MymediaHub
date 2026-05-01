@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
@@ -12,8 +12,12 @@ const DEMOS = [
 ]
 
 export default function LoginPage() {
-  const { login } = useAuth()
+  const { login, user, loading: authLoading } = useAuth()
   const router = useRouter()
+
+  useEffect(() => {
+    if (!authLoading && user) router.replace('/dashboard')
+  }, [user, authLoading, router])
   const [email, setEmail] = useState('admin@mediahub.ru')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)

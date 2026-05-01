@@ -1,18 +1,22 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
 import { api } from '@/lib/api'
 
 export default function RegisterPage() {
-  const { login } = useAuth()
+  const { login, user, loading } = useAuth()
   const router = useRouter()
+
+  useEffect(() => {
+    if (!loading && user) router.replace('/dashboard')
+  }, [user, loading, router])
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [err, setErr] = useState('')
 
   async function submit(e: React.FormEvent) {
@@ -21,7 +25,7 @@ export default function RegisterPage() {
     if (!name.trim()) { setErr('Введите имя'); return }
     if (password.length < 6) { setErr('Пароль должен содержать минимум 6 символов'); return }
     if (password !== confirm) { setErr('Пароли не совпадают'); return }
-    setLoading(true)
+    setIsSubmitting(true)
     try {
       const { user, token } = await api.register(name.trim(), email.trim(), password)
       login(user, token)
@@ -29,7 +33,7 @@ export default function RegisterPage() {
     } catch (ex: unknown) {
       setErr((ex as Error).message)
     } finally {
-      setLoading(false)
+      setIsSubmitting(false)
     }
   }
 
@@ -94,10 +98,10 @@ export default function RegisterPage() {
             <button
               type="submit"
               className="btn btn-primary login-submit"
-              disabled={loading}
+              disabled={isSubmitting}
             >
-              {loading ? 'Регистрируем...' : 'Создать аккаунт'}
-              {!loading && <span className="btn-icon">→</span>}
+              {isSubmitting ? 'Регистрируем...' : 'Создать аккаунт'}
+              {!isSubmitting && <span className="btn-icon">→</span>}
             </button>
           </form>
 
