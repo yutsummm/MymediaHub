@@ -1,10 +1,11 @@
 'use client'
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { useGroup } from '@/contexts/GroupContext'
 import { useToast } from '@/contexts/ToastContext'
-import type { User, VkSettings, TgSettings } from '@/lib/types'
+import type { VkSettings, TgSettings, GroupMember, InviteLink } from '@/lib/types'
 
 const ROLES = [
   { v: 'admin',    l: 'Администратор', d: 'Полный доступ ко всем функциям' },
@@ -13,13 +14,14 @@ const ROLES = [
 ]
 const RC: Record<string, string> = { admin: 'r-admin', editor: 'r-editor', observer: 'r-observer' }
 
-const EMPTY_INVITE = { name: '', email: '', role: 'editor', password: '', confirm: '' }
-
 export default function SettingsPage() {
+  const router = useRouter()
   const { user: me } = useAuth()
-  const { currentGroup } = useGroup()
+  const { currentGroup, refreshGroups } = useGroup()
   const { showToast } = useToast()
-  const [users, setUsers] = useState<User[]>([])
+
+  const [members, setMembers] = useState<GroupMember[]>([])
+  const [inviteLinks, setInviteLinks] = useState<InviteLink[]>([])
 
   // VK integration state
   const [vk, setVk] = useState<VkSettings | null>(null)
@@ -37,11 +39,18 @@ export default function SettingsPage() {
   const [tgDisconnecting, setTgDisconnecting] = useState(false)
   const [showTgForm, setShowTgForm] = useState(false)
 
-  // Invite user state
-  const [showInvite, setShowInvite] = useState(false)
-  const [invite, setInvite] = useState(EMPTY_INVITE)
-  const [inviteSaving, setInviteSaving] = useState(false)
+  // Invite link creation state
+  const [showCreateInvite, setShowCreateInvite] = useState(false)
+  const [inviteRole, setInviteRole] = useState('editor')
+  const [inviteHours, setInviteHours] = useState('24')
+  const [creatingInvite, setCreatingInvite] = useState(false)
+  const [revokingId, setRevokingId] = useState<number | null>(null)
+
+  // Member management state
   const [deletingId, setDeletingId] = useState<number | null>(null)
+
+  // Delete group state
+  const [deletingGroup, setDeletingGroup] = useState(false)
 
   useEffect(() => {
     if (!currentGroup) return
@@ -55,6 +64,10 @@ export default function SettingsPage() {
       setTg(s)
       if (s.connected) setShowTgForm(false)
     }).catch(console.error)
+    api.getGroupMembers(gid).then(setMembers).catch(console.error)
+    if (currentGroup.role === 'admin') {
+      api.getInviteLinks(gid).then(setInviteLinks).catch(console.error)
+    }
   }, [currentGroup?.id])
 
   async function connectTg() {
@@ -82,14 +95,6 @@ export default function SettingsPage() {
     finally { setTgDisconnecting(false) }
   }
 
-  async function changeRole(id: number, role: string) {
-    try {
-      const updated = await api.updateUserRole(id, role)
-      setUsers(p => p.map(u => u.id === id ? { ...u, role: updated.role } : u))
-      showToast('Роль обновлена', 'success')
-    } catch (e: unknown) { showToast((e as Error).message, 'error') }
-  }
-
   async function connectVk() {
     if (!currentGroup) return
     if (!vkGroupId.trim()) { showToast('Введите ID группы', 'error'); return }
@@ -115,34 +120,69 @@ export default function SettingsPage() {
     finally { setVkDisconnecting(false) }
   }
 
-  async function addUser() {
-    if (!invite.name.trim()) { showToast('Введите имя', 'error'); return }
-    if (!invite.email.trim()) { showToast('Введите email', 'error'); return }
-    if (invite.password.length < 6) { showToast('Пароль — минимум 6 символов', 'error'); return }
-    if (invite.password !== invite.confirm) { showToast('Пароли не совпадают', 'error'); return }
-    setInviteSaving(true)
+  async function changeRole(uid: number, role: string) {
+    if (!currentGroup) return
     try {
-      const created = await api.createUser(invite.name.trim(), invite.email.trim(), invite.role, invite.password)
-      setUsers(p => [...p, created])
-      setInvite(EMPTY_INVITE)
-      setShowInvite(false)
-      showToast(`Участник «${created.name}» добавлен`, 'success')
+      const updated = await api.updateMemberRole(currentGroup.id, uid, role)
+      setMembers(p => p.map(m => m.id === uid ? { ...m, role: updated.role } : m))
+      showToast('Роль обновлена', 'success')
     } catch (e: unknown) { showToast((e as Error).message, 'error') }
-    finally { setInviteSaving(false) }
   }
 
-  async function removeUser(u: User) {
-    if (!confirm(`Удалить участника «${u.name}»?`)) return
-    setDeletingId(u.id)
+  async function removeMember(m: GroupMember) {
+    if (!currentGroup) return
+    if (!confirm(`Удалить участника «${m.name}» из группы?`)) return
+    setDeletingId(m.id)
     try {
-      await api.deleteUser(u.id)
-      setUsers(p => p.filter(x => x.id !== u.id))
-      showToast(`Участник «${u.name}» удалён`, 'success')
+      await api.removeGroupMember(currentGroup.id, m.id)
+      setMembers(p => p.filter(x => x.id !== m.id))
+      showToast(`Участник «${m.name}» удалён из группы`, 'success')
     } catch (e: unknown) { showToast((e as Error).message, 'error') }
     finally { setDeletingId(null) }
   }
 
-  const isAdmin = me?.role === 'admin'
+  async function createInvite() {
+    if (!currentGroup) return
+    setCreatingInvite(true)
+    try {
+      const link = await api.createInviteLink(currentGroup.id, inviteRole, parseInt(inviteHours))
+      setInviteLinks(p => [link, ...p])
+      setShowCreateInvite(false)
+      showToast('Ссылка создана', 'success')
+    } catch (e: unknown) { showToast((e as Error).message, 'error') }
+    finally { setCreatingInvite(false) }
+  }
+
+  async function revokeInvite(id: number) {
+    if (!currentGroup) return
+    setRevokingId(id)
+    try {
+      await api.revokeInviteLink(currentGroup.id, id)
+      setInviteLinks(p => p.filter(l => l.id !== id))
+      showToast('Ссылка отозвана', 'success')
+    } catch (e: unknown) { showToast((e as Error).message, 'error') }
+    finally { setRevokingId(null) }
+  }
+
+  function copyInviteLink(token: string) {
+    const url = `${window.location.origin}/invite/${token}`
+    navigator.clipboard.writeText(url).then(() => showToast('Ссылка скопирована', 'success'))
+  }
+
+  async function deleteGroup() {
+    if (!currentGroup) return
+    if (!confirm(`Удалить группу «${currentGroup.name}»? Все посты и настройки будут удалены безвозвратно.`)) return
+    setDeletingGroup(true)
+    try {
+      await api.deleteGroup(currentGroup.id)
+      await refreshGroups()
+      router.push('/dashboard')
+      showToast('Группа удалена', 'success')
+    } catch (e: unknown) { showToast((e as Error).message, 'error') }
+    finally { setDeletingGroup(false) }
+  }
+
+  const isAdmin = currentGroup?.role === 'admin'
 
   return (
     <div className="content">
@@ -356,77 +396,103 @@ export default function SettingsPage() {
         )}
       </div>
 
-      {/* Users management */}
-      <div className="card">
-        <div className="card-header">
-          <span className="card-title">Участники команды</span>
-          {isAdmin && (
-            <button className="btn btn-primary" style={{ padding: '6px 14px', fontSize: 12 }} onClick={() => setShowInvite(v => !v)}>
-              {showInvite ? 'Отмена' : '+ Добавить участника'}
+      {/* Invite links */}
+      {isAdmin && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card-header">
+            <span className="card-title">Ссылки-приглашения</span>
+            <button
+              className="btn btn-primary"
+              style={{ padding: '6px 14px', fontSize: 12 }}
+              onClick={() => setShowCreateInvite(v => !v)}
+            >
+              {showCreateInvite ? 'Отмена' : '+ Создать ссылку'}
             </button>
+          </div>
+
+          {showCreateInvite && (
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div className="fg" style={{ margin: 0, minWidth: 160 }}>
+                  <label>Роль</label>
+                  <select value={inviteRole} onChange={e => setInviteRole(e.target.value)}>
+                    {ROLES.map(r => <option key={r.v} value={r.v}>{r.l}</option>)}
+                  </select>
+                </div>
+                <div className="fg" style={{ margin: 0, minWidth: 160 }}>
+                  <label>Срок действия</label>
+                  <select value={inviteHours} onChange={e => setInviteHours(e.target.value)}>
+                    <option value="6">6 часов</option>
+                    <option value="24">24 часа</option>
+                    <option value="72">3 дня</option>
+                    <option value="168">7 дней</option>
+                    <option value="720">30 дней</option>
+                  </select>
+                </div>
+                <button className="btn btn-primary" onClick={createInvite} disabled={creatingInvite}>
+                  {creatingInvite ? 'Создаём...' : 'Создать'}
+                  {!creatingInvite && <span className="btn-icon">✓</span>}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {inviteLinks.length === 0 ? (
+            <div style={{ padding: '20px', color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>
+              Нет активных ссылок
+            </div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Роль</th>
+                  <th>Использована</th>
+                  <th>Истекает</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {inviteLinks.map(link => (
+                  <tr key={link.id}>
+                    <td><span className={`user-role-lbl ${RC[link.role]}`}>{ROLES.find(r => r.v === link.role)?.l ?? link.role}</span></td>
+                    <td style={{ color: 'var(--text-3)', fontSize: 12 }}>
+                      {link.used_count}{link.max_uses ? ` / ${link.max_uses}` : ''} раз
+                    </td>
+                    <td style={{ color: 'var(--text-3)', fontSize: 12 }}>
+                      {new Date(link.expires_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: '4px 10px', fontSize: 11 }}
+                          onClick={() => copyInviteLink(link.token)}
+                        >
+                          Копировать
+                        </button>
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: '4px 10px', fontSize: 11, color: 'var(--error, #ef4444)' }}
+                          onClick={() => revokeInvite(link.id)}
+                          disabled={revokingId === link.id}
+                        >
+                          {revokingId === link.id ? '...' : 'Отозвать'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
+      )}
 
-        {/* Invite form */}
-        {isAdmin && showInvite && (
-          <div style={{
-            margin: '0 0 0 0', padding: '16px 20px',
-            borderBottom: '1px solid var(--border)',
-            background: 'var(--surface-2)',
-          }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 14 }}>
-              Новый участник
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-              <div className="fg">
-                <label>Имя и фамилия</label>
-                <input
-                  type="text" placeholder="Алексей Иванов"
-                  value={invite.name} onChange={e => setInvite(p => ({ ...p, name: e.target.value }))}
-                />
-              </div>
-              <div className="fg">
-                <label>Email</label>
-                <input
-                  type="email" placeholder="user@email.com"
-                  value={invite.email} onChange={e => setInvite(p => ({ ...p, email: e.target.value }))}
-                />
-              </div>
-              <div className="fg">
-                <label>Пароль</label>
-                <input
-                  type="password" placeholder="Минимум 6 символов"
-                  value={invite.password} onChange={e => setInvite(p => ({ ...p, password: e.target.value }))}
-                  autoComplete="new-password"
-                />
-              </div>
-              <div className="fg">
-                <label>Подтвердите пароль</label>
-                <input
-                  type="password" placeholder="Повторите пароль"
-                  value={invite.confirm} onChange={e => setInvite(p => ({ ...p, confirm: e.target.value }))}
-                  autoComplete="new-password"
-                />
-              </div>
-            </div>
-            <div className="fg" style={{ maxWidth: 260 }}>
-              <label>Роль</label>
-              <select value={invite.role} onChange={e => setInvite(p => ({ ...p, role: e.target.value }))}>
-                {ROLES.map(r => <option key={r.v} value={r.v}>{r.l}</option>)}
-              </select>
-            </div>
-            <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-              <button className="btn btn-secondary" onClick={() => { setShowInvite(false); setInvite(EMPTY_INVITE) }}>
-                Отмена
-              </button>
-              <button className="btn btn-primary" onClick={addUser} disabled={inviteSaving}>
-                {inviteSaving ? 'Добавляем...' : 'Добавить участника'}
-                {!inviteSaving && <span className="btn-icon">✓</span>}
-              </button>
-            </div>
-          </div>
-        )}
-
+      {/* Members */}
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-header">
+          <span className="card-title">Участники команды</span>
+        </div>
         <table>
           <thead>
             <tr>
@@ -436,8 +502,8 @@ export default function SettingsPage() {
             </tr>
           </thead>
           <tbody>
-            {users.map(u => (
-              <tr key={u.id}>
+            {members.map(m => (
+              <tr key={m.id}>
                 <td>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{
@@ -446,21 +512,21 @@ export default function SettingsPage() {
                       color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontWeight: 700, fontSize: 12, flexShrink: 0,
                     }}>
-                      {u.avatar || u.name[0].toUpperCase()}
+                      {m.avatar || m.name[0].toUpperCase()}
                     </div>
                     <div>
-                      <span style={{ fontWeight: 600, color: 'var(--text)', fontSize: 13 }}>{u.name}</span>
-                      {u.id === me?.id && (
+                      <span style={{ fontWeight: 600, color: 'var(--text)', fontSize: 13 }}>{m.name}</span>
+                      {m.id === me?.id && (
                         <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 6 }}>(вы)</span>
                       )}
                     </div>
                   </div>
                 </td>
-                <td style={{ color: 'var(--text-3)', fontSize: 12 }}>{u.email}</td>
-                <td><span className={`user-role-lbl ${RC[u.role]}`}>{ROLES.find(r => r.v === u.role)?.l ?? u.role}</span></td>
+                <td style={{ color: 'var(--text-3)', fontSize: 12 }}>{m.email}</td>
+                <td><span className={`user-role-lbl ${RC[m.role]}`}>{ROLES.find(r => r.v === m.role)?.l ?? m.role}</span></td>
                 {isAdmin && (
                   <td>
-                    <select value={u.role} onChange={e => changeRole(u.id, e.target.value)}
+                    <select value={m.role} onChange={e => changeRole(m.id, e.target.value)}
                       style={{ width: 'auto', padding: '6px 10px', fontSize: 12 }}>
                       {ROLES.map(r => <option key={r.v} value={r.v}>{r.l}</option>)}
                     </select>
@@ -468,14 +534,14 @@ export default function SettingsPage() {
                 )}
                 {isAdmin && (
                   <td>
-                    {u.id !== me?.id && (
+                    {m.id !== me?.id && (
                       <button
                         className="btn btn-secondary"
                         style={{ padding: '4px 10px', fontSize: 11, color: 'var(--error, #ef4444)' }}
-                        onClick={() => removeUser(u)}
-                        disabled={deletingId === u.id}
+                        onClick={() => removeMember(m)}
+                        disabled={deletingId === m.id}
                       >
-                        {deletingId === u.id ? '...' : 'Удалить'}
+                        {deletingId === m.id ? '...' : 'Удалить'}
                       </button>
                     )}
                   </td>
@@ -486,7 +552,7 @@ export default function SettingsPage() {
         </table>
       </div>
 
-      <div className="card card-p" style={{ marginTop: 16 }}>
+      <div className="card card-p" style={{ marginBottom: 16 }}>
         <div className="card-title" style={{ marginBottom: 16 }}>О ролях</div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           {ROLES.map(r => (
@@ -501,6 +567,27 @@ export default function SettingsPage() {
           ))}
         </div>
       </div>
+
+      {/* Danger zone */}
+      {isAdmin && (
+        <div className="card card-p" style={{
+          border: '1px solid rgba(239,68,68,0.3)',
+          background: 'rgba(239,68,68,0.04)',
+        }}>
+          <div className="card-title" style={{ marginBottom: 6, color: '#ef4444' }}>Опасная зона</div>
+          <p style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 16 }}>
+            Удаление группы необратимо — все посты, настройки и участники будут удалены.
+          </p>
+          <button
+            className="btn btn-secondary"
+            style={{ color: '#ef4444', borderColor: 'rgba(239,68,68,0.4)' }}
+            onClick={deleteGroup}
+            disabled={deletingGroup}
+          >
+            {deletingGroup ? 'Удаляем...' : `Удалить группу «${currentGroup?.name}»`}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
