@@ -3,9 +3,10 @@
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '')
 
 let _getToken: () => string | null = () => null
-export function setTokenGetter(fn: () => string | null) {
-  _getToken = fn
-}
+let _onUnauthorized: () => void = () => {}
+
+export function setTokenGetter(fn: () => string | null) { _getToken = fn }
+export function setUnauthorizedHandler(fn: () => void) { _onUnauthorized = fn }
 
 async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
   const url = `${BASE}${path}`
@@ -32,6 +33,10 @@ async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
     const text = await res.text().catch(() => '')
     let detail: string | undefined
     try { detail = JSON.parse(text)?.detail } catch {}
+    // Only auto-logout when we sent a valid token but backend rejected it (expired/invalid)
+    if (res.status === 401 && token) {
+      _onUnauthorized()
+    }
     throw new Error(detail ?? `${res.status} ${res.statusText} — ${url}`)
   }
   return res.json()

@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect } from 'react'
 import type { User } from '@/lib/types'
-import { setTokenGetter } from '@/lib/api'
+import { setTokenGetter, setUnauthorizedHandler } from '@/lib/api'
 
 interface AuthCtx {
   user: User | null
@@ -32,6 +32,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setTokenGetter(() => token)
+    setUnauthorizedHandler(logout)
   }, [token])
 
   const login = (u: User, t: string) => {
