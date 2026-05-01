@@ -24,7 +24,7 @@ const GroupContext = createContext<GroupCtx>({
 })
 
 export function GroupProvider({ children }: { children: React.ReactNode }) {
-  const { user, token } = useAuth()
+  const { user, token, logout } = useAuth()
   const [groups, setGroups] = useState<Group[]>([])
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null)
   const [loading, setLoading] = useState(true)
@@ -44,7 +44,12 @@ export function GroupProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (e) {
-      console.error('Failed to load groups:', e)
+      const msg = (e as Error).message ?? ''
+      if (msg.includes('авторизаци') || msg.includes('401') || msg.includes('токен') || msg.toLowerCase().includes('unauthorized')) {
+        logout()
+      } else {
+        console.error('Failed to load groups:', e)
+      }
     }
   }
 
