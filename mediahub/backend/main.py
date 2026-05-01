@@ -300,8 +300,9 @@ def init_db():
     # ── Add group_id to existing tables ──────────────────────────────────────
     c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id)")
     c.execute("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id)")
-    c.execute("ALTER TABLE vk_settings ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id)")
-    c.execute("ALTER TABLE tg_settings ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id)")
+    # workspace_id links vk/tg rows to app groups (group_id TEXT is already taken by VK group id)
+    c.execute("ALTER TABLE vk_settings ADD COLUMN IF NOT EXISTS workspace_id INTEGER REFERENCES groups(id)")
+    c.execute("ALTER TABLE tg_settings ADD COLUMN IF NOT EXISTS workspace_id INTEGER REFERENCES groups(id)")
 
     c.execute("SELECT COUNT(*) FROM users")
     if c.fetchone()["count"] == 0:
@@ -912,7 +913,7 @@ def get_group_vk_settings(gid: int, user_id: int = Depends(get_current_user_id))
     conn = get_db()
     c = conn.cursor()
     require_group_member(gid, user_id, conn)
-    c.execute("SELECT group_id, group_name, connected_at FROM vk_settings WHERE group_id IN (SELECT id FROM groups WHERE id=%s)", (gid,))
+    c.execute("SELECT group_id, group_name, connected_at FROM vk_settings WHERE workspace_id=%s", (gid,))
     row = c.fetchone()
     conn.close()
     if not row:
@@ -936,17 +937,17 @@ def save_group_vk_settings(gid: int, body: VkSettingsSave, user_id: int = Depend
         raise HTTPException(400, str(e))
     clean_id = body.group_id.lstrip("-")
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
-    c.execute("SELECT group_id FROM vk_settings WHERE group_id=%s", (gid,))
+    c.execute("SELECT workspace_id FROM vk_settings WHERE workspace_id=%s", (gid,))
     exists = c.fetchone()
     if exists:
         c.execute(
-            "UPDATE vk_settings SET group_id=%s, access_token=%s, group_name=%s, connected_at=%s WHERE group_id=%s",
+            "UPDATE vk_settings SET group_id=%s, access_token=%s, group_name=%s, connected_at=%s WHERE workspace_id=%s",
             (clean_id, body.access_token, group_name, now, gid),
         )
     else:
         c.execute(
-            "INSERT INTO vk_settings (group_id, access_token, group_name, connected_at) VALUES (%s, %s, %s, %s)",
-            (gid, body.access_token, group_name, now),
+            "INSERT INTO vk_settings (workspace_id, group_id, access_token, group_name, connected_at) VALUES (%s, %s, %s, %s, %s)",
+            (gid, clean_id, body.access_token, group_name, now),
         )
     conn.commit()
     conn.close()
@@ -960,7 +961,7 @@ def delete_group_vk_settings(gid: int, user_id: int = Depends(get_current_user_i
     if role != "admin":
         conn.close()
         raise HTTPException(403, "Только администратор может удалять настройки")
-    c.execute("DELETE FROM vk_settings WHERE group_id=%s", (gid,))
+    c.execute("DELETE FROM vk_settings WHERE workspace_id=%s", (gid,))
     conn.commit()
     conn.close()
     return {"connected": False}
@@ -1021,7 +1022,7 @@ def get_group_tg_settings(gid: int, user_id: int = Depends(get_current_user_id))
     conn = get_db()
     c = conn.cursor()
     require_group_member(gid, user_id, conn)
-    c.execute("SELECT chat_id, chat_title, connected_at FROM tg_settings WHERE group_id=%s", (gid,))
+    c.execute("SELECT chat_id, chat_title, connected_at FROM tg_settings WHERE workspace_id=%s", (gid,))
     row = c.fetchone()
     conn.close()
     if not row:
@@ -1039,21 +1040,32 @@ def save_group_tg_settings(gid: int, body: TgSettingsSave, user_id: int = Depend
         conn.close()
         raise HTTPException(403, "Только администратор может изменять настройки")
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
-    c.execute("SELECT group_id FROM tg_settings WHERE group_id=%s", (gid,))
+    # resolve chat_title via Telegram API
+    chat_title = body.chat_id
+    try:
+        import requests as _req
+        r = _req.get(f"https://api.telegram.org/bot{body.bot_token}/getChat",
+                     params={"chat_id": body.chat_id}, timeout=5)
+        data = r.json()
+        if data.get("ok"):
+            chat_title = data["result"].get("title") or data["result"].get("username") or body.chat_id
+    except Exception:
+        pass
+    c.execute("SELECT workspace_id FROM tg_settings WHERE workspace_id=%s", (gid,))
     exists = c.fetchone()
     if exists:
         c.execute(
-            "UPDATE tg_settings SET bot_token=%s, chat_id=%s, connected_at=%s WHERE group_id=%s",
-            (body.bot_token, body.chat_id, now, gid),
+            "UPDATE tg_settings SET bot_token=%s, chat_id=%s, chat_title=%s, connected_at=%s WHERE workspace_id=%s",
+            (body.bot_token, body.chat_id, chat_title, now, gid),
         )
     else:
         c.execute(
-            "INSERT INTO tg_settings (group_id, bot_token, chat_id, connected_at) VALUES (%s, %s, %s, %s)",
-            (gid, body.bot_token, body.chat_id, now),
+            "INSERT INTO tg_settings (workspace_id, bot_token, chat_id, chat_title, connected_at) VALUES (%s, %s, %s, %s, %s)",
+            (gid, body.bot_token, body.chat_id, chat_title, now),
         )
     conn.commit()
     conn.close()
-    return {"connected": True, "chat_id": body.chat_id, "connected_at": now}
+    return {"connected": True, "chat_id": body.chat_id, "chat_title": chat_title, "connected_at": now}
 
 @app.delete("/api/groups/{gid}/settings/telegram")
 def delete_group_tg_settings(gid: int, user_id: int = Depends(get_current_user_id)):
@@ -1063,7 +1075,7 @@ def delete_group_tg_settings(gid: int, user_id: int = Depends(get_current_user_i
     if role != "admin":
         conn.close()
         raise HTTPException(403, "Только администратор может удалять настройки")
-    c.execute("DELETE FROM tg_settings WHERE group_id=%s", (gid,))
+    c.execute("DELETE FROM tg_settings WHERE workspace_id=%s", (gid,))
     conn.commit()
     conn.close()
     return {"connected": False}

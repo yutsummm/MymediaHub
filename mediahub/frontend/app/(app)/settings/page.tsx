@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
+import { useGroup } from '@/contexts/GroupContext'
 import { useToast } from '@/contexts/ToastContext'
 import type { User, VkSettings, TgSettings } from '@/lib/types'
 
@@ -16,6 +17,7 @@ const EMPTY_INVITE = { name: '', email: '', role: 'editor', password: '', confir
 
 export default function SettingsPage() {
   const { user: me } = useAuth()
+  const { currentGroup } = useGroup()
   const { showToast } = useToast()
   const [users, setUsers] = useState<User[]>([])
 
@@ -42,23 +44,26 @@ export default function SettingsPage() {
   const [deletingId, setDeletingId] = useState<number | null>(null)
 
   useEffect(() => {
-    api.getUsers().then(setUsers).catch(console.error)
-    api.getVkSettings().then(s => {
+    if (!currentGroup) return
+    const gid = currentGroup.id
+    setVk(null); setTg(null)
+    api.getGroupVkSettings(gid).then(s => {
       setVk(s)
       if (s.connected) setShowVkForm(false)
     }).catch(console.error)
-    api.getTgSettings().then(s => {
+    api.getGroupTgSettings(gid).then(s => {
       setTg(s)
       if (s.connected) setShowTgForm(false)
     }).catch(console.error)
-  }, [])
+  }, [currentGroup?.id])
 
   async function connectTg() {
+    if (!currentGroup) return
     if (!tgBotToken.trim()) { showToast('Введите токен бота', 'error'); return }
     if (!tgChatId.trim()) { showToast('Введите ID канала или @username', 'error'); return }
     setTgSaving(true)
     try {
-      const result = await api.saveTgSettings(tgBotToken.trim(), tgChatId.trim())
+      const result = await api.saveGroupTgSettings(currentGroup.id, tgBotToken.trim(), tgChatId.trim())
       setTg(result)
       setTgBotToken(''); setTgChatId(''); setShowTgForm(false)
       showToast(`Канал «${result.chat_title}» подключён`, 'success')
@@ -67,9 +72,10 @@ export default function SettingsPage() {
   }
 
   async function disconnectTg() {
+    if (!currentGroup) return
     setTgDisconnecting(true)
     try {
-      await api.deleteTgSettings()
+      await api.deleteGroupTgSettings(currentGroup.id)
       setTg({ connected: false })
       showToast('Telegram-канал отключён', 'success')
     } catch (e: unknown) { showToast((e as Error).message, 'error') }
@@ -85,11 +91,12 @@ export default function SettingsPage() {
   }
 
   async function connectVk() {
+    if (!currentGroup) return
     if (!vkGroupId.trim()) { showToast('Введите ID группы', 'error'); return }
     if (!vkToken.trim()) { showToast('Введите токен доступа', 'error'); return }
     setVkSaving(true)
     try {
-      const result = await api.saveVkSettings(vkGroupId.trim(), vkToken.trim())
+      const result = await api.saveGroupVkSettings(currentGroup.id, vkGroupId.trim(), vkToken.trim())
       setVk(result)
       setVkGroupId(''); setVkToken(''); setShowVkForm(false)
       showToast(`Группа «${result.group_name}» подключена`, 'success')
@@ -98,9 +105,10 @@ export default function SettingsPage() {
   }
 
   async function disconnectVk() {
+    if (!currentGroup) return
     setVkDisconnecting(true)
     try {
-      await api.deleteVkSettings()
+      await api.deleteGroupVkSettings(currentGroup.id)
       setVk({ connected: false })
       showToast('VK-группа отключена', 'success')
     } catch (e: unknown) { showToast((e as Error).message, 'error') }
