@@ -29,7 +29,7 @@ export default function RegisterPage() {
     try {
       const { user, token } = await api.register(name.trim(), email.trim(), password)
       login(user, token)
-      router.push('/groups/new')
+      router.push('/dashboard')
     } catch (ex: unknown) {
       setErr((ex as Error).message)
     } finally {

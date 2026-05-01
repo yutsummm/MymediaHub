@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useGroup } from '@/contexts/GroupContext'
 import Sidebar from '@/components/Sidebar'
 import { api } from '@/lib/api'
+import CreateGroupModal from '@/components/CreateGroupModal'
 
 const TITLES: Record<string, string> = {
   '/dashboard':     'Дашборд',
@@ -29,12 +30,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!loading && !user) router.replace('/login')
   }, [user, loading, router])
-
-  useEffect(() => {
-    if (!loading && !groupsLoading && user && groups.length === 0) {
-      router.replace('/groups/new')
-    }
-  }, [user, loading, groups, groupsLoading, router])
 
   useEffect(() => {
     if (user) {
@@ -82,6 +77,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         {children}
       </div>
+
+      {groups.length === 0 && <CreateGroupModal />}
     </div>
   )
 }
