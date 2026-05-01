@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useGroup } from '@/contexts/GroupContext'
 import { api } from '@/lib/api'
 
-export default function CreateGroupModal() {
+export default function CreateGroupModal({ onClose }: { onClose?: () => void }) {
   const { refreshGroups } = useGroup()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -47,7 +47,29 @@ export default function CreateGroupModal() {
         borderRadius: 'var(--r-lg)',
         border: '1px solid var(--border)',
         background: 'var(--bg-secondary)',
+        position: 'relative',
       }}>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              position: 'absolute',
+              top: 16,
+              right: 16,
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--text-3)',
+              fontSize: 20,
+              lineHeight: 1,
+              padding: 4,
+            }}
+            aria-label="Закрыть"
+          >
+            ✕
+          </button>
+        )}
         <h1 style={{ fontSize: 24, marginBottom: 8, color: 'var(--text-1)' }}>
           Создайте вашу первую группу
         </h1>

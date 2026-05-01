@@ -24,6 +24,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const [unread, setUnread] = useState(0)
   const [navOpen, setNavOpen] = useState(false)
+  const [groupModalDismissed, setGroupModalDismissed] = useState(false)
 
   useEffect(() => { setNavOpen(false) }, [pathname])
 
@@ -78,7 +79,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {children}
       </div>
 
-      {!groupsLoading && groups.length === 0 && <CreateGroupModal />}
+      {!groupsLoading && groups.length === 0 && !groupModalDismissed && (
+        <CreateGroupModal onClose={() => setGroupModalDismissed(true)} />
+      )}
     </div>
   )
 }
