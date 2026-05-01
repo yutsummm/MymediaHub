@@ -78,7 +78,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         {children}
       </div>
 
-      {groups.length === 0 && <CreateGroupModal />}
+      {!groupsLoading && groups.length === 0 && <CreateGroupModal />}
     </div>
   )
 }
