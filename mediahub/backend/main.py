@@ -1945,7 +1945,11 @@ def mark_read(notif_id: int):
 
 @app.on_event("startup")
 def startup():
-    init_db()
-    print("✅  MediaHub API запущен!  →  http://localhost:8000")
+    try:
+        init_db()
+        print("✅  MediaHub API запущен!  →  http://localhost:8000")
+    except Exception as e:
+        print(f"❌  init_db() FAILED: {e}")
+        raise
 
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
