@@ -7,7 +7,7 @@ export default function Root() {
   const { user, loading } = useAuth()
   const router = useRouter()
   useEffect(() => {
-    if (!loading) router.replace(user ? '/dashboard' : '/login')
+    if (!loading) router.replace(user ? '/dashboard' : '/register')
   }, [user, loading, router])
   return null
 }
