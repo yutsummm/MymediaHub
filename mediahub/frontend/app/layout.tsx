@@ -14,7 +14,7 @@ const sans = Plus_Jakarta_Sans({
 
 export const metadata: Metadata = {
   title: 'Медиа-Хаб — пространство идей и контента',
-  icons: { icon: '/logo.png' },
+  icons: { icon: '/favicon.svg' },
 }
 
 export const viewport = {
