@@ -73,6 +73,7 @@ export default function PostEditor({
   const [splitLoading, setSplitLoading] = useState(false)
   const [hoveredModeInfo, setHoveredModeInfo] = useState<string | null>(null)
   const [locationPickerOpen, setLocationPickerOpen] = useState(false)
+  const [aiLoading, setAiLoading] = useState<'creative' | 'russify' | null>(null)
   const [prevContent, setPrevContent] = useState<string | null>(null)
   const splitCallIdRef = useRef(0)
   const splitDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -366,7 +367,7 @@ export default function PostEditor({
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm ai-assist-btn"
-                    onClick={openAiSplit}
+                    onClick={() => setAiModalOpen(true)}
                   >
                     <span className="ai-assist-icon">✦</span> ИИ-помощник
                   </button>
