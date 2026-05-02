@@ -117,50 +117,57 @@ export default function VerifyPage() {
           <div className="login-eyebrow">Медиаплатформа</div>
           <img src="/logo.png" alt="Медиа-Хаб" className="login-logo-mark" />
 
-          <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>
-              Подтвердите email
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--text-3)', lineHeight: 1.6 }}>
-              Код отправлен на{' '}
-              <span style={{ color: 'var(--text-2)', fontWeight: 600 }}>{email}</span>
-            </div>
-          </div>
-
           <form onSubmit={handleSubmit} className="login-form">
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginBottom: 8 }} onPaste={handlePaste}>
-              {digits.map((d, i) => (
-                <input
-                  key={i}
-                  ref={el => { inputRefs.current[i] = el }}
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={1}
-                  value={d}
-                  onChange={e => handleDigit(i, e.target.value)}
-                  onKeyDown={e => handleKeyDown(i, e)}
-                  disabled={isSubmitting}
-                  style={{
-                    width: 44,
-                    height: 52,
-                    textAlign: 'center',
-                    fontSize: 22,
-                    fontWeight: 700,
-                    borderRadius: 'var(--r-lg)',
-                    border: `2px solid ${err ? '#ef4444' : d ? 'var(--accent)' : 'var(--border)'}`,
-                    background: 'var(--surface)',
-                    color: 'var(--text)',
-                    outline: 'none',
-                    transition: 'border-color 0.15s',
-                    caretColor: 'transparent',
-                  }}
-                />
-              ))}
+            <div className="fg">
+              <label>Подтверждение Email</label>
+              <div style={{
+                fontSize: 12,
+                color: 'var(--text-2)',
+                marginBottom: 14,
+                lineHeight: 1.6,
+              }}>
+                Код отправлен на{' '}
+                <span style={{ color: 'var(--text)', fontWeight: 600 }}>{email}</span>
+              </div>
+              <div
+                style={{ display: 'flex', gap: 8, justifyContent: 'center' }}
+                onPaste={handlePaste}
+              >
+                {digits.map((d, i) => (
+                  <input
+                    key={i}
+                    ref={el => { inputRefs.current[i] = el }}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={d}
+                    onChange={e => handleDigit(i, e.target.value)}
+                    onKeyDown={e => handleKeyDown(i, e)}
+                    disabled={isSubmitting}
+                    style={{
+                      width: 46,
+                      height: 52,
+                      textAlign: 'center',
+                      fontSize: 22,
+                      fontWeight: 700,
+                      borderRadius: 'var(--r-md)',
+                      border: `1px solid ${err ? '#ef4444' : d ? 'var(--accent)' : 'var(--border)'}`,
+                      background: 'var(--surface)',
+                      color: 'var(--text)',
+                      outline: 'none',
+                      transition: 'border-color 0.2s, box-shadow 0.2s',
+                      caretColor: 'transparent',
+                      boxShadow: d ? '0 0 0 3px var(--accent-light)' : 'none',
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                ))}
+              </div>
             </div>
 
             {err && <div className="login-err">{err}</div>}
             {resendMsg && (
-              <div style={{ textAlign: 'center', fontSize: 12, color: '#10b981', marginTop: 4 }}>
+              <div style={{ fontSize: 12, color: '#10b981', marginBottom: 8 }}>
                 {resendMsg}
               </div>
             )}
@@ -175,7 +182,7 @@ export default function VerifyPage() {
             </button>
           </form>
 
-          <div style={{ textAlign: 'center', marginTop: 16, fontSize: 13, color: 'var(--text-3)' }}>
+          <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-3)', marginBottom: 8 }}>
             {countdown > 0 ? (
               <span>Отправить повторно через {countdown} с</span>
             ) : (
@@ -193,7 +200,7 @@ export default function VerifyPage() {
             )}
           </div>
 
-          <div style={{ textAlign: 'center', marginTop: 12, fontSize: 12, color: 'var(--text-3)' }}>
+          <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-3)' }}>
             <button
               type="button"
               onClick={() => router.push('/register')}
