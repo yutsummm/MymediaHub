@@ -11,15 +11,21 @@ import YandexLocationPickerModal from '@/components/YandexLocationPickerModal'
 const TICO: Record<string, string> = { announcement: '◈', results: '✓', vacancy: '↗', grant: '◎' }
 const STEPS = [{ n: 1, l: 'Шаблон' }, { n: 2, l: 'Данные' }, { n: 3, l: 'Редактор' }, { n: 4, l: 'Публикация' }]
 
-type AiMode = 'creative' | 'shortify' | 'formal' | 'hashtags' | 'calltoaction' | 'russify'
+type AiMode = 'creative' | 'formal' | 'calltoaction'
+type AiModifier = 'shortify' | 'hashtags' | 'russify'
 
+// Основные режимы — вкладки (взаимоисключающие)
 const AI_MODES_CONFIG: { id: AiMode; icon: string; title: string; info: string }[] = [
-  { id: 'creative',     icon: '✨', title: 'Улучшить текст',      info: 'Переписывает текст для молодёжной аудитории: добавляет энергичность и эмодзи, сохраняя все факты, даты и имена' },
-  { id: 'shortify',     icon: '✂️', title: 'Сократить',           info: 'Сокращает пост вдвое: убирает лишние слова и повторы, сохраняя ключевые факты и смысл' },
-  { id: 'formal',       icon: '🏛',  title: 'Официальный тон',     info: 'Переводит в нейтрально-деловой стиль — подходит для объявлений, вакансий и грантовых постов' },
-  { id: 'hashtags',     icon: '#',   title: 'Хештеги',             info: 'Анализирует тему поста и добавляет 7–10 актуальных хештегов для ВКонтакте и Telegram в конец' },
-  { id: 'calltoaction', icon: '🎯', title: 'Призыв к действию',   info: 'Дописывает сильный CTA — «зарегистрируйся», «приходи», «поделись» — по теме поста' },
-  { id: 'russify',      icon: '🔤', title: 'Русификация',          info: 'Заменяет иностранные слова на естественные русские: фидбек→отклик, дедлайн→срок, контент→публикации' },
+  { id: 'creative',     icon: '✨', title: 'Улучшить текст',    info: 'Переписывает текст для молодёжной аудитории: добавляет энергичность и эмодзи, сохраняя все факты, даты и имена' },
+  { id: 'formal',       icon: '🏛',  title: 'Официальный тон',   info: 'Переводит в нейтрально-деловой стиль — подходит для объявлений, вакансий и грантовых постов' },
+  { id: 'calltoaction', icon: '🎯', title: 'Призыв к действию', info: 'Дописывает сильный CTA — «зарегистрируйся», «приходи», «поделись» — по теме поста' },
+]
+
+// Модификаторы — галочки (комбинируются между собой и с основным режимом)
+const AI_MODIFIERS_CONFIG: { id: AiModifier; icon: string; title: string; info: string }[] = [
+  { id: 'shortify', icon: '✂️', title: 'Сократить',   info: 'Сокращает пост вдвое: убирает лишние слова и повторы, сохраняя ключевые факты и смысл' },
+  { id: 'hashtags', icon: '#',  title: 'Хештеги',     info: 'Анализирует тему поста и добавляет 7–10 актуальных хештегов для ВКонтакте и Telegram в конец' },
+  { id: 'russify',  icon: '🔤', title: 'Русификация', info: 'Заменяет иностранные слова на естественные русские: фидбек→отклик, дедлайн→срок, контент→публикации' },
 ]
 
 type PostEditorProps = {
@@ -67,6 +73,8 @@ export default function PostEditor({
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
   const [aiSplitOpen, setAiSplitOpen] = useState(false)
   const [aiMode, setAiMode] = useState<AiMode | null>(null)
+  const [withShortify, setWithShortify] = useState(false)
+  const [withHashtags, setWithHashtags] = useState(false)
   const [withRussify, setWithRussify] = useState(false)
   const [splitLeft, setSplitLeft] = useState('')
   const [splitRight, setSplitRight] = useState('')
@@ -163,21 +171,25 @@ export default function PostEditor({
     setContent(prev => applyEmojiSuggestion(prev, id))
   }
 
-  async function runSplitAI(text: string, mode: AiMode | null, doRussify: boolean) {
-    if (!text.trim() || (!mode && !doRussify)) { setSplitRight(''); return }
+  async function runSplitAI(
+    text: string,
+    mode: AiMode | null,
+    doShortify: boolean,
+    doHashtags: boolean,
+    doRussify: boolean,
+  ) {
+    if (!text.trim() || (!mode && !doShortify && !doHashtags && !doRussify)) {
+      setSplitRight(''); return
+    }
     const callId = ++splitCallIdRef.current
     setSplitLoading(true)
     try {
       let result = text
-      if (mode) {
-        const d = await api.enhanceText(text, mode)
+      for (const step of ([mode, doShortify && 'shortify', doHashtags && 'hashtags', doRussify && 'russify'] as (string | false | null)[])) {
+        if (!step) continue
+        const d = await api.enhanceText(result, step)
         if (callId !== splitCallIdRef.current) return
         result = d.text
-      }
-      if (doRussify) {
-        const r = await api.enhanceText(result, 'russify')
-        if (callId !== splitCallIdRef.current) return
-        result = r.text
       }
       setSplitRight(result)
     } catch (e: unknown) {
@@ -188,23 +200,34 @@ export default function PostEditor({
     }
   }
 
+  function triggerSplit(overrides?: Partial<{ mode: AiMode | null; shortify: boolean; hashtags: boolean; russify: boolean }>) {
+    const mode     = overrides?.mode     !== undefined ? overrides.mode     : aiMode
+    const shortify = overrides?.shortify !== undefined ? overrides.shortify : withShortify
+    const hashtags = overrides?.hashtags !== undefined ? overrides.hashtags : withHashtags
+    const russify  = overrides?.russify  !== undefined ? overrides.russify  : withRussify
+    if (splitLeft.trim()) runSplitAI(splitLeft, mode, shortify, hashtags, russify)
+  }
+
   function handleSplitLeftChange(val: string) {
     setSplitLeft(val)
-    if (!aiMode && !withRussify) return
+    if (!aiMode && !withShortify && !withHashtags && !withRussify) return
     if (splitDebounceRef.current) clearTimeout(splitDebounceRef.current)
-    splitDebounceRef.current = setTimeout(() => runSplitAI(val, aiMode, withRussify), 900)
+    splitDebounceRef.current = setTimeout(
+      () => runSplitAI(val, aiMode, withShortify, withHashtags, withRussify), 900
+    )
   }
 
   function handleModeChange(mode: AiMode) {
     if (splitDebounceRef.current) clearTimeout(splitDebounceRef.current)
     setAiMode(mode)
-    if (splitLeft.trim()) runSplitAI(splitLeft, mode, withRussify)
+    triggerSplit({ mode })
   }
 
-  function handleRussifyToggle(checked: boolean) {
+  function handleModifierToggle(mod: 'shortify' | 'hashtags' | 'russify', checked: boolean) {
     if (splitDebounceRef.current) clearTimeout(splitDebounceRef.current)
-    setWithRussify(checked)
-    if (splitLeft.trim()) runSplitAI(splitLeft, aiMode, checked)
+    if (mod === 'shortify') { setWithShortify(checked); triggerSplit({ shortify: checked }) }
+    if (mod === 'hashtags') { setWithHashtags(checked); triggerSplit({ hashtags: checked }) }
+    if (mod === 'russify')  { setWithRussify(checked);  triggerSplit({ russify:  checked }) }
   }
 
   function openAiSplit() {
@@ -628,9 +651,9 @@ export default function PostEditor({
                 <button type="button" className="btn btn-ghost btn-sm" style={{ fontSize: 16, lineHeight: 1, padding: '4px 8px' }} onClick={() => setAiSplitOpen(false)}>✕</button>
               </div>
 
-              {/* Mode tabs — russify excluded, it's a toggle below */}
+              {/* Main mode tabs */}
               <div className="ai-split-tabs">
-                {AI_MODES_CONFIG.filter(m => m.id !== 'russify').map(m => (
+                {AI_MODES_CONFIG.map(m => (
                   <button
                     key={m.id}
                     className={`ai-split-tab${aiMode === m.id ? ' active' : ''}`}
@@ -647,24 +670,29 @@ export default function PostEditor({
                 ))}
               </div>
 
-              {/* Russify toggle + mode description */}
+              {/* Modifier toggles + description */}
               <div className="ai-split-sub-row">
-                <label className="ai-russify-toggle">
-                  <input
-                    type="checkbox"
-                    checked={withRussify}
-                    onChange={e => handleRussifyToggle(e.target.checked)}
-                  />
-                  <span>🔤</span> Русификация
-                  <span
-                    className="ai-info-badge"
-                    style={{ marginLeft: 3 }}
-                    onMouseEnter={() => setHoveredModeInfo(AI_MODES_CONFIG.find(m => m.id === 'russify')!.info)}
-                    onMouseLeave={() => setHoveredModeInfo(null)}
-                  >!</span>
-                </label>
+                {AI_MODIFIERS_CONFIG.map(mod => {
+                  const checked = mod.id === 'shortify' ? withShortify : mod.id === 'hashtags' ? withHashtags : withRussify
+                  return (
+                    <label key={mod.id} className="ai-russify-toggle">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={e => handleModifierToggle(mod.id, e.target.checked)}
+                      />
+                      <span>{mod.icon}</span> {mod.title}
+                      <span
+                        className="ai-info-badge"
+                        style={{ marginLeft: 3 }}
+                        onMouseEnter={() => setHoveredModeInfo(mod.info)}
+                        onMouseLeave={() => setHoveredModeInfo(null)}
+                      >!</span>
+                    </label>
+                  )
+                })}
                 <div className="ai-tab-desc">
-                  {hoveredModeInfo ?? (aiMode ? AI_MODES_CONFIG.find(m => m.id === aiMode)?.info : 'Выберите режим выше или включите русификацию')}
+                  {hoveredModeInfo ?? (aiMode ? AI_MODES_CONFIG.find(m => m.id === aiMode)?.info : 'Выберите режим или отметьте галочки')}
                 </div>
               </div>
             </div>
@@ -688,7 +716,7 @@ export default function PostEditor({
                 <div className="ai-split-result">
                   {splitRight
                     ? splitRight
-                    : <span className="ai-split-result-empty">{splitLoading ? 'Генерирую...' : (!aiMode && !withRussify ? 'Выберите режим или включите русификацию' : 'Результат появится здесь')}</span>
+                    : <span className="ai-split-result-empty">{splitLoading ? 'Генерирую...' : (!aiMode && !withShortify && !withHashtags && !withRussify ? 'Выберите режим или отметьте галочку' : 'Результат появится здесь')}</span>
                   }
                 </div>
               </div>
