@@ -6,14 +6,29 @@ import { useGroup } from '@/contexts/GroupContext'
 
 type Theme = 'dark' | 'light'
 
-const NAV = [
-  { href: '/dashboard',     icon: '◈', label: 'Дашборд' },
-  { href: '/calendar',      icon: '◷', label: 'Календарь' },
-  { href: '/posts',         icon: '≡',  label: 'Посты' },
-  { href: '/posts/new',     icon: '+',  label: 'Создать пост' },
-  { href: '/analytics',     icon: '↗', label: 'Аналитика' },
-  { href: '/notifications', icon: '◉', label: 'Уведомления' },
-  { href: '/settings',      icon: '◎', label: 'Настройки' },
+const NAV_GROUPS = [
+  {
+    label: 'Основное',
+    items: [
+      { href: '/dashboard', icon: '◈', label: 'Дашборд' },
+      { href: '/calendar',  icon: '◷', label: 'Календарь' },
+      { href: '/posts',     icon: '≡',  label: 'Посты' },
+      { href: '/posts/new', icon: '+',  label: 'Создать пост' },
+    ],
+  },
+  {
+    label: 'Аналитика',
+    items: [
+      { href: '/analytics',     icon: '↗', label: 'Аналитика' },
+      { href: '/notifications', icon: '◉', label: 'Уведомления' },
+    ],
+  },
+  {
+    label: 'Управление',
+    items: [
+      { href: '/settings', icon: '◎', label: 'Настройки' },
+    ],
+  },
 ]
 
 const ROLE_CLASS: Record<string, string> = { admin: 'r-admin', editor: 'r-editor', observer: 'r-observer' }
@@ -67,13 +82,17 @@ export default function Sidebar({
       <div className={`sidebar${open ? ' open' : ''}`}>
         {/* Logo */}
         <div className="sidebar-logo">
-          <div className="logo-mark-wrap" aria-label="Медиа-Хаб">
-            <img src="/logo.png" alt="" className="logo-mark-img" />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="logo-text">Медиа-Хаб</div>
-            <div className="logo-sub">Молодёжные центры КК</div>
-          </div>
+          <svg viewBox="0 0 212 46" xmlns="http://www.w3.org/2000/svg" style={{ display: 'block', flex: 1, minWidth: 0 }}>
+            <rect x="0"  y="3"  width="7" height="36" rx="1.5" fill="white"/>
+            <rect x="10" y="11" width="7" height="28" rx="1.5" fill="rgba(255,255,255,0.48)"/>
+            <rect x="20" y="19" width="7" height="20" rx="1.5" fill="rgba(255,255,255,0.26)"/>
+            <rect x="30" y="11" width="7" height="28" rx="1.5" fill="rgba(255,255,255,0.48)"/>
+            <rect x="40" y="3"  width="7" height="36" rx="1.5" fill="white"/>
+            <rect x="0" y="41" width="47" height="3" rx="1.5" fill={theme === 'light' ? '#5B9EFF' : 'rgba(255,255,255,0.28)'}/>
+            <line x1="57" y1="4" x2="57" y2="40" stroke="rgba(255,255,255,0.10)" strokeWidth="1"/>
+            <text x="66" y="19" fontFamily="'Inter','Arial',sans-serif" fontSize="10" fontWeight="700" fill="white" letterSpacing="0">МЕДИАПРОСТРАНСТВО</text>
+            <text x="66" y="34" fontFamily="'Inter','Arial',sans-serif" fontSize="8.5" fontWeight="400" fill="rgba(255,255,255,0.36)" letterSpacing="0">молодёжных центров</text>
+          </svg>
           <button
             type="button"
             className="sidebar-close"
@@ -179,20 +198,24 @@ export default function Sidebar({
 
         {/* Navigation */}
         <nav className="sidebar-nav">
-          <div className="nav-section">Навигация</div>
-          {NAV.map(item => (
-            <div
-              key={item.href}
-              className={`nav-item${pathname === item.href ? ' active' : ''}`}
-              onClick={() => go(item.href)}
-            >
-              <span className="nav-icon" style={{ fontStyle: 'normal', fontFamily: 'monospace' }}>
-                {item.icon}
-              </span>
-              {item.label}
-              {item.href === '/notifications' && unread > 0 && (
-                <span className="nav-badge">{unread}</span>
-              )}
+          {NAV_GROUPS.map(group => (
+            <div key={group.label}>
+              <div className="nav-group">{group.label}</div>
+              {group.items.map(item => (
+                <div
+                  key={item.href}
+                  className={`nav-item${pathname === item.href ? ' active' : ''}`}
+                  onClick={() => go(item.href)}
+                >
+                  <span className="nav-icon" style={{ fontStyle: 'normal' }}>
+                    {item.icon}
+                  </span>
+                  {item.label}
+                  {item.href === '/notifications' && unread > 0 && (
+                    <span className="nav-badge">{unread}</span>
+                  )}
+                </div>
+              ))}
             </div>
           ))}
         </nav>

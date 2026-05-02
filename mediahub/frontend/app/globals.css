@@ -43,15 +43,44 @@
   --sidebar-w: 252px;
 
   /* Radii */
-  --r-xl:   1.5rem;
-  --r-lg:   1rem;
-  --r-md:   0.625rem;
-  --r-sm:   0.4rem;
+  --r-xl:   6px;
+  --r-lg:   6px;
+  --r-md:   4px;
+  --r-sm:   2px;
   --r-full: 9999px;
 
   /* Motion — spring */
   --spring: cubic-bezier(0.32,0.72,0,1);
   --ease-o: cubic-bezier(0,0,0.2,1);
+
+  /* Sidebar */
+  --sidebar-bg: #0A0A0A;
+  --sidebar-active-bg: rgba(255,255,255,0.09);
+  --sidebar-indicator: rgba(255,255,255,0.42);
+
+  /* Topbar */
+  --topbar-bg: rgba(12,12,12,0.88);
+  --topbar-border: rgba(255,255,255,0.07);
+
+  /* Top stripe */
+  --stripe-a: #282828;
+  --stripe-b: #555555;
+
+  /* Focus */
+  --focus-ring: rgba(255,255,255,0.08);
+  --focus-bdr:  rgba(255,255,255,0.38);
+
+  /* Button fg */
+  --btn-primary-fg: #0A0A0A;
+
+  /* Status bg variants */
+  --green-bg:  rgba(16,185,129,0.14);
+  --yellow-bg: rgba(245,158,11,0.14);
+  --red-bg:    rgba(239,68,68,0.14);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.45);
+  --shadow-md: 0 2px 10px rgba(0,0,0,0.55);
 }
 
 /* ─── Синяя тема (госуслуги) ─── */
@@ -82,6 +111,8 @@
   /* Shadows */
   --shadow-card: 0 0 0 1px rgba(30,34,53,0.04), 0 4px 16px rgba(30,34,53,0.06);
   --shadow-glow: 0 0 20px rgba(8,64,181,0.10);
+  --shadow-sm: 0 1px 2px rgba(10,20,40,0.06);
+  --shadow-md: 0 2px 8px rgba(10,20,40,0.09);
 
   /* Status */
   --green:      #2E7D32;
@@ -92,16 +123,37 @@
   --red-dim:    rgba(220,38,38,0.12);
   --blue:       #0840B5;
   --blue-dim:   rgba(8,64,181,0.12);
+
+  /* Sidebar */
+  --sidebar-bg: #071C3F;
+  --sidebar-active-bg: rgba(8,64,181,0.45);
+  --sidebar-indicator: #5B9EFF;
+
+  /* Topbar */
+  --topbar-bg: #FFFFFF;
+  --topbar-border: #D2D9E4;
+
+  /* Top stripe */
+  --stripe-a: #0D4CD3;
+  --stripe-b: #3B82F6;
+
+  /* Focus */
+  --focus-ring: rgba(13,76,211,0.10);
+  --focus-bdr:  #0840B5;
+
+  /* Button fg */
+  --btn-primary-fg: #FFFFFF;
+
+  /* Status bg variants */
+  --green-bg:  #D1FAE5;
+  --yellow-bg: #FEF3C7;
+  --red-bg:    #FEE2E2;
 }
 
 /* Снижаем зернистость на светлом фоне */
 :root[data-theme="light"] body::after { opacity: 0.014; }
 
-/* Сайдбар — тёмно-синий в светлой теме */
-:root[data-theme="light"] .sidebar {
-  background: #071C3F;
-  border-right: 1px solid rgba(255,255,255,0.06);
-}
+/* Сайдбар цвет — через переменную --sidebar-bg */
 :root[data-theme="light"] .sidebar-logo,
 :root[data-theme="light"] .sidebar-user {
   border-color: rgba(255,255,255,0.08);
@@ -126,11 +178,7 @@
   color: #fff;
 }
 
-/* Топбар: полупрозрачный белый */
-:root[data-theme="light"] .topbar {
-  background: rgba(255,255,255,0.85);
-  border-bottom-color: rgba(30,34,53,0.08);
-}
+/* Топбар в синей теме — через переменные --topbar-bg и --topbar-border */
 
 /* Активный pltoggle и tag-chip — синий вместо фиолетового */
 :root[data-theme="light"] .pltoggle.on {
@@ -144,7 +192,6 @@
 }
 :root[data-theme="light"] .login-eyebrow { color: var(--accent); }
 
-/* Кнопка-CTA в синей теме — уже задана через переопределение выше */
 
 /* Логин-страница: синие пятна */
 :root[data-theme="light"] .login-orb-1 {
@@ -226,22 +273,25 @@ body::after {
 .sidebar {
   width: var(--sidebar-w);
   min-height: 100vh;
-  background: var(--bg-2);
+  background: var(--sidebar-bg);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   position: fixed;
   top: 0; left: 0; bottom: 0;
   z-index: 100;
-  border-right: 1px solid var(--border);
+  padding-top: 3px;
+  transition: background 0.3s var(--spring);
 }
 
 .sidebar-logo {
-  padding: 22px 18px 18px;
+  height: 54px;
+  padding: 0 18px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 11px;
-  border-bottom: 1px solid var(--border);
+  gap: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 
 .logo-icon {
@@ -298,13 +348,14 @@ body::after {
   overflow-y: auto;
 }
 
-.nav-section {
+.nav-section,
+.nav-group {
   font-size: 9.5px;
   text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--text-3);
-  padding: 10px 10px 5px;
-  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: rgba(255,255,255,0.26);
+  padding: 14px 10px 5px;
+  font-weight: 600;
 }
 
 .nav-item {
@@ -314,12 +365,13 @@ body::after {
   padding: 9px 11px;
   border-radius: var(--r-md);
   cursor: pointer;
-  color: var(--text-2);
-  font-size: 13px;
-  font-weight: 500;
+  color: rgba(255,255,255,0.56);
+  font-size: 12.5px;
+  font-weight: 400;
   transition: background 0.18s var(--spring), color 0.18s, transform 0.18s var(--spring);
   margin-bottom: 1px;
   letter-spacing: -0.01em;
+  position: relative;
 }
 
 .nav-item:hover {
@@ -329,9 +381,19 @@ body::after {
 }
 
 .nav-item.active {
-  background: var(--accent-light);
-  color: rgba(255,255,255,0.92);
-  font-weight: 600;
+  background: var(--sidebar-active-bg);
+  color: #fff;
+  font-weight: 500;
+}
+
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 8px; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 16px;
+  background: var(--sidebar-indicator);
+  border-radius: 2px;
+  transition: background 0.3s;
 }
 
 .nav-icon {
@@ -404,6 +466,14 @@ body::after {
 .r-editor   { background: rgba(16,185,129,0.16); color: #6ee7b7; }
 .r-observer { background: rgba(245,158,11,0.16); color: #fcd34d; }
 
+/* ─── Top stripe ─── */
+.top-stripe {
+  height: 3px;
+  background: linear-gradient(90deg, var(--stripe-a) 0%, var(--stripe-b) 100%);
+  position: fixed; top: 0; left: 0; right: 0; z-index: 110;
+  transition: background 0.3s var(--spring);
+}
+
 /* ─── Main layout ─── */
 .main-layout {
   margin-left: var(--sidebar-w);
@@ -414,18 +484,17 @@ body::after {
 }
 
 .topbar {
-  background: rgba(12,12,12,0.88);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border-bottom: 1px solid var(--border);
+  background: var(--topbar-bg);
+  border-bottom: 1px solid var(--topbar-border);
   padding: 0 28px;
-  height: 60px;
+  height: 54px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   position: sticky;
-  top: 0;
+  top: 3px;
   z-index: 50;
+  transition: background 0.3s, border-color 0.3s;
 }
 
 .topbar-title {
@@ -448,9 +517,9 @@ body::after {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-xl);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-sm);
   overflow: hidden;
-  transition: border-color 0.25s var(--spring), transform 0.25s var(--spring);
+  transition: border-color 0.25s var(--spring), transform 0.25s var(--spring), background 0.3s;
 }
 
 .card:hover { border-color: var(--border-2); }
@@ -485,9 +554,9 @@ body::after {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-xl);
-  padding: 22px;
-  box-shadow: var(--shadow-card);
-  transition: transform 0.3s var(--spring), border-color 0.3s;
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.3s var(--spring), border-color 0.3s, background 0.3s;
 }
 
 .stat-card:hover {
@@ -531,13 +600,13 @@ body::after {
 .btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 9px 18px;
-  border-radius: var(--r-full);
-  font-size: 13px;
-  font-weight: 600;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--r-md);
+  font-size: 12.5px;
+  font-weight: 500;
   cursor: pointer;
-  border: none;
+  border: 1px solid transparent;
   transition: all 0.22s var(--spring);
   text-decoration: none;
   letter-spacing: -0.01em;
@@ -549,8 +618,9 @@ body::after {
 
 .btn-primary {
   background: var(--accent);
-  color: #0C0C0C;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.28);
+  color: var(--btn-primary-fg);
+  border-color: var(--accent);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.22);
 }
 
 .btn-primary:hover {
@@ -563,9 +633,10 @@ body::after {
 :root[data-theme="light"] .btn-primary:hover { background: var(--accent-2); }
 
 .btn-secondary {
-  background: var(--surface-2);
+  background: var(--surface);
   color: var(--text-2);
-  border: 1px solid var(--border);
+  border-color: var(--border-2);
+  box-shadow: var(--shadow-sm);
 }
 
 .btn-secondary:hover {
@@ -580,7 +651,7 @@ body::after {
 .btn-success { background: var(--green-dim); color: var(--green); }
 .btn-success:hover { background: rgba(16,185,129,0.22); }
 
-.btn-sm { padding: 6px 13px; font-size: 12px; }
+.btn-sm { padding: 5px 11px; font-size: 11.5px; }
 
 .btn-ghost { background: transparent; color: var(--text-3); }
 .btn-ghost:hover { background: var(--surface); color: var(--text-2); }

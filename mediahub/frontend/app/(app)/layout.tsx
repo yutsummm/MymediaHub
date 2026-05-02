@@ -47,6 +47,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div style={{ display: 'flex', width: '100%' }}>
+      <div className="top-stripe" />
       <Sidebar unread={unread} open={navOpen} onClose={() => setNavOpen(false)} />
 
       <div className="main-layout">
