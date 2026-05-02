@@ -11,6 +11,17 @@ import YandexLocationPickerModal from '@/components/YandexLocationPickerModal'
 const TICO: Record<string, string> = { announcement: '◈', results: '✓', vacancy: '↗', grant: '◎' }
 const STEPS = [{ n: 1, l: 'Шаблон' }, { n: 2, l: 'Данные' }, { n: 3, l: 'Редактор' }, { n: 4, l: 'Публикация' }]
 
+type AiMode = 'creative' | 'shortify' | 'formal' | 'hashtags' | 'calltoaction' | 'russify'
+
+const AI_MODES_CONFIG: { id: AiMode; icon: string; title: string; info: string }[] = [
+  { id: 'creative',     icon: '✨', title: 'Улучшить текст',      info: 'Переписывает текст для молодёжной аудитории: добавляет энергичность и эмодзи, сохраняя все факты, даты и имена' },
+  { id: 'shortify',     icon: '✂️', title: 'Сократить',           info: 'Сокращает пост вдвое: убирает лишние слова и повторы, сохраняя ключевые факты и смысл' },
+  { id: 'formal',       icon: '🏛',  title: 'Официальный тон',     info: 'Переводит в нейтрально-деловой стиль — подходит для объявлений, вакансий и грантовых постов' },
+  { id: 'hashtags',     icon: '#',   title: 'Хештеги',             info: 'Анализирует тему поста и добавляет 7–10 актуальных хештегов для ВКонтакте и Telegram в конец' },
+  { id: 'calltoaction', icon: '🎯', title: 'Призыв к действию',   info: 'Дописывает сильный CTA — «зарегистрируйся», «приходи», «поделись» — по теме поста' },
+  { id: 'russify',      icon: '🔤', title: 'Русификация',          info: 'Заменяет иностранные слова на естественные русские: фидбек→отклик, дедлайн→срок, контент→публикации' },
+]
+
 type PostEditorProps = {
   editPost?: Post
   initialStatus?: 'draft' | 'scheduled' | 'published'
@@ -54,15 +65,23 @@ export default function PostEditor({
   const [saving, setSaving] = useState(false)
   const [tagIn, setTagIn] = useState('')
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
-  const [aiModalOpen, setAiModalOpen] = useState(false)
+  const [aiSplitOpen, setAiSplitOpen] = useState(false)
+  const [aiMode, setAiMode] = useState<AiMode>('creative')
+  const [withRussify, setWithRussify] = useState(false)
+  const [splitLeft, setSplitLeft] = useState('')
+  const [splitRight, setSplitRight] = useState('')
+  const [splitLoading, setSplitLoading] = useState(false)
+  const [hoveredModeInfo, setHoveredModeInfo] = useState<string | null>(null)
   const [locationPickerOpen, setLocationPickerOpen] = useState(false)
-  const [aiLoading, setAiLoading] = useState<'creative' | 'russify' | null>(null)
   const [prevContent, setPrevContent] = useState<string | null>(null)
+  const splitCallIdRef = useRef(0)
+  const splitDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => { api.getTemplates().then(setTmpls).catch(console.error) }, [])
   useEffect(() => {
     return () => {
       if (emojiCloseTimerRef.current) clearTimeout(emojiCloseTimerRef.current)
+      if (splitDebounceRef.current) clearTimeout(splitDebounceRef.current)
     }
   }, [])
 
@@ -144,17 +163,60 @@ export default function PostEditor({
     setContent(prev => applyEmojiSuggestion(prev, id))
   }
 
-  async function enhanceWithAI(mode: 'creative' | 'russify') {
-    if (!content.trim()) { showToast('Сначала введите текст поста', 'error'); return }
-    setAiLoading(mode)
+  async function runSplitAI(text: string, mode: AiMode, doRussify: boolean) {
+    if (!text.trim()) { setSplitRight(''); return }
+    const callId = ++splitCallIdRef.current
+    setSplitLoading(true)
     try {
-      const d = await api.enhanceText(content, mode)
-      setPrevContent(content)
-      setContent(d.text)
-      setAiModalOpen(false)
-      showToast(mode === 'creative' ? '✨ Текст улучшен!' : '🔤 Русификация применена!', 'success')
-    } catch (e: unknown) { showToast((e as Error).message, 'error') }
-    finally { setAiLoading(null) }
+      const d = await api.enhanceText(text, mode)
+      if (callId !== splitCallIdRef.current) return
+      let result = d.text
+      if (doRussify && mode !== 'russify') {
+        const r = await api.enhanceText(result, 'russify')
+        if (callId !== splitCallIdRef.current) return
+        result = r.text
+      }
+      setSplitRight(result)
+    } catch (e: unknown) {
+      if (callId !== splitCallIdRef.current) return
+      showToast((e as Error).message, 'error')
+    } finally {
+      if (callId === splitCallIdRef.current) setSplitLoading(false)
+    }
+  }
+
+  function handleSplitLeftChange(val: string) {
+    setSplitLeft(val)
+    if (splitDebounceRef.current) clearTimeout(splitDebounceRef.current)
+    splitDebounceRef.current = setTimeout(() => runSplitAI(val, aiMode, withRussify), 900)
+  }
+
+  function handleModeChange(mode: AiMode) {
+    if (splitDebounceRef.current) clearTimeout(splitDebounceRef.current)
+    setAiMode(mode)
+    if (splitLeft.trim()) runSplitAI(splitLeft, mode, withRussify)
+  }
+
+  function handleRussifyToggle(checked: boolean) {
+    if (splitDebounceRef.current) clearTimeout(splitDebounceRef.current)
+    setWithRussify(checked)
+    if (splitLeft.trim()) runSplitAI(splitLeft, aiMode, checked)
+  }
+
+  function openAiSplit() {
+    const text = content
+    setSplitLeft(text)
+    setSplitRight('')
+    setAiSplitOpen(true)
+    if (text.trim()) runSplitAI(text, aiMode, withRussify)
+  }
+
+  function applyAiResult() {
+    if (!splitRight) return
+    setPrevContent(content)
+    setContent(splitRight)
+    setAiSplitOpen(false)
+    showToast('✦ ИИ-текст применён!', 'success')
   }
 
   function applyAllSuggestions() {
@@ -552,42 +614,91 @@ export default function PostEditor({
           </div>
         )}
       </div>
-      {aiModalOpen && (
-        <div className="overlay" onClick={() => { if (!aiLoading) setAiModalOpen(false) }}>
-          <div className="modal ai-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-hd">
-              <div>
-                <div className="card-title">✦ ИИ-помощник</div>
-                <div className="ts tg" style={{ marginTop: 4 }}>Выберите, что сделать с текстом поста</div>
+      {aiSplitOpen && (
+        <div className="overlay" onClick={() => { if (!splitLoading) setAiSplitOpen(false) }}>
+          <div className="modal ai-split-modal" onClick={e => e.stopPropagation()}>
+
+            {/* Header */}
+            <div className="ai-split-hd">
+              <div className="ai-split-hd-top">
+                <div className="card-title" style={{ fontSize: 13 }}>✦ ИИ-помощник</div>
+                <button type="button" className="btn btn-ghost btn-sm" style={{ fontSize: 16, lineHeight: 1, padding: '4px 8px' }} onClick={() => setAiSplitOpen(false)}>✕</button>
               </div>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => { if (!aiLoading) setAiModalOpen(false) }}>
-                Закрыть
-              </button>
+
+              {/* Mode tabs */}
+              <div className="ai-split-tabs">
+                {AI_MODES_CONFIG.map(m => (
+                  <button
+                    key={m.id}
+                    className={`ai-split-tab${aiMode === m.id ? ' active' : ''}`}
+                    onClick={() => handleModeChange(m.id)}
+                  >
+                    <span>{m.icon}</span>
+                    <span>{m.title}</span>
+                    <span
+                      className="ai-info-badge"
+                      onMouseEnter={() => setHoveredModeInfo(m.info)}
+                      onMouseLeave={() => setHoveredModeInfo(null)}
+                    >!</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Russify toggle + active mode description */}
+              <div className="ai-split-sub-row">
+                {aiMode !== 'russify' && (
+                  <label className="ai-russify-toggle">
+                    <input
+                      type="checkbox"
+                      checked={withRussify}
+                      onChange={e => handleRussifyToggle(e.target.checked)}
+                    />
+                    <span>🔤</span> Русификация
+                  </label>
+                )}
+                <div className="ai-tab-desc">
+                  {hoveredModeInfo ?? AI_MODES_CONFIG.find(m => m.id === aiMode)?.info}
+                </div>
+              </div>
             </div>
-            <div className="ai-modal-bd">
-              <button
-                className="ai-mode-card"
-                onClick={() => enhanceWithAI('creative')}
-                disabled={!!aiLoading}
-              >
-                <span className="ai-mode-icon">✨</span>
-                <div className="ai-mode-body">
-                  <div className="ai-mode-title">Улучшить текст</div>
-                  <div className="ai-mode-desc">Сделает пост ярким и цепляющим для молодёжной аудитории, сохранив все факты</div>
+
+            {/* Split body */}
+            <div className="ai-split-bd">
+              <div className="ai-split-pane">
+                <div className="ai-split-pane-hd">Оригинал</div>
+                <textarea
+                  className="ai-split-textarea"
+                  value={splitLeft}
+                  onChange={e => handleSplitLeftChange(e.target.value)}
+                  placeholder="Введите или отредактируйте текст..."
+                />
+              </div>
+              <div className="ai-split-pane">
+                <div className="ai-split-pane-hd">
+                  Результат ИИ
+                  {splitLoading && <span className="ai-spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />}
                 </div>
-                {aiLoading === 'creative' && <span className="ai-spinner" />}
+                <div className="ai-split-result">
+                  {splitRight
+                    ? splitRight
+                    : <span className="ai-split-result-empty">{splitLoading ? 'Генерирую...' : 'Результат появится здесь'}</span>
+                  }
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="modal-ft">
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAiSplitOpen(false)}>
+                Отмена
               </button>
               <button
-                className="ai-mode-card"
-                onClick={() => enhanceWithAI('russify')}
-                disabled={!!aiLoading}
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={!splitRight || splitLoading}
+                onClick={applyAiResult}
               >
-                <span className="ai-mode-icon">🔤</span>
-                <div className="ai-mode-body">
-                  <div className="ai-mode-title">Русифицировать</div>
-                  <div className="ai-mode-desc">Заменит англицизмы и заимствования на естественные русские слова</div>
-                </div>
-                {aiLoading === 'russify' && <span className="ai-spinner" />}
+                Применить результат ✓
               </button>
             </div>
           </div>

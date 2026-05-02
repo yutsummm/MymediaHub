@@ -83,7 +83,7 @@ export const api = {
       method: 'POST', body: body({ template_type, fields }),
     }),
 
-  enhanceText: (text: string, mode: 'creative' | 'russify') =>
+  enhanceText: (text: string, mode: string) =>
     req<{ text: string }>('/api/ai-enhance', {
       method: 'POST', body: body({ text, mode }),
     }),
