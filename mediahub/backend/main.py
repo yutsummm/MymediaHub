@@ -102,11 +102,11 @@ def send_verification_email(to_email: str, code: str) -> None:
     msg.attach(MIMEText(text_body, "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
     if SMTP_PORT == 465:
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=10) as server:
             server.login(SMTP_USER, SMTP_PASSWORD)
             server.sendmail(SMTP_FROM, to_email, msg.as_string())
     else:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
             server.starttls()
             server.login(SMTP_USER, SMTP_PASSWORD)
             server.sendmail(SMTP_FROM, to_email, msg.as_string())
