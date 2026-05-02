@@ -50,8 +50,16 @@ export const api = {
       method: 'POST', body: body({ email, password }),
     }),
   register: (name: string, email: string, password: string) =>
-    req<{ user: import('./types').User; token: string }>('/api/auth/register', {
+    req<{ needs_verification: boolean; email: string }>('/api/auth/register', {
       method: 'POST', body: body({ name, email, password }),
+    }),
+  verifyEmail: (email: string, code: string) =>
+    req<{ user: import('./types').User; token: string; groups: unknown[] }>('/api/auth/verify-email', {
+      method: 'POST', body: body({ email, code }),
+    }),
+  resendCode: (email: string) =>
+    req<{ ok: boolean }>('/api/auth/resend-code', {
+      method: 'POST', body: body({ email }),
     }),
 
   getUsers: () => req<import('./types').User[]>('/api/users'),
@@ -83,7 +91,7 @@ export const api = {
       method: 'POST', body: body({ template_type, fields }),
     }),
 
-  enhanceText: (text: string, mode: string) =>
+  enhanceText: (text: string, mode: 'creative' | 'russify') =>
     req<{ text: string }>('/api/ai-enhance', {
       method: 'POST', body: body({ text, mode }),
     }),
@@ -91,22 +99,6 @@ export const api = {
   getAnalyticsSummary: () => req<import('./types').AnalyticsSummary>('/api/analytics/summary'),
   getTimeline: (period: string) =>
     req<import('./types').TimelinePoint[]>(`/api/analytics/timeline?period=${period}`),
-  exportAnalytics: async (startDate: string, endDate: string): Promise<void> => {
-    const url = `${BASE}/api/analytics/export?start_date=${startDate}&end_date=${endDate}`
-    const token = _getToken()
-    const headers: Record<string, string> = {}
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    const res = await fetch(url, { headers })
-    if (!res.ok) throw new Error(`Ошибка экспорта: ${res.status}`)
-    const blob = await res.blob()
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    const cd = res.headers.get('content-disposition') ?? ''
-    const match = cd.match(/filename\*=UTF-8''(.+)/)
-    a.download = match ? decodeURIComponent(match[1]) : `аналитика.xlsx`
-    a.click()
-    URL.revokeObjectURL(a.href)
-  },
 
   getNotifications: (user_id?: number) =>
     req<import('./types').Notification[]>(`/api/notifications${user_id ? `?user_id=${user_id}` : ''}`),
