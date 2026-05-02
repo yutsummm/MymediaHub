@@ -31,7 +31,12 @@ export default function LoginPage() {
       login(user, token)
       router.push('/dashboard')
     } catch (ex: unknown) {
-      setErr((ex as Error).message)
+      const msg = (ex as Error).message
+      if (msg.includes('EMAIL_NOT_VERIFIED')) {
+        router.push(`/verify?email=${encodeURIComponent(email)}`)
+        return
+      }
+      setErr(msg)
     } finally {
       setLoading(false)
     }
