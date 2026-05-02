@@ -66,7 +66,7 @@ export default function PostEditor({
   const [tagIn, setTagIn] = useState('')
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
   const [aiSplitOpen, setAiSplitOpen] = useState(false)
-  const [aiMode, setAiMode] = useState<AiMode>('creative')
+  const [aiMode, setAiMode] = useState<AiMode | null>(null)
   const [withRussify, setWithRussify] = useState(false)
   const [splitLeft, setSplitLeft] = useState('')
   const [splitRight, setSplitRight] = useState('')
@@ -163,15 +163,18 @@ export default function PostEditor({
     setContent(prev => applyEmojiSuggestion(prev, id))
   }
 
-  async function runSplitAI(text: string, mode: AiMode, doRussify: boolean) {
-    if (!text.trim()) { setSplitRight(''); return }
+  async function runSplitAI(text: string, mode: AiMode | null, doRussify: boolean) {
+    if (!text.trim() || (!mode && !doRussify)) { setSplitRight(''); return }
     const callId = ++splitCallIdRef.current
     setSplitLoading(true)
     try {
-      const d = await api.enhanceText(text, mode)
-      if (callId !== splitCallIdRef.current) return
-      let result = d.text
-      if (doRussify && mode !== 'russify') {
+      let result = text
+      if (mode) {
+        const d = await api.enhanceText(text, mode)
+        if (callId !== splitCallIdRef.current) return
+        result = d.text
+      }
+      if (doRussify) {
         const r = await api.enhanceText(result, 'russify')
         if (callId !== splitCallIdRef.current) return
         result = r.text
@@ -187,6 +190,7 @@ export default function PostEditor({
 
   function handleSplitLeftChange(val: string) {
     setSplitLeft(val)
+    if (!aiMode && !withRussify) return
     if (splitDebounceRef.current) clearTimeout(splitDebounceRef.current)
     splitDebounceRef.current = setTimeout(() => runSplitAI(val, aiMode, withRussify), 900)
   }
@@ -204,11 +208,10 @@ export default function PostEditor({
   }
 
   function openAiSplit() {
-    const text = content
-    setSplitLeft(text)
+    setSplitLeft(content)
     setSplitRight('')
+    setAiMode(null)
     setAiSplitOpen(true)
-    if (text.trim()) runSplitAI(text, aiMode, withRussify)
   }
 
   function applyAiResult() {
@@ -625,9 +628,9 @@ export default function PostEditor({
                 <button type="button" className="btn btn-ghost btn-sm" style={{ fontSize: 16, lineHeight: 1, padding: '4px 8px' }} onClick={() => setAiSplitOpen(false)}>✕</button>
               </div>
 
-              {/* Mode tabs */}
+              {/* Mode tabs — russify excluded, it's a toggle below */}
               <div className="ai-split-tabs">
-                {AI_MODES_CONFIG.map(m => (
+                {AI_MODES_CONFIG.filter(m => m.id !== 'russify').map(m => (
                   <button
                     key={m.id}
                     className={`ai-split-tab${aiMode === m.id ? ' active' : ''}`}
@@ -644,20 +647,24 @@ export default function PostEditor({
                 ))}
               </div>
 
-              {/* Russify toggle + active mode description */}
+              {/* Russify toggle + mode description */}
               <div className="ai-split-sub-row">
-                {aiMode !== 'russify' && (
-                  <label className="ai-russify-toggle">
-                    <input
-                      type="checkbox"
-                      checked={withRussify}
-                      onChange={e => handleRussifyToggle(e.target.checked)}
-                    />
-                    <span>🔤</span> Русификация
-                  </label>
-                )}
+                <label className="ai-russify-toggle">
+                  <input
+                    type="checkbox"
+                    checked={withRussify}
+                    onChange={e => handleRussifyToggle(e.target.checked)}
+                  />
+                  <span>🔤</span> Русификация
+                  <span
+                    className="ai-info-badge"
+                    style={{ marginLeft: 3 }}
+                    onMouseEnter={() => setHoveredModeInfo(AI_MODES_CONFIG.find(m => m.id === 'russify')!.info)}
+                    onMouseLeave={() => setHoveredModeInfo(null)}
+                  >!</span>
+                </label>
                 <div className="ai-tab-desc">
-                  {hoveredModeInfo ?? AI_MODES_CONFIG.find(m => m.id === aiMode)?.info}
+                  {hoveredModeInfo ?? (aiMode ? AI_MODES_CONFIG.find(m => m.id === aiMode)?.info : 'Выберите режим выше или включите русификацию')}
                 </div>
               </div>
             </div>
@@ -681,7 +688,7 @@ export default function PostEditor({
                 <div className="ai-split-result">
                   {splitRight
                     ? splitRight
-                    : <span className="ai-split-result-empty">{splitLoading ? 'Генерирую...' : 'Результат появится здесь'}</span>
+                    : <span className="ai-split-result-empty">{splitLoading ? 'Генерирую...' : (!aiMode && !withRussify ? 'Выберите режим или включите русификацию' : 'Результат появится здесь')}</span>
                   }
                 </div>
               </div>
