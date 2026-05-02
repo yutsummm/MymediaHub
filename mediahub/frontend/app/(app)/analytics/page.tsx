@@ -11,6 +11,12 @@ export default function AnalyticsPage() {
   const [sum, setSum] = useState<AnalyticsSummary | null>(null)
   const [tl, setTl] = useState<TimelinePoint[]>([])
   const [period, setPeriod] = useState('month')
+  const [exporting, setExporting] = useState(false)
+
+  async function handleExport() {
+    setExporting(true)
+    try { await api.exportAnalytics(period) } catch (e) { alert((e as Error).message) } finally { setExporting(false) }
+  }
   const lineRef  = useRef<HTMLCanvasElement>(null)
   const lineChart = useRef<InstanceType<typeof Chart> | null>(null)
   const barRef   = useRef<HTMLCanvasElement>(null)
@@ -112,12 +118,22 @@ export default function AnalyticsPage() {
       <div className="card mb6">
         <div className="card-header">
           <span className="card-title">Динамика охватов</span>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {(['week', 'month', 'quarter'] as const).map(p => (
               <button key={p} className={`btn btn-sm ${period === p ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setPeriod(p)}>
                 {{ week: 'Неделя', month: 'Месяц', quarter: 'Квартал' }[p]}
               </button>
             ))}
+            <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 4px' }} />
+            <button
+              className="btn btn-sm btn-secondary"
+              onClick={handleExport}
+              disabled={exporting}
+              title="Скачать отчёт в Excel"
+              style={{ gap: 5 }}
+            >
+              {exporting ? '⏳' : '⬇'} {exporting ? 'Формируем...' : 'Excel'}
+            </button>
           </div>
         </div>
         <div style={{ padding: 20 }}>

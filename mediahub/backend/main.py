@@ -10,11 +10,15 @@ from pydantic import BaseModel
 from typing import Optional, List
 import psycopg2
 import psycopg2.extras
-import json, os, random, uuid, shutil, hashlib
+import json, os, random, uuid, shutil, hashlib, io
 import requests as http_requests
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from jose import jwt, JWTError
+from fastapi.responses import StreamingResponse
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 load_dotenv()
 
@@ -1969,6 +1973,165 @@ def analytics_timeline(period: str = "month"):
         result.append({"date": ds, "label": day.strftime("%d.%m"), "views": row["v"] or 0, "reactions": row["r"] or 0, "posts": row["p"] or 0})
     conn.close()
     return result
+
+@app.get("/api/analytics/export")
+def analytics_export(period: str = "month"):
+    days = {"week": 7, "month": 30, "quarter": 90}.get(period, 30)
+    now = datetime.now()
+    conn = get_db()
+    c = conn.cursor()
+
+    # Summary data
+    c.execute("SELECT COUNT(*) FROM posts");                          total     = c.fetchone()["count"]
+    c.execute("SELECT COUNT(*) FROM posts WHERE status='published'"); published = c.fetchone()["count"]
+    c.execute("SELECT COUNT(*) FROM posts WHERE status='scheduled'"); scheduled = c.fetchone()["count"]
+    c.execute("SELECT COUNT(*) FROM posts WHERE status='draft'");     drafts    = c.fetchone()["count"]
+    c.execute("SELECT SUM(views) v,SUM(reactions) r,SUM(comments) cm,SUM(shares) sh FROM posts WHERE status='published'")
+    s = c.fetchone()
+    total_views = s["v"] or 0
+    eng = round(((s["r"] or 0) + (s["cm"] or 0)) / max(total_views, 1) * 100, 1)
+
+    # Timeline data
+    timeline = []
+    for i in range(days - 1, -1, -1):
+        day = now - timedelta(days=i)
+        ds = day.strftime("%Y-%m-%d")
+        c.execute("SELECT SUM(views) v, SUM(reactions) r, COUNT(*) p FROM posts WHERE published_at LIKE %s", (ds + "%",))
+        row = c.fetchone()
+        timeline.append({"date": ds, "label": day.strftime("%d.%m"), "views": row["v"] or 0, "reactions": row["r"] or 0, "posts": row["p"] or 0})
+
+    # Platform stats
+    pl_stats = []
+    for pl in ["vk", "telegram"]:
+        c.execute("SELECT COUNT(*) cnt,SUM(views) v,SUM(reactions) r FROM posts WHERE platforms LIKE %s AND status='published'", (f'%"{pl}"%',))
+        ps = c.fetchone()
+        pl_stats.append({"platform": pl.upper(), "count": ps["cnt"] or 0, "views": ps["v"] or 0, "reactions": ps["r"] or 0})
+
+    # Top posts
+    c.execute("SELECT title,views,reactions,comments,shares,published_at FROM posts WHERE status='published' ORDER BY (views+reactions*3+comments*2+shares*4) DESC LIMIT 10")
+    top_posts = c.fetchall()
+    conn.close()
+
+    # ── Build Excel ──
+    wb = openpyxl.Workbook()
+
+    BLUE   = "1D4ED8"
+    WHITE  = "FFFFFF"
+    GRAY   = "F1F5F9"
+    DARK   = "1E293B"
+
+    header_font  = Font(bold=True, color=WHITE, size=11)
+    header_fill  = PatternFill("solid", fgColor=BLUE)
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    cell_align   = Alignment(vertical="center")
+    thin_border  = Border(
+        bottom=Side(style="thin", color="CBD5E1"),
+        right=Side(style="thin", color="E2E8F0"),
+    )
+
+    def style_header_row(ws, row, cols):
+        for col in range(1, cols + 1):
+            cell = ws.cell(row=row, column=col)
+            cell.font   = header_font
+            cell.fill   = header_fill
+            cell.alignment = header_align
+            cell.border = thin_border
+
+    def style_data_row(ws, row, cols, shade=False):
+        fill = PatternFill("solid", fgColor=GRAY) if shade else None
+        for col in range(1, cols + 1):
+            cell = ws.cell(row=row, column=col)
+            cell.alignment = cell_align
+            cell.border    = thin_border
+            if shade:
+                cell.fill = fill
+
+    period_labels = {"week": "Неделя", "month": "Месяц", "quarter": "Квартал"}
+
+    # ── Лист 1: Сводка ──
+    ws1 = wb.active
+    ws1.title = "Сводка"
+    ws1.row_dimensions[1].height = 30
+    ws1["A1"] = f"Отчёт по аналитике — {period_labels.get(period, 'Месяц')}  ({now.strftime('%d.%m.%Y')})"
+    ws1["A1"].font = Font(bold=True, size=14, color=DARK)
+    ws1["A1"].alignment = Alignment(horizontal="left", vertical="center")
+    ws1.merge_cells("A1:B1")
+    ws1.append([])
+
+    headers = ["Показатель", "Значение"]
+    ws1.append(headers)
+    style_header_row(ws1, 3, 2)
+    ws1.row_dimensions[3].height = 24
+
+    rows = [
+        ("Всего постов",       total),
+        ("Опубликовано",       published),
+        ("Запланировано",      scheduled),
+        ("Черновиков",         drafts),
+        ("Всего просмотров",   total_views),
+        ("Реакции",            s["r"] or 0),
+        ("Комментарии",        s["cm"] or 0),
+        ("Репосты",            s["sh"] or 0),
+        ("Средние просмотры",  round(total_views / max(published, 1))),
+        ("Вовлечённость, %",   eng),
+    ]
+    for i, (label, val) in enumerate(rows, start=4):
+        ws1.append([label, val])
+        ws1.row_dimensions[i].height = 20
+        style_data_row(ws1, i, 2, shade=(i % 2 == 0))
+
+    ws1.column_dimensions["A"].width = 28
+    ws1.column_dimensions["B"].width = 18
+
+    # ── Лист 2: Динамика ──
+    ws2 = wb.create_sheet("Динамика")
+    ws2.append(["Дата", "Просмотры", "Реакции", "Публикаций"])
+    style_header_row(ws2, 1, 4)
+    ws2.row_dimensions[1].height = 24
+    for i, row in enumerate(timeline, start=2):
+        ws2.append([row["date"], row["views"], row["reactions"], row["posts"]])
+        ws2.row_dimensions[i].height = 18
+        style_data_row(ws2, i, 4, shade=(i % 2 == 0))
+    for col, w in zip("ABCD", [14, 14, 12, 14]):
+        ws2.column_dimensions[col].width = w
+
+    # ── Лист 3: Площадки ──
+    ws3 = wb.create_sheet("Площадки")
+    ws3.append(["Площадка", "Публикаций", "Просмотры", "Реакции"])
+    style_header_row(ws3, 1, 4)
+    ws3.row_dimensions[1].height = 24
+    for i, pl in enumerate(pl_stats, start=2):
+        ws3.append([pl["platform"], pl["count"], pl["views"], pl["reactions"]])
+        ws3.row_dimensions[i].height = 20
+        style_data_row(ws3, i, 4, shade=(i % 2 == 0))
+    for col, w in zip("ABCD", [16, 14, 14, 12]):
+        ws3.column_dimensions[col].width = w
+
+    # ── Лист 4: Топ постов ──
+    ws4 = wb.create_sheet("Топ постов")
+    ws4.append(["#", "Заголовок", "Просмотры", "Реакции", "Комментарии", "Репосты", "Дата публикации"])
+    style_header_row(ws4, 1, 7)
+    ws4.row_dimensions[1].height = 24
+    for i, p in enumerate(top_posts, start=2):
+        ws4.append([i - 1, p["title"], p["views"] or 0, p["reactions"] or 0, p["comments"] or 0, p["shares"] or 0, str(p["published_at"] or "")])
+        ws4.row_dimensions[i].height = 20
+        style_data_row(ws4, i, 7, shade=(i % 2 == 0))
+    for col, w in zip("ABCDEFG", [4, 40, 12, 10, 14, 10, 22]):
+        ws4.column_dimensions[col].width = w
+
+    # ── Stream response ──
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    month_ru = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"]
+    fname = f"аналитика_{month_ru[now.month-1]}_{now.year}.xlsx"
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"},
+    )
 
 # ── Notifications ─────────────────────────────────────────────────────────────
 

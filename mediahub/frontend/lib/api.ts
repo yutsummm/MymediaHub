@@ -91,6 +91,22 @@ export const api = {
   getAnalyticsSummary: () => req<import('./types').AnalyticsSummary>('/api/analytics/summary'),
   getTimeline: (period: string) =>
     req<import('./types').TimelinePoint[]>(`/api/analytics/timeline?period=${period}`),
+  exportAnalytics: async (period: string): Promise<void> => {
+    const url = `${BASE}/api/analytics/export?period=${period}`
+    const token = _getToken()
+    const headers: Record<string, string> = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const res = await fetch(url, { headers })
+    if (!res.ok) throw new Error(`Ошибка экспорта: ${res.status}`)
+    const blob = await res.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    const cd = res.headers.get('content-disposition') ?? ''
+    const match = cd.match(/filename\*=UTF-8''(.+)/)
+    a.download = match ? decodeURIComponent(match[1]) : `аналитика.xlsx`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  },
 
   getNotifications: (user_id?: number) =>
     req<import('./types').Notification[]>(`/api/notifications${user_id ? `?user_id=${user_id}` : ''}`),
