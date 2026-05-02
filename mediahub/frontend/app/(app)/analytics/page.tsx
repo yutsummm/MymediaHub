@@ -115,10 +115,10 @@ export default function AnalyticsPage() {
   )
 
   const mc = [
-    { label: 'Просмотров',    val: fmtN(sum.total_views),     color: '#60a5fa', bg: 'rgba(59,130,246,0.12)' },
-    { label: 'Реакций',       val: fmtN(sum.total_reactions), color: '#f87171', bg: 'rgba(239,68,68,0.12)' },
-    { label: 'Комментариев',  val: fmtN(sum.total_comments),  color: '#34d399', bg: 'rgba(16,185,129,0.12)' },
-    { label: 'Репостов',      val: fmtN(sum.total_shares),    color: '#fbbf24', bg: 'rgba(245,158,11,0.12)' },
+    { label: 'Просмотров',   val: fmtN(sum.total_views),     icon: '↗' },
+    { label: 'Реакций',      val: fmtN(sum.total_reactions), icon: '♥' },
+    { label: 'Комментариев', val: fmtN(sum.total_comments),  icon: '◉' },
+    { label: 'Репостов',     val: fmtN(sum.total_shares),    icon: '⇌' },
   ]
 
   return (
@@ -128,12 +128,12 @@ export default function AnalyticsPage() {
       <div className="grid4" style={{ marginBottom: 20 }}>
         {mc.map((c, i) => (
           <div key={i} className="stat-card anim-in">
-            <div className="stat-icon" style={{ background: c.bg }}>
-              <span style={{ color: c.color, fontSize: 15, fontWeight: 800 }}>
-                {i === 0 ? '↗' : i === 1 ? '♥' : i === 2 ? '◉' : '⇌'}
+            <div className="stat-icon" style={{ background: 'var(--accent-light)' }}>
+              <span style={{ color: 'var(--accent)', fontSize: 15, fontWeight: 800 }}>
+                {c.icon}
               </span>
             </div>
-            <div className="stat-value" style={{ color: c.color }}>{c.val}</div>
+            <div className="stat-value">{c.val}</div>
             <div className="stat-label">{c.label}</div>
           </div>
         ))}
@@ -188,8 +188,9 @@ export default function AnalyticsPage() {
             <div key={p.id} style={{ padding: '12px 20px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 12, alignItems: 'center' }}>
               <div style={{
                 width: 26, height: 26, borderRadius: 6,
-                background: ['linear-gradient(135deg,#f59e0b,#fbbf24)', 'linear-gradient(135deg,#6b7280,#9ca3af)', 'linear-gradient(135deg,#92400e,#b45309)', 'var(--surface-2)', 'var(--surface-2)'][i],
-                color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: i === 0 ? 'var(--accent)' : 'var(--surface-2)',
+                color: i === 0 ? 'var(--btn-primary-fg)' : 'var(--text-3)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 11, fontWeight: 800, flexShrink: 0,
               }}>{i + 1}</div>
               <div style={{ flex: 1, minWidth: 0 }}>

@@ -35,10 +35,10 @@ export default function DashboardPage() {
   }
 
   const cards = [
-    { label: 'Всего постов',    val: sum.total_posts,        delta: '+12%', bg: 'rgba(124,58,237,0.12)',  color: '#a78bfa' },
-    { label: 'Суммарный охват', val: fmtN(sum.total_views),  delta: '+18%', bg: 'rgba(59,130,246,0.12)', color: '#60a5fa' },
-    { label: 'Реакции',         val: fmtN(sum.total_reactions), delta: '+9%', bg: 'rgba(16,185,129,0.12)', color: '#34d399' },
-    { label: 'Вовлечённость',   val: sum.engagement_rate + '%', delta: '+3%', bg: 'rgba(245,158,11,0.12)', color: '#fbbf24' },
+    { label: 'Всего постов',    val: sum.total_posts,              delta: '+12%', icon: '≡' },
+    { label: 'Суммарный охват', val: fmtN(sum.total_views),        delta: '+18%', icon: '↗' },
+    { label: 'Реакции',         val: fmtN(sum.total_reactions),    delta: '+9%',  icon: '♥' },
+    { label: 'Вовлечённость',   val: sum.engagement_rate + '%',   delta: '+3%',  icon: '◎' },
   ]
 
   const statusRows = [
@@ -54,12 +54,12 @@ export default function DashboardPage() {
       <div className="stats-grid" style={{ marginBottom: 20 }}>
         {cards.map((c, i) => (
           <div key={i} className="stat-card anim-in">
-            <div className="stat-icon" style={{ background: c.bg }}>
-              <span style={{ color: c.color, fontSize: 15, fontWeight: 800 }}>
-                {i === 0 ? '≡' : i === 1 ? '↗' : i === 2 ? '♥' : '◎'}
+            <div className="stat-icon" style={{ background: 'var(--accent-light)' }}>
+              <span style={{ color: 'var(--accent)', fontSize: 15, fontWeight: 800 }}>
+                {c.icon}
               </span>
             </div>
-            <div className="stat-value" style={{ color: c.color }}>{c.val}</div>
+            <div className="stat-value">{c.val}</div>
             <div className="stat-label">{c.label}</div>
             <div className="stat-delta">↑ {c.delta} за месяц</div>
           </div>
@@ -145,12 +145,8 @@ export default function DashboardPage() {
               <div style={{
                 width: 24, height: 24,
                 borderRadius: 6,
-                background: [
-                  'linear-gradient(135deg, #f59e0b, #fbbf24)',
-                  'linear-gradient(135deg, #6b7280, #9ca3af)',
-                  'linear-gradient(135deg, #92400e, #b45309)',
-                ][i],
-                color: '#fff',
+                background: i === 0 ? 'var(--accent)' : 'var(--surface-2)',
+                color: i === 0 ? 'var(--btn-primary-fg)' : 'var(--text-3)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 10, fontWeight: 800, flexShrink: 0,
               }}>
