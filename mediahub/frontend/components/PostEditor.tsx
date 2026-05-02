@@ -366,7 +366,7 @@ export default function PostEditor({
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm ai-assist-btn"
-                    onClick={() => setAiModalOpen(true)}
+                    onClick={openAiSplit}
                   >
                     <span className="ai-assist-icon">✦</span> ИИ-помощник
                   </button>
