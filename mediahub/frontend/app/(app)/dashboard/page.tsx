@@ -13,6 +13,15 @@ const fmtDate = (s: string | null) => {
 const STATUS_LABEL: Record<string, string> = { draft: 'Черновик', scheduled: 'Запланирован', published: 'Опубликован' }
 const STATUS_CLASS: Record<string, string> = { draft: 's-draft', scheduled: 's-scheduled', published: 's-published' }
 
+const S = { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
+
+const DASH_ICONS = [
+  <svg key="posts" {...S}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>,
+  <svg key="views" {...S}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+  <svg key="heart" {...S}><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>,
+  <svg key="trend" {...S}><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>,
+]
+
 export default function DashboardPage() {
   const router = useRouter()
   const [sum, setSum] = useState<AnalyticsSummary | null>(null)
@@ -35,10 +44,10 @@ export default function DashboardPage() {
   }
 
   const cards = [
-    { label: 'Всего постов',    val: sum.total_posts,              delta: '+12%', icon: '≡' },
-    { label: 'Суммарный охват', val: fmtN(sum.total_views),        delta: '+18%', icon: '↗' },
-    { label: 'Реакции',         val: fmtN(sum.total_reactions),    delta: '+9%',  icon: '♥' },
-    { label: 'Вовлечённость',   val: sum.engagement_rate + '%',   delta: '+3%',  icon: '◎' },
+    { label: 'Всего постов',    val: sum.total_posts,            delta: '+12%' },
+    { label: 'Суммарный охват', val: fmtN(sum.total_views),      delta: '+18%' },
+    { label: 'Реакции',         val: fmtN(sum.total_reactions),  delta: '+9%'  },
+    { label: 'Вовлечённость',   val: sum.engagement_rate + '%', delta: '+3%'  },
   ]
 
   const statusRows = [
@@ -54,10 +63,8 @@ export default function DashboardPage() {
       <div className="stats-grid" style={{ marginBottom: 20 }}>
         {cards.map((c, i) => (
           <div key={i} className="stat-card anim-in">
-            <div className="stat-icon" style={{ background: 'var(--accent-light)' }}>
-              <span style={{ color: 'var(--accent)', fontSize: 15, fontWeight: 800 }}>
-                {c.icon}
-              </span>
+            <div className="stat-icon" style={{ background: 'var(--accent-light)', color: 'var(--accent)' }}>
+              {DASH_ICONS[i]}
             </div>
             <div className="stat-value">{c.val}</div>
             <div className="stat-label">{c.label}</div>
