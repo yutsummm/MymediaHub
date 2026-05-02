@@ -146,15 +146,18 @@ export default function PostEditor({ editPost }: { editPost?: Post }) {
   }
 
   function insertEmoji(emoji: string) {
-    const nextValue = content.trimEnd()
-      ? `${content.trimEnd()} ${emoji}`
-      : emoji
-    setContent(nextValue)
+    let nextCursorPosition = emoji.length
+    setContent(prev => {
+      const trimmed = prev.trimEnd()
+      const nextValue = trimmed ? `${trimmed} ${emoji}` : emoji
+      nextCursorPosition = nextValue.length
+      return nextValue
+    })
     requestAnimationFrame(() => {
       const textarea = textareaRef.current
       if (!textarea) return
       textarea.focus()
-      textarea.setSelectionRange(nextValue.length, nextValue.length)
+      textarea.setSelectionRange(nextCursorPosition, nextCursorPosition)
     })
   }
 
