@@ -91,8 +91,8 @@ export const api = {
   getAnalyticsSummary: () => req<import('./types').AnalyticsSummary>('/api/analytics/summary'),
   getTimeline: (period: string) =>
     req<import('./types').TimelinePoint[]>(`/api/analytics/timeline?period=${period}`),
-  exportAnalytics: async (period: string): Promise<void> => {
-    const url = `${BASE}/api/analytics/export?period=${period}`
+  exportAnalytics: async (startDate: string, endDate: string): Promise<void> => {
+    const url = `${BASE}/api/analytics/export?start_date=${startDate}&end_date=${endDate}`
     const token = _getToken()
     const headers: Record<string, string> = {}
     if (token) headers['Authorization'] = `Bearer ${token}`

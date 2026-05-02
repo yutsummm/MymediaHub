@@ -7,15 +7,39 @@ declare const Chart: typeof import('chart.js').Chart
 
 const fmtN = (n: number) => n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n)
 
+const MONTHS_RU = ['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь']
+
+function buildMonthOptions() {
+  const now = new Date()
+  const opts: { label: string; startDate: string; endDate: string }[] = []
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const y = d.getFullYear()
+    const m = d.getMonth()
+    const start = `${y}-${String(m + 1).padStart(2, '0')}-01`
+    const isCurrentMonth = i === 0
+    const lastDay = isCurrentMonth
+      ? now
+      : new Date(y, m + 1, 0)
+    const end = `${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`
+    const suffix = isCurrentMonth ? ' (по сегодня)' : ''
+    opts.push({ label: `${MONTHS_RU[m]} ${y}${suffix}`, startDate: start, endDate: end })
+  }
+  return opts
+}
+
 export default function AnalyticsPage() {
   const [sum, setSum] = useState<AnalyticsSummary | null>(null)
   const [tl, setTl] = useState<TimelinePoint[]>([])
   const [period, setPeriod] = useState('month')
   const [exporting, setExporting] = useState(false)
+  const monthOptions = buildMonthOptions()
+  const [selectedMonth, setSelectedMonth] = useState(0)
 
   async function handleExport() {
+    const opt = monthOptions[selectedMonth]
     setExporting(true)
-    try { await api.exportAnalytics(period) } catch (e) { alert((e as Error).message) } finally { setExporting(false) }
+    try { await api.exportAnalytics(opt.startDate, opt.endDate) } catch (e) { alert((e as Error).message) } finally { setExporting(false) }
   }
   const lineRef  = useRef<HTMLCanvasElement>(null)
   const lineChart = useRef<InstanceType<typeof Chart> | null>(null)
@@ -125,14 +149,23 @@ export default function AnalyticsPage() {
               </button>
             ))}
             <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 4px' }} />
+            <select
+              className="fsel"
+              value={selectedMonth}
+              onChange={e => setSelectedMonth(Number(e.target.value))}
+              style={{ fontSize: 12, padding: '5px 10px', borderRadius: 'var(--r-full)' }}
+            >
+              {monthOptions.map((o, i) => (
+                <option key={i} value={i}>{o.label}</option>
+              ))}
+            </select>
             <button
               className="btn btn-sm btn-secondary"
               onClick={handleExport}
               disabled={exporting}
               title="Скачать отчёт в Excel"
-              style={{ gap: 5 }}
             >
-              {exporting ? '⏳' : '⬇'} {exporting ? 'Формируем...' : 'Excel'}
+              {exporting ? '⏳ Формируем...' : '⬇ Excel'}
             </button>
           </div>
         </div>

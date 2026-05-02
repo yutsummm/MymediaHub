@@ -1975,40 +1975,62 @@ def analytics_timeline(period: str = "month"):
     return result
 
 @app.get("/api/analytics/export")
-def analytics_export(period: str = "month"):
-    days = {"week": 7, "month": 30, "quarter": 90}.get(period, 30)
+def analytics_export(start_date: str = Query(...), end_date: str = Query(...)):
     now = datetime.now()
+    try:
+        dt_start = datetime.strptime(start_date, "%Y-%m-%d")
+        dt_end   = datetime.strptime(end_date,   "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Формат дат: YYYY-MM-DD")
+
     conn = get_db()
     c = conn.cursor()
 
-    # Summary data
-    c.execute("SELECT COUNT(*) FROM posts");                          total     = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) FROM posts WHERE status='published'"); published = c.fetchone()["count"]
+    # Summary data — только за выбранный период
+    date_filter = "published_at >= %s AND published_at < %s AND status='published'"
+    end_next    = (dt_end + timedelta(days=1)).strftime("%Y-%m-%d")
+    start_str   = dt_start.strftime("%Y-%m-%d")
+
+    c.execute(f"SELECT COUNT(*) FROM posts WHERE {date_filter}", (start_str, end_next))
+    published = c.fetchone()["count"]
     c.execute("SELECT COUNT(*) FROM posts WHERE status='scheduled'"); scheduled = c.fetchone()["count"]
     c.execute("SELECT COUNT(*) FROM posts WHERE status='draft'");     drafts    = c.fetchone()["count"]
-    c.execute("SELECT SUM(views) v,SUM(reactions) r,SUM(comments) cm,SUM(shares) sh FROM posts WHERE status='published'")
+    c.execute(f"SELECT COUNT(*) FROM posts WHERE published_at >= %s AND published_at < %s", (start_str, end_next))
+    total = c.fetchone()["count"]
+    c.execute(
+        f"SELECT SUM(views) v,SUM(reactions) r,SUM(comments) cm,SUM(shares) sh FROM posts WHERE {date_filter}",
+        (start_str, end_next),
+    )
     s = c.fetchone()
     total_views = s["v"] or 0
     eng = round(((s["r"] or 0) + (s["cm"] or 0)) / max(total_views, 1) * 100, 1)
 
-    # Timeline data
+    # Timeline: каждый день периода
     timeline = []
-    for i in range(days - 1, -1, -1):
-        day = now - timedelta(days=i)
-        ds = day.strftime("%Y-%m-%d")
+    delta = (dt_end - dt_start).days + 1
+    for i in range(delta):
+        day = dt_start + timedelta(days=i)
+        ds  = day.strftime("%Y-%m-%d")
         c.execute("SELECT SUM(views) v, SUM(reactions) r, COUNT(*) p FROM posts WHERE published_at LIKE %s", (ds + "%",))
         row = c.fetchone()
         timeline.append({"date": ds, "label": day.strftime("%d.%m"), "views": row["v"] or 0, "reactions": row["r"] or 0, "posts": row["p"] or 0})
 
-    # Platform stats
+    # Platform stats — за период
     pl_stats = []
     for pl in ["vk", "telegram"]:
-        c.execute("SELECT COUNT(*) cnt,SUM(views) v,SUM(reactions) r FROM posts WHERE platforms LIKE %s AND status='published'", (f'%"{pl}"%',))
+        c.execute(
+            f"SELECT COUNT(*) cnt,SUM(views) v,SUM(reactions) r FROM posts WHERE platforms LIKE %s AND {date_filter}",
+            (f'%"{pl}"%', start_str, end_next),
+        )
         ps = c.fetchone()
         pl_stats.append({"platform": pl.upper(), "count": ps["cnt"] or 0, "views": ps["v"] or 0, "reactions": ps["r"] or 0})
 
-    # Top posts
-    c.execute("SELECT title,views,reactions,comments,shares,published_at FROM posts WHERE status='published' ORDER BY (views+reactions*3+comments*2+shares*4) DESC LIMIT 10")
+    # Top posts — за период
+    c.execute(
+        f"SELECT title,views,reactions,comments,shares,published_at FROM posts WHERE {date_filter} "
+        "ORDER BY (views+reactions*3+comments*2+shares*4) DESC LIMIT 10",
+        (start_str, end_next),
+    )
     top_posts = c.fetchall()
     conn.close()
 
@@ -2032,10 +2054,10 @@ def analytics_export(period: str = "month"):
     def style_header_row(ws, row, cols):
         for col in range(1, cols + 1):
             cell = ws.cell(row=row, column=col)
-            cell.font   = header_font
-            cell.fill   = header_fill
+            cell.font      = header_font
+            cell.fill      = header_fill
             cell.alignment = header_align
-            cell.border = thin_border
+            cell.border    = thin_border
 
     def style_data_row(ws, row, cols, shade=False):
         fill = PatternFill("solid", fgColor=GRAY) if shade else None
@@ -2046,13 +2068,13 @@ def analytics_export(period: str = "month"):
             if shade:
                 cell.fill = fill
 
-    period_labels = {"week": "Неделя", "month": "Месяц", "quarter": "Квартал"}
+    period_label = f"{dt_start.strftime('%d.%m.%Y')} — {dt_end.strftime('%d.%m.%Y')}"
 
     # ── Лист 1: Сводка ──
     ws1 = wb.active
     ws1.title = "Сводка"
     ws1.row_dimensions[1].height = 30
-    ws1["A1"] = f"Отчёт по аналитике — {period_labels.get(period, 'Месяц')}  ({now.strftime('%d.%m.%Y')})"
+    ws1["A1"] = f"Отчёт по аналитике — {period_label}"
     ws1["A1"].font = Font(bold=True, size=14, color=DARK)
     ws1["A1"].alignment = Alignment(horizontal="left", vertical="center")
     ws1.merge_cells("A1:B1")
@@ -2125,7 +2147,7 @@ def analytics_export(period: str = "month"):
     buf.seek(0)
 
     month_ru = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"]
-    fname = f"аналитика_{month_ru[now.month-1]}_{now.year}.xlsx"
+    fname = f"аналитика_{month_ru[dt_start.month-1]}_{dt_start.year}.xlsx"
 
     return StreamingResponse(
         buf,
