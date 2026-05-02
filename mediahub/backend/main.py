@@ -11,6 +11,7 @@ from typing import Optional, List
 import psycopg2
 import psycopg2.extras
 import json, os, random, uuid, shutil, hashlib, io
+from urllib.parse import quote
 import requests as http_requests
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -2148,11 +2149,12 @@ def analytics_export(start_date: str = Query(...), end_date: str = Query(...)):
 
     month_ru = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"]
     fname = f"аналитика_{month_ru[dt_start.month-1]}_{dt_start.year}.xlsx"
+    fname_encoded = quote(fname, safe="")
 
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname}"},
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname_encoded}"},
     )
 
 # ── Notifications ─────────────────────────────────────────────────────────────
