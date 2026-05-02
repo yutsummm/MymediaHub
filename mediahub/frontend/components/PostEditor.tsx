@@ -32,6 +32,7 @@ export default function PostEditor({
   const { showToast } = useToast()
   const isEdit = !!editPost
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const emojiCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [step, setStep] = useState(isEdit ? 3 : 1)
   const [tmplType, setTmplType] = useState(editPost?.template_type ?? '')
@@ -53,15 +54,27 @@ export default function PostEditor({
   const [saving, setSaving] = useState(false)
   const [tagIn, setTagIn] = useState('')
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
-  const [aiSplitOpen, setAiSplitOpen] = useState(false)
-  const [aiMode, setAiMode] = useState<'creative' | 'russify'>('creative')
-  const [aiResult, setAiResult] = useState('')
-  const [aiResultLoading, setAiResultLoading] = useState(false)
+  const [aiModalOpen, setAiModalOpen] = useState(false)
   const [locationPickerOpen, setLocationPickerOpen] = useState(false)
+  const [aiLoading, setAiLoading] = useState<'creative' | 'russify' | null>(null)
   const [prevContent, setPrevContent] = useState<string | null>(null)
-  const aiDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => { api.getTemplates().then(setTmpls).catch(console.error) }, [])
+  useEffect(() => {
+    return () => {
+      if (emojiCloseTimerRef.current) clearTimeout(emojiCloseTimerRef.current)
+    }
+  }, [])
+
+  function openEmojiPicker() {
+    if (emojiCloseTimerRef.current) clearTimeout(emojiCloseTimerRef.current)
+    setEmojiPickerOpen(true)
+  }
+
+  function closeEmojiPickerLater() {
+    if (emojiCloseTimerRef.current) clearTimeout(emojiCloseTimerRef.current)
+    emojiCloseTimerRef.current = setTimeout(() => setEmojiPickerOpen(false), 1400)
+  }
 
   async function generateText() {
     const empty = tmplFields.filter(f => !fields[f.key]?.trim()).map(f => f.label)
@@ -131,45 +144,18 @@ export default function PostEditor({
     setContent(prev => applyEmojiSuggestion(prev, id))
   }
 
-  async function refreshAiResult(text: string, mode: 'creative' | 'russify') {
-    if (!text.trim()) { setAiResult(''); return }
-    setAiResultLoading(true)
-    try {
-      const d = await api.enhanceText(text, mode)
-      setAiResult(d.text)
-    } catch { setAiResult('') }
-    finally { setAiResultLoading(false) }
-  }
-
-  function openAiSplit() {
+  async function enhanceWithAI(mode: 'creative' | 'russify') {
     if (!content.trim()) { showToast('Сначала введите текст поста', 'error'); return }
-    setAiResult('')
-    setAiSplitOpen(true)
-    refreshAiResult(content, aiMode)
+    setAiLoading(mode)
+    try {
+      const d = await api.enhanceText(content, mode)
+      setPrevContent(content)
+      setContent(d.text)
+      setAiModalOpen(false)
+      showToast(mode === 'creative' ? '✨ Текст улучшен!' : '🔤 Русификация применена!', 'success')
+    } catch (e: unknown) { showToast((e as Error).message, 'error') }
+    finally { setAiLoading(null) }
   }
-
-  function applyAiResult() {
-    setPrevContent(content)
-    setContent(aiResult)
-    setAiSplitOpen(false)
-    setAiResult('')
-    showToast('✨ Текст ИИ применён!', 'success')
-  }
-
-  // Дебаунс при редактировании левого поля
-  useEffect(() => {
-    if (!aiSplitOpen) return
-    if (aiDebounceRef.current) clearTimeout(aiDebounceRef.current)
-    aiDebounceRef.current = setTimeout(() => refreshAiResult(content, aiMode), 900)
-    return () => { if (aiDebounceRef.current) clearTimeout(aiDebounceRef.current) }
-  }, [content]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Немедленное обновление при смене режима
-  useEffect(() => {
-    if (!aiSplitOpen || !content.trim()) return
-    if (aiDebounceRef.current) clearTimeout(aiDebounceRef.current)
-    refreshAiResult(content, aiMode)
-  }, [aiMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function applyAllSuggestions() {
     let nextTitle = title
@@ -184,19 +170,18 @@ export default function PostEditor({
   }
 
   function insertEmoji(emoji: string) {
-    const textarea = textareaRef.current
-    if (!textarea) {
-      setContent(prev => `${prev}${emoji}`)
-      return
-    }
-    const start = textarea.selectionStart ?? content.length
-    const end = textarea.selectionEnd ?? content.length
-    const nextValue = `${content.slice(0, start)}${emoji}${content.slice(end)}`
-    setContent(nextValue)
+    let nextCursorPosition = emoji.length
+    setContent(prev => {
+      const trimmed = prev.trimEnd()
+      const nextValue = trimmed ? `${trimmed} ${emoji}` : emoji
+      nextCursorPosition = nextValue.length
+      return nextValue
+    })
     requestAnimationFrame(() => {
+      const textarea = textareaRef.current
+      if (!textarea) return
       textarea.focus()
-      const nextPos = start + emoji.length
-      textarea.setSelectionRange(nextPos, nextPos)
+      textarea.setSelectionRange(nextCursorPosition, nextCursorPosition)
     })
   }
 
@@ -294,7 +279,7 @@ export default function PostEditor({
 
         {/* Step 3: редактор */}
         {step === 3 && (
-          <div className="card card-p">
+          <div className="card card-p post-editor-card">
             <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 20, color: 'var(--text)', letterSpacing: '-0.02em' }}>
               {isEdit ? 'Редактировать пост' : 'Редактор текста'}
             </h2>
@@ -319,7 +304,7 @@ export default function PostEditor({
                   <button
                     type="button"
                     className="btn btn-secondary btn-sm ai-assist-btn"
-                    onClick={openAiSplit}
+                    onClick={() => setAiModalOpen(true)}
                   >
                     <span className="ai-assist-icon">✦</span> ИИ-помощник
                   </button>
@@ -334,14 +319,33 @@ export default function PostEditor({
                   placeholder="Введите текст поста..."
                   className="emoji-textarea"
                 />
-                <button
-                  type="button"
-                  className="emoji-fab"
-                  onClick={() => setEmojiPickerOpen(true)}
-                  title="Открыть меню эмодзи"
+                <div
+                  className={`emoji-popover-shell${emojiPickerOpen ? ' open' : ''}`}
+                  onMouseEnter={openEmojiPicker}
+                  onMouseLeave={closeEmojiPickerLater}
+                  onFocus={openEmojiPicker}
+                  onBlur={closeEmojiPickerLater}
                 >
-                  ✨ Эмодзи
-                </button>
+                  <button
+                    type="button"
+                    className="emoji-fab"
+                    title="Открыть меню эмодзи"
+                  >
+                    ✨ Эмодзи
+                  </button>
+                  <div className="emoji-popover" role="dialog" aria-label="Выбор эмодзи">
+                    <EmojiPicker
+                      onEmojiClick={handleEmojiPick}
+                      autoFocusSearch={false}
+                      skinTonesDisabled
+                      previewConfig={{ showPreview: false }}
+                      lazyLoadEmojis
+                      theme={Theme.DARK}
+                      width="100%"
+                      height={360}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
             <div className="emoji-hints">
@@ -548,109 +552,42 @@ export default function PostEditor({
           </div>
         )}
       </div>
-      {emojiPickerOpen && (
-        <div className="overlay" onClick={() => setEmojiPickerOpen(false)}>
-          <div className="modal emoji-modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-hd">
-              <div>
-                <div className="card-title">Выбор эмодзи</div>
-                <div className="ts tg" style={{ marginTop: 4 }}>Выбери эмодзи, и он вставится в текст в позицию курсора.</div>
-              </div>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setEmojiPickerOpen(false)}>
-                Закрыть
-              </button>
-            </div>
-            <div className="modal-bd emoji-modal-bd">
-              <EmojiPicker
-                onEmojiClick={handleEmojiPick}
-                autoFocusSearch={false}
-                skinTonesDisabled
-                previewConfig={{ showPreview: false }}
-                lazyLoadEmojis
-                theme={Theme.DARK}
-                width="100%"
-                height={420}
-              />
-            </div>
-            <div className="modal-ft">
-              {emojiSuggestions.length > 0 && (
-                <button type="button" className="btn btn-secondary" onClick={applyAllSuggestions}>
-                  Добавить подсказанные эмодзи
-                </button>
-              )}
-              <button type="button" className="btn btn-primary" onClick={() => setEmojiPickerOpen(false)}>
-                Готово
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {aiSplitOpen && (
-        <div className="overlay" onClick={() => setAiSplitOpen(false)}>
-          <div className="modal ai-split-modal" onClick={e => e.stopPropagation()}>
+      {aiModalOpen && (
+        <div className="overlay" onClick={() => { if (!aiLoading) setAiModalOpen(false) }}>
+          <div className="modal ai-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-hd">
               <div>
                 <div className="card-title">✦ ИИ-помощник</div>
-                <div className="ts tg" style={{ marginTop: 4 }}>Редактируйте текст — результат обновляется автоматически</div>
+                <div className="ts tg" style={{ marginTop: 4 }}>Выберите, что сделать с текстом поста</div>
               </div>
-              <button type="button" className="btn btn-secondary btn-sm" onClick={() => setAiSplitOpen(false)}>Закрыть</button>
-            </div>
-            <div className="ai-split-modes">
-              <button
-                type="button"
-                className={`ai-mode-tab${aiMode === 'creative' ? ' active' : ''}`}
-                onClick={() => setAiMode('creative')}
-              >
-                ✨ Улучшить текст
-              </button>
-              <button
-                type="button"
-                className={`ai-mode-tab${aiMode === 'russify' ? ' active' : ''}`}
-                onClick={() => setAiMode('russify')}
-              >
-                🔤 Русифицировать
+              <button type="button" className="btn btn-secondary btn-sm" onClick={() => { if (!aiLoading) setAiModalOpen(false) }}>
+                Закрыть
               </button>
             </div>
-            <div className="ai-split-panes">
-              <div className="ai-split-pane">
-                <div className="ai-split-pane-label">Исходный текст</div>
-                <textarea
-                  className="ai-split-textarea"
-                  value={content}
-                  onChange={e => setContent(e.target.value)}
-                  placeholder="Введите текст поста..."
-                />
-              </div>
-              <div className="ai-split-sep" />
-              <div className="ai-split-pane">
-                <div className="ai-split-pane-label">
-                  Результат ИИ
-                  {aiResultLoading && <span className="ai-spinner" style={{ marginLeft: 8 }} />}
-                </div>
-                <div className={`ai-split-result${aiResultLoading && !aiResult ? '' : aiResultLoading ? ' loading' : ''}`}>
-                  {aiResultLoading && !aiResult ? (
-                    <div className="ai-split-placeholder">
-                      <span className="ai-spinner-lg" />
-                      <span>Обрабатываю текст...</span>
-                    </div>
-                  ) : aiResult ? (
-                    <div className="ai-split-result-text">{aiResult}</div>
-                  ) : (
-                    <div className="ai-split-placeholder">Здесь появится результат ИИ...</div>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="modal-ft">
-              <button type="button" className="btn btn-secondary" onClick={() => setAiSplitOpen(false)}>Отмена</button>
+            <div className="ai-modal-bd">
               <button
-                type="button"
-                className="btn btn-primary"
-                onClick={applyAiResult}
-                disabled={!aiResult || aiResultLoading}
+                className="ai-mode-card"
+                onClick={() => enhanceWithAI('creative')}
+                disabled={!!aiLoading}
               >
-                Применить результат
-                <span className="btn-icon">→</span>
+                <span className="ai-mode-icon">✨</span>
+                <div className="ai-mode-body">
+                  <div className="ai-mode-title">Улучшить текст</div>
+                  <div className="ai-mode-desc">Сделает пост ярким и цепляющим для молодёжной аудитории, сохранив все факты</div>
+                </div>
+                {aiLoading === 'creative' && <span className="ai-spinner" />}
+              </button>
+              <button
+                className="ai-mode-card"
+                onClick={() => enhanceWithAI('russify')}
+                disabled={!!aiLoading}
+              >
+                <span className="ai-mode-icon">🔤</span>
+                <div className="ai-mode-body">
+                  <div className="ai-mode-title">Русифицировать</div>
+                  <div className="ai-mode-desc">Заменит англицизмы и заимствования на естественные русские слова</div>
+                </div>
+                {aiLoading === 'russify' && <span className="ai-spinner" />}
               </button>
             </div>
           </div>
