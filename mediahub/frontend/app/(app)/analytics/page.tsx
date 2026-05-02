@@ -137,11 +137,11 @@ export default function AnalyticsPage() {
       <div className="grid4" style={{ marginBottom: 20 }}>
         {mc.map((c, i) => (
           <div key={i} className="stat-card anim-in">
-            <div className="stat-icon" style={{ background: 'var(--accent-light)', color: 'var(--accent)' }}>
-              {ANLT_ICONS[i]}
+            <div className="stat-head">
+              <div className="stat-label">{c.label}</div>
+              <div className="stat-ico">{ANLT_ICONS[i]}</div>
             </div>
             <div className="stat-value">{c.val}</div>
-            <div className="stat-label">{c.label}</div>
           </div>
         ))}
       </div>

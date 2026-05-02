@@ -63,12 +63,15 @@ export default function DashboardPage() {
       <div className="stats-grid" style={{ marginBottom: 20 }}>
         {cards.map((c, i) => (
           <div key={i} className="stat-card anim-in">
-            <div className="stat-icon" style={{ background: 'var(--accent-light)', color: 'var(--accent)' }}>
-              {DASH_ICONS[i]}
+            <div className="stat-head">
+              <div className="stat-label">{c.label}</div>
+              <div className="stat-ico">{DASH_ICONS[i]}</div>
             </div>
             <div className="stat-value">{c.val}</div>
-            <div className="stat-label">{c.label}</div>
-            <div className="stat-delta">↑ {c.delta} за месяц</div>
+            <div className="stat-delta">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+              {c.delta} за месяц
+            </div>
           </div>
         ))}
       </div>
