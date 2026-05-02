@@ -10,13 +10,16 @@ from pydantic import BaseModel
 from typing import Optional, List
 import psycopg2
 import psycopg2.extras
-import json, os, random, uuid, shutil, hashlib, re, secrets, smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import json, os, random, uuid, shutil, hashlib, io
+from urllib.parse import quote
 import requests as http_requests
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from jose import jwt, JWTError
+from fastapi.responses import StreamingResponse
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 load_dotenv()
 
@@ -44,75 +47,11 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://mediahub:mediahub123@loca
 
 # ── Password helpers ─────────────────────────────────────────────────────────
 
-COMMON_PASSWORDS = {
-    "123456","123123","12345678","111111","000000","password","qwerty","abc123",
-    "iloveyou","admin","letmein","welcome","monkey","dragon","master","sunshine",
-    "princess","passw0rd","shadow","superman","michael","football","baseball",
-    "qwertyuiop","1234567890","987654321","password1","qazwsx","zxcvbnm",
-    "asdfgh","1q2w3e","1q2w3e4r","qwerty123","test1234","hello123",
-}
-
-def validate_password(password: str) -> Optional[str]:
-    if len(password) < 8:
-        return "Пароль должен содержать минимум 8 символов"
-    if password.lower() in COMMON_PASSWORDS:
-        return "Пароль слишком простой — придумайте другой"
-    if not re.search(r"[A-Za-z]", password):
-        return "Пароль должен содержать хотя бы одну букву"
-    if not re.search(r"[0-9]", password):
-        return "Пароль должен содержать хотя бы одну цифру"
-    return None
-
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 def verify_password(password: str, hashed: str) -> bool:
     return hash_password(password) == hashed
-
-# ── Email helpers ─────────────────────────────────────────────────────────────
-
-SMTP_HOST     = os.getenv("SMTP_HOST", "")
-SMTP_PORT     = int(os.getenv("SMTP_PORT", "587"))
-SMTP_USER     = os.getenv("SMTP_USER", "")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
-SMTP_FROM     = os.getenv("SMTP_FROM", SMTP_USER)
-
-def send_verification_email(to_email: str, code: str) -> None:
-    if not SMTP_HOST or not SMTP_USER:
-        print(f"[EMAIL] Verification code for {to_email}: {code}")
-        return
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"Ваш код подтверждения: {code}"
-    msg["From"]    = SMTP_FROM
-    msg["To"]      = to_email
-    text_body = f"Код подтверждения для Медиа-Хаб: {code}\n\nКод действителен 15 минут."
-    html_body = f"""
-    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px">
-      <h2 style="margin:0 0 8px;font-size:22px;color:#0B1829">Подтверждение регистрации</h2>
-      <p style="color:#3C5070;margin:0 0 24px">Введите этот код на странице подтверждения:</p>
-      <div style="font-size:36px;font-weight:700;letter-spacing:10px;color:#1948B4;
-                  background:#F0F4FA;border-radius:8px;padding:16px 24px;text-align:center">
-        {code}
-      </div>
-      <p style="color:#6B7A8F;font-size:13px;margin:20px 0 0">
-        Код действителен 15 минут. Если вы не регистрировались — просто проигнорируйте это письмо.
-      </p>
-    </div>
-    """
-    msg.attach(MIMEText(text_body, "plain", "utf-8"))
-    msg.attach(MIMEText(html_body, "html", "utf-8"))
-    if SMTP_PORT == 465:
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(SMTP_FROM, to_email, msg.as_string())
-    else:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASSWORD)
-            server.sendmail(SMTP_FROM, to_email, msg.as_string())
-
-def generate_verification_code() -> str:
-    return str(secrets.randbelow(900000) + 100000)
 
 # ── JWT helpers ──────────────────────────────────────────────────────────────
 
@@ -331,9 +270,6 @@ def init_db():
 
     c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS media TEXT DEFAULT '[]'")
     c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
-    c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT TRUE")
-    c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_code TEXT")
-    c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_code_expires TIMESTAMP")
     c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS location_address TEXT")
     c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS location_lat DOUBLE PRECISION")
     c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS location_lng DOUBLE PRECISION")
@@ -573,18 +509,51 @@ async def upload_file(file: UploadFile = File(...)):
 
 _AI_PROMPTS = {
     "creative": (
-        "Ты — опытный SMM-специалист и копирайтер молодёжного медиацентра. "
-        "Перепиши текст поста: сделай его ярким, цепляющим и живым для молодёжной аудитории. "
-        "Сохрани основной смысл и все ключевые факты (даты, места, имена, цифры). "
-        "Используй эмодзи там, где это уместно. "
-        "Верни ТОЛЬКО готовый текст — без пояснений, без кавычек, без предисловий."
+        "Ты — опытный SMM-редактор молодёжного центра. Перепиши текст так, чтобы он "
+        "цеплял аудиторию 16–30 лет с первой строки: замени канцеляризмы живыми словами, "
+        "добавь энергию и искренние эмоции, сделай ритм лёгким и читаемым. "
+        "Вставь эмодзи там, где они усиливают смысл или настроение — не переусердствуй, "
+        "1–3 эмодзи в нужных местах лучше, чем россыпь везде. "
+        "Сохрани все факты, даты, имена и длину оригинала. "
+        "Верни только готовый текст, без комментариев и пояснений."
+    ),
+    "formal": (
+        "Ты — пресс-секретарь молодёжного центра с опытом работы в госструктурах. "
+        "Перепиши текст в официальном, но живом стиле: грамотно, структурированно, "
+        "без сленга и излишней эмоциональности, но и без бюрократической сухости. "
+        "Используй чёткие формулировки, активный залог, уважительный тон. "
+        "Текст должен подходить для официальных анонсов, партнёрских постов и отчётов. "
+        "Сохрани все факты и структуру. Верни только готовый текст, без пояснений."
+    ),
+    "calltoaction": (
+        "Ты — копирайтер молодёжного центра. Оставь основной текст без изменений "
+        "и добавь в конец яркий, мотивирующий призыв к действию для аудитории 16–30 лет. "
+        "Выбери глагол по смыслу поста: записаться, прийти, написать нам, подать заявку, "
+        "узнать подробнее, поделиться с друзьями — и т.д. "
+        "Тон — дружеский и воодушевляющий, без давления и манипуляций. "
+        "Добавь 1–2 уместных эмодзи в призыв, чтобы он выделялся визуально. "
+        "Верни полный текст с добавленным призывом, без комментариев."
+    ),
+    "shortify": (
+        "Ты — редактор с острым чувством слова. Сократи текст примерно вдвое: "
+        "безжалостно убери воду, повторы, лишние вводные слова и затянутые конструкции. "
+        "Сохрани главную мысль, все ключевые факты (даты, имена, цифры) и живой тон. "
+        "Не добавляй ничего нового. Верни только сокращённый вариант, без пояснений."
+    ),
+    "hashtags": (
+        "Ты — SMM-специалист молодёжного центра. Проанализируй тему поста и придумай "
+        "5–7 релевантных хештегов: микс из широких (#молодёжь, #события) и нишевых "
+        "(по конкретной теме поста). Часть хештегов — на русском, часть — на английском. "
+        "Хештеги должны реально использоваться в ВКонтакте и Telegram. "
+        "Верни только хештеги через пробел, без текста поста и без пояснений."
     ),
     "russify": (
-        "Ты — редактор русского языка. "
-        "Замени все англицизмы, иностранный сленг и заимствованные слова на естественные русские аналоги, "
-        "которые органично вписываются в контекст и не режут слух. "
-        "Не меняй смысл, тон и структуру текста. Все факты, даты, имена и эмодзи оставь без изменений. "
-        "Верни ТОЛЬКО готовый текст — без пояснений, без кавычек, без предисловий."
+        "Ты — редактор русского языка. Пройдись по тексту и замени все англицизмы, "
+        "заимствованный сленг и кальки на естественные русские аналоги, которые не режут слух. "
+        "Примеры: контент → материал, дедлайн → срок, фидбек → отклик, "
+        "постить → публиковать, ивент → мероприятие, воркшоп → мастер-класс. "
+        "Сохрани стиль, тон и структуру текста. Имена, названия и аббревиатуры не трогай. "
+        "Верни только исправленный текст, без пояснений и списка замен."
     ),
 }
 
@@ -595,7 +564,7 @@ def ai_enhance(body: AIEnhanceRequest):
 
     system_prompt = _AI_PROMPTS.get(body.mode)
     if not system_prompt:
-        raise HTTPException(400, "Неверный режим. Допустимые значения: creative, russify")
+        raise HTTPException(400, "Неверный режим. Допустимые значения: creative, russify, shortify, formal, hashtags, calltoaction")
 
     groq_key = os.getenv("GROQ_API_KEY", "")
     if not groq_key:
@@ -614,7 +583,8 @@ def ai_enhance(body: AIEnhanceRequest):
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": body.text},
                 ],
-                "temperature": 0.75 if body.mode == "creative" else 0.25,
+                "temperature": {"creative": 0.75, "shortify": 0.3, "formal": 0.3,
+                                "hashtags": 0.5, "calltoaction": 0.6, "russify": 0.25}.get(body.mode, 0.5),
                 "max_tokens": 2000,
             },
             timeout=30,
@@ -1173,9 +1143,6 @@ def login(req: LoginRequest):
     if ph and not verify_password(req.password, ph):
         conn.close()
         raise HTTPException(401, "Неверный пароль")
-    if user.get("is_verified") is False:
-        conn.close()
-        raise HTTPException(403, "EMAIL_NOT_VERIFIED")
     user_id = user["id"]
     token = create_token(user_id)
     c.execute("SELECT g.id, g.name, g.description, g.avatar, gm.role, g.created_at FROM groups g JOIN group_members gm ON g.id = gm.group_id WHERE gm.user_id=%s ORDER BY g.id", (user_id,))
@@ -1189,78 +1156,20 @@ def register(req: RegisterRequest):
         raise HTTPException(400, "Введите имя")
     if not req.email.strip():
         raise HTTPException(400, "Введите email")
-    pwd_err = validate_password(req.password)
-    if pwd_err:
-        raise HTTPException(400, pwd_err)
+    if len(req.password) < 6:
+        raise HTTPException(400, "Пароль должен содержать минимум 6 символов")
     conn = get_db()
     c = conn.cursor()
-    email = req.email.lower().strip()
-    c.execute("SELECT id, is_verified FROM users WHERE email=%s", (email,))
-    existing = c.fetchone()
-    if existing:
-        if existing["is_verified"] is False:
-            # Re-send code for unverified account
-            code = generate_verification_code()
-            expires = datetime.utcnow() + timedelta(minutes=15)
-            c.execute(
-                "UPDATE users SET verification_code=%s, verification_code_expires=%s WHERE id=%s",
-                (code, expires, existing["id"]),
-            )
-            conn.commit()
-            conn.close()
-            try:
-                send_verification_email(email, code)
-            except Exception as e:
-                print(f"[EMAIL ERROR] {e}")
-            return {"needs_verification": True, "email": email}
+    c.execute("SELECT id FROM users WHERE email=%s", (req.email.lower().strip(),))
+    if c.fetchone():
         conn.close()
         raise HTTPException(409, "Пользователь с таким email уже существует")
     avatar = "".join(p[0].upper() for p in req.name.strip().split()[:2])
-    code = generate_verification_code()
-    expires = datetime.utcnow() + timedelta(minutes=15)
     c.execute(
-        "INSERT INTO users (name, email, role, avatar, password_hash, is_verified, verification_code, verification_code_expires) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (req.name.strip(), email, "editor", avatar, hash_password(req.password), False, code, expires),
+        "INSERT INTO users (name, email, role, avatar, password_hash) VALUES (%s,%s,%s,%s,%s) RETURNING id",
+        (req.name.strip(), req.email.lower().strip(), "editor", avatar, hash_password(req.password)),
     )
     uid = c.fetchone()["id"]
-    conn.commit()
-    conn.close()
-    try:
-        send_verification_email(email, code)
-    except Exception as e:
-        print(f"[EMAIL ERROR] {e}")
-    return {"needs_verification": True, "email": email}
-
-class VerifyEmailRequest(BaseModel):
-    email: str
-    code: str
-
-@app.post("/api/auth/verify-email")
-def verify_email(req: VerifyEmailRequest):
-    conn = get_db()
-    c = conn.cursor()
-    email = req.email.lower().strip()
-    c.execute("SELECT * FROM users WHERE email=%s", (email,))
-    user = c.fetchone()
-    if not user:
-        conn.close()
-        raise HTTPException(404, "Пользователь не найден")
-    if user.get("is_verified"):
-        conn.close()
-        raise HTTPException(400, "Email уже подтверждён")
-    if user.get("verification_code") != req.code.strip():
-        conn.close()
-        raise HTTPException(400, "Неверный код")
-    expires = user.get("verification_code_expires")
-    if expires and datetime.utcnow() > expires:
-        conn.close()
-        raise HTTPException(400, "Код истёк — запросите новый")
-    uid = user["id"]
-    c.execute(
-        "UPDATE users SET is_verified=TRUE, verification_code=NULL, verification_code_expires=NULL WHERE id=%s",
-        (uid,),
-    )
     c.execute("SELECT id FROM groups ORDER BY id ASC LIMIT 1")
     default_group = c.fetchone()
     if default_group:
@@ -1273,37 +1182,6 @@ def verify_email(req: VerifyEmailRequest):
     groups = [dict(r) for r in c.fetchall()]
     conn.close()
     return {"user": row_to_dict(user), "token": token, "groups": groups}
-
-class ResendCodeRequest(BaseModel):
-    email: str
-
-@app.post("/api/auth/resend-code")
-def resend_code(req: ResendCodeRequest):
-    conn = get_db()
-    c = conn.cursor()
-    email = req.email.lower().strip()
-    c.execute("SELECT id, is_verified FROM users WHERE email=%s", (email,))
-    user = c.fetchone()
-    if not user:
-        conn.close()
-        raise HTTPException(404, "Пользователь не найден")
-    if user.get("is_verified"):
-        conn.close()
-        raise HTTPException(400, "Email уже подтверждён")
-    code = generate_verification_code()
-    expires = datetime.utcnow() + timedelta(minutes=15)
-    c.execute(
-        "UPDATE users SET verification_code=%s, verification_code_expires=%s WHERE id=%s",
-        (code, expires, user["id"]),
-    )
-    conn.commit()
-    conn.close()
-    try:
-        send_verification_email(email, code)
-    except Exception as e:
-        print(f"[EMAIL ERROR] {e}")
-        raise HTTPException(500, "Не удалось отправить письмо")
-    return {"ok": True}
 
 # ── Groups ───────────────────────────────────────────────────────────────────
 
@@ -1542,9 +1420,8 @@ def create_user(body: UserCreate):
         raise HTTPException(400, "Введите имя")
     if not body.email.strip():
         raise HTTPException(400, "Введите email")
-    pwd_err = validate_password(body.password)
-    if pwd_err:
-        raise HTTPException(400, pwd_err)
+    if len(body.password) < 6:
+        raise HTTPException(400, "Пароль должен содержать минимум 6 символов")
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT id FROM users WHERE email=%s", (body.email.lower().strip(),))
@@ -2097,6 +1974,188 @@ def analytics_timeline(period: str = "month"):
         result.append({"date": ds, "label": day.strftime("%d.%m"), "views": row["v"] or 0, "reactions": row["r"] or 0, "posts": row["p"] or 0})
     conn.close()
     return result
+
+@app.get("/api/analytics/export")
+def analytics_export(start_date: str = Query(...), end_date: str = Query(...)):
+    now = datetime.now()
+    try:
+        dt_start = datetime.strptime(start_date, "%Y-%m-%d")
+        dt_end   = datetime.strptime(end_date,   "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Формат дат: YYYY-MM-DD")
+
+    conn = get_db()
+    c = conn.cursor()
+
+    # Summary data — только за выбранный период
+    date_filter = "published_at >= %s AND published_at < %s AND status='published'"
+    end_next    = (dt_end + timedelta(days=1)).strftime("%Y-%m-%d")
+    start_str   = dt_start.strftime("%Y-%m-%d")
+
+    c.execute(f"SELECT COUNT(*) FROM posts WHERE {date_filter}", (start_str, end_next))
+    published = c.fetchone()["count"]
+    c.execute("SELECT COUNT(*) FROM posts WHERE status='scheduled'"); scheduled = c.fetchone()["count"]
+    c.execute("SELECT COUNT(*) FROM posts WHERE status='draft'");     drafts    = c.fetchone()["count"]
+    c.execute(f"SELECT COUNT(*) FROM posts WHERE published_at >= %s AND published_at < %s", (start_str, end_next))
+    total = c.fetchone()["count"]
+    c.execute(
+        f"SELECT SUM(views) v,SUM(reactions) r,SUM(comments) cm,SUM(shares) sh FROM posts WHERE {date_filter}",
+        (start_str, end_next),
+    )
+    s = c.fetchone()
+    total_views = s["v"] or 0
+    eng = round(((s["r"] or 0) + (s["cm"] or 0)) / max(total_views, 1) * 100, 1)
+
+    # Timeline: каждый день периода
+    timeline = []
+    delta = (dt_end - dt_start).days + 1
+    for i in range(delta):
+        day = dt_start + timedelta(days=i)
+        ds  = day.strftime("%Y-%m-%d")
+        c.execute("SELECT SUM(views) v, SUM(reactions) r, COUNT(*) p FROM posts WHERE published_at LIKE %s", (ds + "%",))
+        row = c.fetchone()
+        timeline.append({"date": ds, "label": day.strftime("%d.%m"), "views": row["v"] or 0, "reactions": row["r"] or 0, "posts": row["p"] or 0})
+
+    # Platform stats — за период
+    pl_stats = []
+    for pl in ["vk", "telegram"]:
+        c.execute(
+            f"SELECT COUNT(*) cnt,SUM(views) v,SUM(reactions) r FROM posts WHERE platforms LIKE %s AND {date_filter}",
+            (f'%"{pl}"%', start_str, end_next),
+        )
+        ps = c.fetchone()
+        pl_stats.append({"platform": pl.upper(), "count": ps["cnt"] or 0, "views": ps["v"] or 0, "reactions": ps["r"] or 0})
+
+    # Top posts — за период
+    c.execute(
+        f"SELECT title,views,reactions,comments,shares,published_at FROM posts WHERE {date_filter} "
+        "ORDER BY (views+reactions*3+comments*2+shares*4) DESC LIMIT 10",
+        (start_str, end_next),
+    )
+    top_posts = c.fetchall()
+    conn.close()
+
+    # ── Build Excel ──
+    wb = openpyxl.Workbook()
+
+    BLUE   = "1D4ED8"
+    WHITE  = "FFFFFF"
+    GRAY   = "F1F5F9"
+    DARK   = "1E293B"
+
+    header_font  = Font(bold=True, color=WHITE, size=11)
+    header_fill  = PatternFill("solid", fgColor=BLUE)
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    cell_align   = Alignment(vertical="center")
+    thin_border  = Border(
+        bottom=Side(style="thin", color="CBD5E1"),
+        right=Side(style="thin", color="E2E8F0"),
+    )
+
+    def style_header_row(ws, row, cols):
+        for col in range(1, cols + 1):
+            cell = ws.cell(row=row, column=col)
+            cell.font      = header_font
+            cell.fill      = header_fill
+            cell.alignment = header_align
+            cell.border    = thin_border
+
+    def style_data_row(ws, row, cols, shade=False):
+        fill = PatternFill("solid", fgColor=GRAY) if shade else None
+        for col in range(1, cols + 1):
+            cell = ws.cell(row=row, column=col)
+            cell.alignment = cell_align
+            cell.border    = thin_border
+            if shade:
+                cell.fill = fill
+
+    period_label = f"{dt_start.strftime('%d.%m.%Y')} — {dt_end.strftime('%d.%m.%Y')}"
+
+    # ── Лист 1: Сводка ──
+    ws1 = wb.active
+    ws1.title = "Сводка"
+    ws1.row_dimensions[1].height = 30
+    ws1["A1"] = f"Отчёт по аналитике — {period_label}"
+    ws1["A1"].font = Font(bold=True, size=14, color=DARK)
+    ws1["A1"].alignment = Alignment(horizontal="left", vertical="center")
+    ws1.merge_cells("A1:B1")
+    ws1.append([])
+
+    headers = ["Показатель", "Значение"]
+    ws1.append(headers)
+    style_header_row(ws1, 3, 2)
+    ws1.row_dimensions[3].height = 24
+
+    rows = [
+        ("Всего постов",       total),
+        ("Опубликовано",       published),
+        ("Запланировано",      scheduled),
+        ("Черновиков",         drafts),
+        ("Всего просмотров",   total_views),
+        ("Реакции",            s["r"] or 0),
+        ("Комментарии",        s["cm"] or 0),
+        ("Репосты",            s["sh"] or 0),
+        ("Средние просмотры",  round(total_views / max(published, 1))),
+        ("Вовлечённость, %",   eng),
+    ]
+    for i, (label, val) in enumerate(rows, start=4):
+        ws1.append([label, val])
+        ws1.row_dimensions[i].height = 20
+        style_data_row(ws1, i, 2, shade=(i % 2 == 0))
+
+    ws1.column_dimensions["A"].width = 28
+    ws1.column_dimensions["B"].width = 18
+
+    # ── Лист 2: Динамика ──
+    ws2 = wb.create_sheet("Динамика")
+    ws2.append(["Дата", "Просмотры", "Реакции", "Публикаций"])
+    style_header_row(ws2, 1, 4)
+    ws2.row_dimensions[1].height = 24
+    for i, row in enumerate(timeline, start=2):
+        ws2.append([row["date"], row["views"], row["reactions"], row["posts"]])
+        ws2.row_dimensions[i].height = 18
+        style_data_row(ws2, i, 4, shade=(i % 2 == 0))
+    for col, w in zip("ABCD", [14, 14, 12, 14]):
+        ws2.column_dimensions[col].width = w
+
+    # ── Лист 3: Площадки ──
+    ws3 = wb.create_sheet("Площадки")
+    ws3.append(["Площадка", "Публикаций", "Просмотры", "Реакции"])
+    style_header_row(ws3, 1, 4)
+    ws3.row_dimensions[1].height = 24
+    for i, pl in enumerate(pl_stats, start=2):
+        ws3.append([pl["platform"], pl["count"], pl["views"], pl["reactions"]])
+        ws3.row_dimensions[i].height = 20
+        style_data_row(ws3, i, 4, shade=(i % 2 == 0))
+    for col, w in zip("ABCD", [16, 14, 14, 12]):
+        ws3.column_dimensions[col].width = w
+
+    # ── Лист 4: Топ постов ──
+    ws4 = wb.create_sheet("Топ постов")
+    ws4.append(["#", "Заголовок", "Просмотры", "Реакции", "Комментарии", "Репосты", "Дата публикации"])
+    style_header_row(ws4, 1, 7)
+    ws4.row_dimensions[1].height = 24
+    for i, p in enumerate(top_posts, start=2):
+        ws4.append([i - 1, p["title"], p["views"] or 0, p["reactions"] or 0, p["comments"] or 0, p["shares"] or 0, str(p["published_at"] or "")])
+        ws4.row_dimensions[i].height = 20
+        style_data_row(ws4, i, 7, shade=(i % 2 == 0))
+    for col, w in zip("ABCDEFG", [4, 40, 12, 10, 14, 10, 22]):
+        ws4.column_dimensions[col].width = w
+
+    # ── Stream response ──
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    month_ru = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"]
+    fname = f"аналитика_{month_ru[dt_start.month-1]}_{dt_start.year}.xlsx"
+    fname_encoded = quote(fname, safe="")
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname_encoded}"},
+    )
 
 # ── Notifications ─────────────────────────────────────────────────────────────
 

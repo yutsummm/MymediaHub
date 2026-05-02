@@ -8,13 +8,13 @@ import { Plus_Jakarta_Sans } from 'next/font/google'
 const sans = Plus_Jakarta_Sans({
   subsets: ['latin'],
   variable: '--font-sans',
-  weight: ['300', '400', '500', '600', '700', '800'],
+  weight: ['400', '500', '600', '700', '800'],
   display: 'swap',
 })
 
 export const metadata: Metadata = {
   title: 'Медиа-Хаб — пространство идей и контента',
-  icons: { icon: '/logo.png' },
+  icons: { icon: '/favicon.svg' },
 }
 
 export const viewport = {
@@ -31,7 +31,7 @@ const themeInitScript = `
     if (t !== 'light' && t !== 'dark') t = 'dark';
     document.documentElement.setAttribute('data-theme', t);
   } catch (_) {
-    document.documentElement.setAttribute('data-theme', 'light');
+    document.documentElement.setAttribute('data-theme', 'dark');
   }
 })();
 `
