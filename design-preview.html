@@ -1,0 +1,1241 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MediaHub — Дизайн-предложения</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', sans-serif; background: #111827; color: #fff; }
+
+  /* ====== PAGE LAYOUT ====== */
+  .page { max-width: 1400px; margin: 0 auto; padding: 48px 24px; }
+  .page-title { text-align: center; font-size: 28px; font-weight: 700; margin-bottom: 8px; color: #f1f5f9; }
+  .page-sub  { text-align: center; font-size: 15px; color: #94a3b8; margin-bottom: 56px; }
+
+  .section { margin-bottom: 64px; }
+  .section-label {
+    text-align: center;
+    font-size: 11px; font-weight: 700; letter-spacing: 2.5px; text-transform: uppercase;
+    color: #64748b; margin-bottom: 28px;
+    display: flex; align-items: center; gap: 16px;
+  }
+  .section-label::before, .section-label::after {
+    content: ''; flex: 1; height: 1px; background: #1e293b;
+  }
+
+  /* pair = two columns */
+  .pair {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+  }
+  .pair-label {
+    font-size: 11px; font-weight: 600; letter-spacing: 1.5px;
+    text-transform: uppercase; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot-light { background: #3b82f6; }
+  .dot-dark  { background: #818cf8; }
+  .label-light { color: #60a5fa; }
+  .label-dark  { color: #a5b4fc; }
+
+  .card-wrap { border-radius: 16px; overflow: hidden; }
+
+  /* ============================================================
+     ТЕМА 1 — СВЕТ: Госуслуги Standard
+     ============================================================ */
+  :root {
+    /* Light */
+    --gl-bg:        #F0F4F9;
+    --gl-bg2:       #FFFFFF;
+    --gl-surface:   #FFFFFF;
+    --gl-border:    #D1D9E8;
+    --gl-border2:   #BBC6DC;
+    --gl-accent:    #0D47A1;
+    --gl-accent2:   #1565C0;
+    --gl-accent-lt: #E8EEF9;
+    --gl-text:      #111827;
+    --gl-text2:     #4B5563;
+    --gl-text3:     #9CA3AF;
+    --gl-green:     #1B8A4E;
+    --gl-green-lt:  #E6F4ED;
+    --gl-red:       #C62828;
+    --gl-red-lt:    #FDEAEA;
+    --gl-yellow:    #B45309;
+    --gl-yellow-lt: #FEF3C7;
+    --gl-blue-lt:   #DBEAFE;
+    --gl-blue:      #1D4ED8;
+    --gl-sidebar:   #0D2D6B;
+    --gl-r:         10px;
+    --gl-r-sm:      6px;
+
+    /* Dark */
+    --dk-bg:        #060D1A;
+    --dk-bg2:       #0C1628;
+    --dk-surface:   rgba(255,255,255,0.04);
+    --dk-border:    rgba(255,255,255,0.08);
+    --dk-border2:   rgba(255,255,255,0.14);
+    --dk-accent:    #4D8EF0;
+    --dk-accent2:   #6BA5F3;
+    --dk-accent-lt: rgba(77,142,240,0.12);
+    --dk-text:      rgba(255,255,255,0.92);
+    --dk-text2:     rgba(255,255,255,0.52);
+    --dk-text3:     rgba(255,255,255,0.24);
+    --dk-green:     #22C55E;
+    --dk-green-lt:  rgba(34,197,94,0.12);
+    --dk-red:       #F87171;
+    --dk-red-lt:    rgba(248,113,113,0.12);
+    --dk-yellow:    #FCD34D;
+    --dk-yellow-lt: rgba(252,211,77,0.12);
+    --dk-blue-lt:   rgba(77,142,240,0.14);
+    --dk-sidebar:   #07112A;
+  }
+
+
+  /* ============================================================
+     LIGHT COMPONENTS
+  ============================================================ */
+
+  /* ---- Sidebar ---- */
+  .gl-sidebar {
+    background: var(--gl-sidebar);
+    padding: 0;
+    border-radius: var(--gl-r);
+    overflow: hidden;
+    min-height: 380px;
+    display: flex; flex-direction: column;
+  }
+  .gl-sidebar-logo {
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.1);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .gl-logo-icon {
+    width: 36px; height: 36px; border-radius: 8px;
+    background: #4D8EF0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; color: white; font-weight: 700; flex-shrink: 0;
+  }
+  .gl-logo-text { font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.95); }
+  .gl-logo-sub  { font-size: 11px; color: rgba(255,255,255,0.45); }
+
+  .gl-nav { padding: 12px 10px; flex: 1; }
+  .gl-nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; border-radius: 8px;
+    font-size: 13px; color: rgba(255,255,255,0.65);
+    cursor: pointer; margin-bottom: 2px; transition: all 0.15s;
+    font-weight: 500;
+  }
+  .gl-nav-item:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.9); }
+  .gl-nav-item.active {
+    background: rgba(77,142,240,0.2);
+    color: #93c5fd;
+  }
+  .gl-nav-item .nav-icon { font-size: 16px; width: 20px; text-align: center; }
+
+  /* ---- Card ---- */
+  .gl-card {
+    background: var(--gl-surface);
+    border: 1px solid var(--gl-border);
+    border-radius: var(--gl-r);
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(13,47,161,0.06), 0 0 0 0.5px var(--gl-border);
+  }
+  .gl-card-title {
+    font-size: 15px; font-weight: 700; color: var(--gl-text); margin-bottom: 4px;
+  }
+  .gl-card-sub { font-size: 12px; color: var(--gl-text3); margin-bottom: 16px; }
+
+  /* ---- Stat card ---- */
+  .gl-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .gl-stat {
+    background: var(--gl-bg);
+    border: 1px solid var(--gl-border);
+    border-radius: var(--gl-r-sm);
+    padding: 14px;
+  }
+  .gl-stat-val { font-size: 22px; font-weight: 700; color: var(--gl-accent); }
+  .gl-stat-lbl { font-size: 11px; color: var(--gl-text2); margin-top: 2px; }
+
+  /* ---- Buttons ---- */
+  .gl-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .gl-btn {
+    padding: 9px 18px; border-radius: var(--gl-r-sm);
+    font-size: 13px; font-weight: 600; cursor: pointer; border: none;
+    transition: all 0.15s; font-family: inherit;
+  }
+  .gl-btn-primary {
+    background: var(--gl-accent); color: #fff;
+    box-shadow: 0 1px 3px rgba(13,47,161,0.3);
+  }
+  .gl-btn-primary:hover { background: var(--gl-accent2); }
+  .gl-btn-secondary {
+    background: var(--gl-accent-lt); color: var(--gl-accent);
+    border: 1px solid var(--gl-border);
+  }
+  .gl-btn-ghost {
+    background: transparent; color: var(--gl-text2);
+    border: 1px solid var(--gl-border);
+  }
+  .gl-btn-danger {
+    background: var(--gl-red-lt); color: var(--gl-red);
+    border: 1px solid rgba(198,40,40,0.15);
+  }
+
+  /* ---- Inputs ---- */
+  .gl-field { margin-bottom: 12px; }
+  .gl-label { font-size: 12px; font-weight: 600; color: var(--gl-text2); margin-bottom: 5px; display: block; }
+  .gl-input {
+    width: 100%; padding: 9px 12px;
+    background: var(--gl-bg);
+    border: 1px solid var(--gl-border2);
+    border-radius: var(--gl-r-sm);
+    font-size: 13px; color: var(--gl-text);
+    font-family: inherit; outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .gl-input:focus {
+    border-color: var(--gl-accent);
+    box-shadow: 0 0 0 3px rgba(13,71,161,0.12);
+    background: white;
+  }
+  .gl-select {
+    width: 100%; padding: 9px 12px;
+    background: var(--gl-bg);
+    border: 1px solid var(--gl-border2);
+    border-radius: var(--gl-r-sm);
+    font-size: 13px; color: var(--gl-text);
+    font-family: inherit; outline: none; cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%234B5563' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 12px center;
+    padding-right: 32px;
+  }
+
+  /* ---- Badges ---- */
+  .gl-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .gl-badge {
+    padding: 4px 10px; border-radius: 100px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+  }
+  .gl-badge-green  { background: var(--gl-green-lt);  color: var(--gl-green);  border: 1px solid rgba(27,138,78,0.2); }
+  .gl-badge-yellow { background: var(--gl-yellow-lt); color: var(--gl-yellow); border: 1px solid rgba(180,83,9,0.2); }
+  .gl-badge-red    { background: var(--gl-red-lt);    color: var(--gl-red);    border: 1px solid rgba(198,40,40,0.2); }
+  .gl-badge-blue   { background: var(--gl-blue-lt);   color: var(--gl-blue);   border: 1px solid rgba(29,78,216,0.2); }
+  .gl-badge-gray   { background: var(--gl-bg);        color: var(--gl-text2);  border: 1px solid var(--gl-border2); }
+
+  /* ---- Table ---- */
+  .gl-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .gl-table th {
+    padding: 8px 12px; text-align: left;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--gl-text3); border-bottom: 2px solid var(--gl-border);
+  }
+  .gl-table td {
+    padding: 10px 12px; color: var(--gl-text);
+    border-bottom: 1px solid var(--gl-border);
+  }
+  .gl-table tr:hover td { background: var(--gl-accent-lt); }
+  .gl-table .td-sub { font-size: 11px; color: var(--gl-text3); }
+
+  /* ---- Topbar ---- */
+  .gl-topbar {
+    background: white;
+    border: 1px solid var(--gl-border);
+    border-radius: var(--gl-r);
+    padding: 10px 16px;
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 4px rgba(13,47,161,0.06);
+  }
+  .gl-topbar-search {
+    flex: 1; background: var(--gl-bg);
+    border: 1px solid var(--gl-border2);
+    border-radius: 6px; padding: 7px 12px;
+    font-size: 13px; color: var(--gl-text2);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .gl-avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--gl-accent), #1976d2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; color: white; flex-shrink: 0;
+  }
+  .gl-topbar-title { font-size: 15px; font-weight: 700; color: var(--gl-text); }
+
+  /* ---- Breadcrumb ---- */
+  .gl-breadcrumb {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--gl-text3); margin-bottom: 12px;
+  }
+  .gl-breadcrumb a { color: var(--gl-accent); }
+  .gl-breadcrumb span { color: var(--gl-text3); }
+
+  /* ---- Progress ---- */
+  .gl-progress { height: 6px; background: var(--gl-border); border-radius: 999px; overflow: hidden; }
+  .gl-progress-fill { height: 100%; border-radius: 999px; background: var(--gl-accent); transition: width 0.3s; }
+
+  /* ---- Divider ---- */
+  .gl-divider { height: 1px; background: var(--gl-border); margin: 14px 0; }
+
+  /* row label */
+  .row-lbl { font-size: 11px; color: var(--gl-text3); margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; }
+
+
+  /* ============================================================
+     DARK COMPONENTS (prefix dk-)
+  ============================================================ */
+
+  .dk-sidebar {
+    background: var(--dk-sidebar);
+    border: 1px solid var(--dk-border);
+    border-radius: var(--gl-r);
+    overflow: hidden; min-height: 380px;
+    display: flex; flex-direction: column;
+  }
+  .dk-sidebar-logo {
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--dk-border);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .dk-logo-icon {
+    width: 36px; height: 36px; border-radius: 8px;
+    background: linear-gradient(135deg, #4D8EF0, #6BA5F3);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; color: white; font-weight: 700; flex-shrink: 0;
+  }
+  .dk-logo-text { font-size: 14px; font-weight: 700; color: var(--dk-text); }
+  .dk-logo-sub  { font-size: 11px; color: var(--dk-text3); }
+
+  .dk-nav { padding: 12px 10px; flex: 1; }
+  .dk-nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; border-radius: 8px;
+    font-size: 13px; color: var(--dk-text2);
+    cursor: pointer; margin-bottom: 2px; transition: all 0.15s;
+    font-weight: 500;
+  }
+  .dk-nav-item:hover { background: var(--dk-surface); color: var(--dk-text); }
+  .dk-nav-item.active {
+    background: var(--dk-accent-lt);
+    color: var(--dk-accent2);
+  }
+  .dk-nav-item .nav-icon { font-size: 16px; width: 20px; text-align: center; }
+
+  /* Card */
+  .dk-card {
+    background: var(--dk-bg2);
+    border: 1px solid var(--dk-border);
+    border-radius: var(--gl-r);
+    padding: 20px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+  }
+  .dk-card-title { font-size: 15px; font-weight: 700; color: var(--dk-text); margin-bottom: 4px; }
+  .dk-card-sub   { font-size: 12px; color: var(--dk-text3); margin-bottom: 16px; }
+
+  /* Stats */
+  .dk-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .dk-stat {
+    background: var(--dk-surface);
+    border: 1px solid var(--dk-border);
+    border-radius: var(--gl-r-sm);
+    padding: 14px;
+  }
+  .dk-stat-val { font-size: 22px; font-weight: 700; color: var(--dk-accent); }
+  .dk-stat-lbl { font-size: 11px; color: var(--dk-text2); margin-top: 2px; }
+
+  /* Buttons */
+  .dk-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+  .dk-btn {
+    padding: 9px 18px; border-radius: var(--gl-r-sm);
+    font-size: 13px; font-weight: 600; cursor: pointer; border: none;
+    transition: all 0.15s; font-family: inherit;
+  }
+  .dk-btn-primary {
+    background: var(--dk-accent); color: #fff;
+    box-shadow: 0 0 24px rgba(77,142,240,0.25);
+  }
+  .dk-btn-primary:hover { background: var(--dk-accent2); }
+  .dk-btn-secondary {
+    background: var(--dk-accent-lt); color: var(--dk-accent2);
+    border: 1px solid rgba(77,142,240,0.2);
+  }
+  .dk-btn-ghost {
+    background: transparent; color: var(--dk-text2);
+    border: 1px solid var(--dk-border2);
+  }
+  .dk-btn-danger {
+    background: var(--dk-red-lt); color: var(--dk-red);
+    border: 1px solid rgba(248,113,113,0.15);
+  }
+
+  /* Inputs */
+  .dk-field { margin-bottom: 12px; }
+  .dk-label { font-size: 12px; font-weight: 600; color: var(--dk-text2); margin-bottom: 5px; display: block; }
+  .dk-input {
+    width: 100%; padding: 9px 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--dk-border2);
+    border-radius: var(--gl-r-sm);
+    font-size: 13px; color: var(--dk-text);
+    font-family: inherit; outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .dk-input:focus {
+    border-color: var(--dk-accent);
+    box-shadow: 0 0 0 3px rgba(77,142,240,0.15);
+    background: rgba(255,255,255,0.06);
+  }
+  .dk-select {
+    width: 100%; padding: 9px 12px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--dk-border2);
+    border-radius: var(--gl-r-sm);
+    font-size: 13px; color: var(--dk-text);
+    font-family: inherit; outline: none; cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2377829A' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 12px center;
+    padding-right: 32px;
+  }
+
+  /* Badges */
+  .dk-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .dk-badge {
+    padding: 4px 10px; border-radius: 100px;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.3px;
+  }
+  .dk-badge-green  { background: var(--dk-green-lt);  color: var(--dk-green);  }
+  .dk-badge-yellow { background: var(--dk-yellow-lt); color: var(--dk-yellow); }
+  .dk-badge-red    { background: var(--dk-red-lt);    color: var(--dk-red);    }
+  .dk-badge-blue   { background: var(--dk-blue-lt);   color: var(--dk-accent2); }
+  .dk-badge-gray   { background: var(--dk-surface);   color: var(--dk-text2);   border: 1px solid var(--dk-border2); }
+
+  /* Table */
+  .dk-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .dk-table th {
+    padding: 8px 12px; text-align: left;
+    font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--dk-text3); border-bottom: 1px solid var(--dk-border);
+  }
+  .dk-table td {
+    padding: 10px 12px; color: var(--dk-text);
+    border-bottom: 1px solid var(--dk-border);
+  }
+  .dk-table tr:hover td { background: var(--dk-surface); }
+  .dk-table .td-sub { font-size: 11px; color: var(--dk-text3); }
+
+  /* Topbar */
+  .dk-topbar {
+    background: var(--dk-bg2);
+    border: 1px solid var(--dk-border);
+    border-radius: var(--gl-r);
+    padding: 10px 16px;
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 12px;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+  }
+  .dk-topbar-search {
+    flex: 1; background: rgba(255,255,255,0.04);
+    border: 1px solid var(--dk-border);
+    border-radius: 6px; padding: 7px 12px;
+    font-size: 13px; color: var(--dk-text3);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .dk-avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--dk-accent), var(--dk-accent2));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; color: white; flex-shrink: 0;
+  }
+  .dk-topbar-title { font-size: 15px; font-weight: 700; color: var(--dk-text); }
+
+  .dk-breadcrumb {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--dk-text3); margin-bottom: 12px;
+  }
+  .dk-breadcrumb a { color: var(--dk-accent2); }
+
+  .dk-progress { height: 6px; background: var(--dk-border); border-radius: 999px; overflow: hidden; }
+  .dk-progress-fill { height: 100%; border-radius: 999px; background: var(--dk-accent); }
+
+  .dk-divider { height: 1px; background: var(--dk-border); margin: 14px 0; }
+
+  .dk-row-lbl { font-size: 11px; color: var(--dk-text3); margin-bottom: 6px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; }
+
+  /* ============================================================
+     PALETTE SWATCHES
+  ============================================================ */
+  .palette { display: flex; gap: 8px; flex-wrap: wrap; }
+  .swatch { display: flex; flex-direction: column; gap: 4px; }
+  .swatch-color { width: 56px; height: 56px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.08); }
+  .swatch-name  { font-size: 9.5px; color: #64748b; text-align: center; }
+  .swatch-hex   { font-size: 9px; color: #94a3b8; text-align: center; font-family: monospace; }
+
+  /* ============================================================
+     LOGIN MOCK
+  ============================================================ */
+  .gl-login {
+    background: var(--gl-bg);
+    border-radius: var(--gl-r);
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--gl-border);
+  }
+  .gl-login-header {
+    background: var(--gl-sidebar);
+    padding: 20px 24px;
+    text-align: center;
+  }
+  .gl-login-header .logo { font-size: 20px; font-weight: 800; color: white; margin-bottom: 2px; }
+  .gl-login-header .sub  { font-size: 11px; color: rgba(255,255,255,0.5); }
+  .gl-login-body { padding: 24px; }
+  .gl-login-title { font-size: 17px; font-weight: 700; color: var(--gl-text); margin-bottom: 4px; }
+  .gl-login-hint  { font-size: 12px; color: var(--gl-text3); margin-bottom: 18px; }
+  .gl-login-footer { padding: 12px 24px; background: var(--gl-bg); border-top: 1px solid var(--gl-border); text-align: center; font-size: 11px; color: var(--gl-text3); }
+
+  .dk-login {
+    background: var(--dk-bg2);
+    border-radius: var(--gl-r);
+    overflow: hidden;
+    border: 1px solid var(--dk-border);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .dk-login-header {
+    background: var(--dk-sidebar);
+    border-bottom: 1px solid var(--dk-border);
+    padding: 20px 24px;
+    text-align: center;
+  }
+  .dk-login-header .logo { font-size: 20px; font-weight: 800; color: var(--dk-text); margin-bottom: 2px; }
+  .dk-login-header .sub  { font-size: 11px; color: var(--dk-text3); }
+  .dk-login-body { padding: 24px; }
+  .dk-login-title { font-size: 17px; font-weight: 700; color: var(--dk-text); margin-bottom: 4px; }
+  .dk-login-hint  { font-size: 12px; color: var(--dk-text3); margin-bottom: 18px; }
+  .dk-login-footer { padding: 12px 24px; background: rgba(0,0,0,0.15); border-top: 1px solid var(--dk-border); text-align: center; font-size: 11px; color: var(--dk-text3); }
+
+  /* ============================================================
+     MISC HELPERS
+  ============================================================ */
+  .gap-8  { gap: 8px; }
+  .flex   { display: flex; }
+  .items-center { align-items: center; }
+  .between { justify-content: space-between; }
+  .mb-8   { margin-bottom: 8px; }
+  .mb-12  { margin-bottom: 12px; }
+  .mb-16  { margin-bottom: 16px; }
+  .f-12   { font-size: 12px; }
+  .w-full { width: 100%; }
+
+  /* notification dot */
+  .notif-dot {
+    width: 18px; height: 18px; border-radius: 50%; background: #ef4444;
+    font-size: 9px; font-weight: 700; color: white;
+    display: flex; align-items: center; justify-content: center;
+    margin-left: auto;
+  }
+
+  /* ---- Schema labels ---- */
+  .schema-title {
+    font-size: 13px; font-weight: 700; padding: 12px 16px 8px;
+    letter-spacing: 0.3px;
+  }
+  .gl-schema-title { color: var(--gl-accent); background: var(--gl-bg); }
+  .dk-schema-title { color: var(--dk-accent); background: var(--dk-bg2); border-top: 1px solid var(--dk-border); }
+
+  /* tag chip */
+  .gl-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; background: var(--gl-accent-lt); color: var(--gl-accent); border-radius: 100px; font-size: 11px; font-weight: 500; }
+  .dk-chip { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; background: var(--dk-accent-lt); color: var(--dk-accent2); border-radius: 100px; font-size: 11px; font-weight: 500; }
+
+  /* toggle */
+  .toggle-wrap { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .gl-toggle { width: 36px; height: 20px; border-radius: 10px; background: var(--gl-accent); position: relative; cursor: pointer; flex-shrink: 0; }
+  .gl-toggle::after { content: ''; position: absolute; top: 3px; right: 4px; width: 14px; height: 14px; border-radius: 50%; background: white; }
+  .dk-toggle { width: 36px; height: 20px; border-radius: 10px; background: var(--dk-accent); position: relative; cursor: pointer; flex-shrink: 0; }
+  .dk-toggle::after { content: ''; position: absolute; top: 3px; right: 4px; width: 14px; height: 14px; border-radius: 50%; background: white; }
+
+  /* modal mini */
+  .gl-modal-mini {
+    background: white;
+    border: 1px solid var(--gl-border);
+    border-radius: var(--gl-r);
+    overflow: hidden;
+    box-shadow: 0 8px 40px rgba(13,47,161,0.15);
+  }
+  .gl-modal-header { background: var(--gl-sidebar); padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; }
+  .gl-modal-header-title { font-size: 13px; font-weight: 700; color: white; }
+  .gl-modal-close { width: 22px; height: 22px; border-radius: 4px; background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-size: 13px; color: rgba(255,255,255,0.7); cursor: pointer; }
+  .gl-modal-body { padding: 16px; background: var(--gl-bg); }
+  .gl-modal-footer { padding: 12px 16px; background: white; border-top: 1px solid var(--gl-border); display: flex; justify-content: flex-end; gap: 8px; }
+
+  .dk-modal-mini {
+    background: var(--dk-bg2);
+    border: 1px solid var(--dk-border);
+    border-radius: var(--gl-r);
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  }
+  .dk-modal-header { background: rgba(0,0,0,0.3); padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--dk-border); }
+  .dk-modal-header-title { font-size: 13px; font-weight: 700; color: var(--dk-text); }
+  .dk-modal-close { width: 22px; height: 22px; border-radius: 4px; background: var(--dk-surface); display: flex; align-items: center; justify-content: center; font-size: 13px; color: var(--dk-text2); cursor: pointer; border: 1px solid var(--dk-border); }
+  .dk-modal-body { padding: 16px; }
+  .dk-modal-footer { padding: 12px 16px; border-top: 1px solid var(--dk-border); display: flex; justify-content: flex-end; gap: 8px; }
+
+  /* char counter */
+  .gl-char { font-size: 11px; color: var(--gl-text3); text-align: right; margin-top: 3px; }
+  .dk-char { font-size: 11px; color: var(--dk-text3); text-align: right; margin-top: 3px; }
+
+  /* info panel */
+  .gl-info { background: var(--gl-blue-lt); border: 1px solid rgba(29,78,216,0.2); border-left: 3px solid var(--gl-accent); border-radius: var(--gl-r-sm); padding: 10px 12px; font-size: 12px; color: var(--gl-blue); }
+  .dk-info { background: var(--dk-blue-lt); border: 1px solid rgba(77,142,240,0.2); border-left: 3px solid var(--dk-accent); border-radius: var(--gl-r-sm); padding: 10px 12px; font-size: 12px; color: var(--dk-accent2); }
+
+  .gl-warn { background: var(--gl-yellow-lt); border: 1px solid rgba(180,83,9,0.2); border-left: 3px solid var(--gl-yellow); border-radius: var(--gl-r-sm); padding: 10px 12px; font-size: 12px; color: var(--gl-yellow); }
+  .dk-warn { background: var(--dk-yellow-lt); border: 1px solid rgba(252,211,77,0.2); border-left: 3px solid var(--dk-yellow); border-radius: var(--gl-r-sm); padding: 10px 12px; font-size: 12px; color: var(--dk-yellow); }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="page-title">MediaHub — Дизайн-концепции</div>
+  <div class="page-sub">Анализ стиля Госуслуг · Два варианта: Светлая стандартная и Тёмная ночная</div>
+
+  <!-- =========================================================
+       ПАРА 1 — ПАЛИТРА
+  ========================================================= -->
+  <div class="section">
+    <div class="section-label">Пара 1 — Цветовая палитра</div>
+    <div class="pair">
+      <!-- LIGHT -->
+      <div>
+        <div class="pair-label label-light"><span class="dot dot-light"></span>Светлая тема — «Госслужба»</div>
+        <div class="gl-card">
+          <div class="gl-card-title" style="margin-bottom:16px;">Палитра</div>
+          <div class="palette">
+            <div class="swatch">
+              <div class="swatch-color" style="background:#0D47A1;"></div>
+              <div class="swatch-name">Акцент</div>
+              <div class="swatch-hex">#0D47A1</div>
+            </div>
+            <div class="swatch">
+              <div class="swatch-color" style="background:#1565C0;"></div>
+              <div class="swatch-name">Акцент 2</div>
+              <div class="swatch-hex">#1565C0</div>
+            </div>
+            <div class="swatch">
+              <div class="swatch-color" style="background:#0D2D6B; border-color: transparent;"></div>
+              <div class="swatch-name">Сайдбар</div>
+              <div class="swatch-hex">#0D2D6B</div>
+            </div>
+            <div class="swatch">
+              <div class="swatch-color" style="background:#F0F4F9;"></div>
+              <div class="swatch-name">Фон</div>
+              <div class="swatch-hex">#F0F4F9</div>
+            </div>
+            <div class="swatch">
+              <div class="swatch-color" style="background:#FFFFFF; box-shadow: inset 0 0 0 1px #D1D9E8;"></div>
+              <div class="swatch-name">Карточка</div>
+              <div class="swatch-hex">#FFFFFF</div>
+            </div>
+            <div class="swatch">
+              <div class="swatch-color" style="background:#111827;"></div>
+              <div class="swatch-name">Текст</div>
+              <div class="swatch-hex">#111827</div>
+            </div>
+            <div class="swatch">
+              <div class="swatch-color" style="background:#1B8A4E;"></div>
+              <div class="swatch-name">Успех</div>
+              <div class="swatch-hex">#1B8A4E</div>
+            </div>
+            <div class="swatch">
+              <div class="swatch-color" style="background:#C62828;"></div>
+              <div class="swatch-name">Ошибка</div>
+              <div class="swatch-hex">#C62828</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- DARK -->
+      <div>
+        <div class="pair-label label-dark"><span class="dot dot-dark"></span>Тёмная тема — «Ночной режим»</div>
+        <div class="dk-card">
+          <div class="dk-card-title" style="margin-bottom:16px;">Палитра</div>
+          <div class="palette">
+            <div class="swatch">
+              <div class="swatch-color" style="background:#4D8EF0; border-color:transparent;"></div>
+              <div class="swatch-name">Акцент</div>
+              <div class="swatch-hex">#4D8EF0</div>
+            </div>
+            <div class="swatch">
+              <div class="swatch-color" style="background:#6BA5F3; border-color:transparent;"></div>
+              <div class="swatch-name">Акцент 2</div>
+              <div class="swatch-hex">#6BA5F3</div>
+            </div>
+            <div class="swatch">
+              <div class="swatch-color" style="background:#07112A; border-color:transparent;"></div>
+              <div class="swatch-name">Сайдбар</div>
+              <div class="swatch-hex">#07112A</div>
+            </div>
+            <div class="swatch">
+              <div class="swatch-color" style="background:#060D1A; border-color:transparent;"></div>
+              <div class="swatch-name">Фон</div>
+              <div class="swatch-hex">#060D1A</div>
+            </div>
+            <div class="swatch">
+              <div class="swatch-color" style="background:#0C1628; border-color:rgba(255,255,255,0.08);"></div>
+              <div class="swatch-name">Карточка</div>
+              <div class="swatch-hex">#0C1628</div>
+            </div>
+            <div class="swatch">
+              <div class="swatch-color" style="background:rgba(255,255,255,0.92); border-color:transparent;"></div>
+              <div class="swatch-name">Текст</div>
+              <div class="swatch-hex">rgba/92%</div>
+            </div>
+            <div class="swatch">
+              <div class="swatch-color" style="background:#22C55E; border-color:transparent;"></div>
+              <div class="swatch-name">Успех</div>
+              <div class="swatch-hex">#22C55E</div>
+            </div>
+            <div class="swatch">
+              <div class="swatch-color" style="background:#F87171; border-color:transparent;"></div>
+              <div class="swatch-name">Ошибка</div>
+              <div class="swatch-hex">#F87171</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       ПАРА 2 — НАВИГАЦИОННАЯ ПАНЕЛЬ
+  ========================================================= -->
+  <div class="section">
+    <div class="section-label">Пара 2 — Сайдбар и навигация</div>
+    <div class="pair">
+      <!-- LIGHT sidebar -->
+      <div>
+        <div class="pair-label label-light"><span class="dot dot-light"></span>Светлая</div>
+        <div class="gl-sidebar">
+          <div class="gl-sidebar-logo">
+            <div class="gl-logo-icon">М</div>
+            <div>
+              <div class="gl-logo-text">МедиаХаб</div>
+              <div class="gl-logo-sub">Контент-платформа</div>
+            </div>
+          </div>
+          <div class="gl-nav">
+            <div class="gl-nav-item active"><span class="nav-icon">⊞</span> Дашборд <span class="notif-dot" style="width:14px;height:14px;font-size:8px;">3</span></div>
+            <div class="gl-nav-item"><span class="nav-icon">✦</span> Публикации</div>
+            <div class="gl-nav-item"><span class="nav-icon">◷</span> Календарь</div>
+            <div class="gl-nav-item"><span class="nav-icon">↗</span> Аналитика</div>
+            <div class="gl-nav-item"><span class="nav-icon">🔔</span> Уведомления</div>
+            <div class="gl-nav-item"><span class="nav-icon">⚙</span> Настройки</div>
+          </div>
+          <div style="padding: 12px 16px; border-top: 1px solid rgba(255,255,255,0.1);">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#4D8EF0,#6BA5F3);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:white;">АД</div>
+              <div>
+                <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.9);">Администратор</div>
+                <div style="font-size:10px;color:rgba(255,255,255,0.45);">admin@media.ru</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- DARK sidebar -->
+      <div>
+        <div class="pair-label label-dark"><span class="dot dot-dark"></span>Тёмная</div>
+        <div class="dk-sidebar">
+          <div class="dk-sidebar-logo">
+            <div class="dk-logo-icon">М</div>
+            <div>
+              <div class="dk-logo-text">МедиаХаб</div>
+              <div class="dk-logo-sub">Контент-платформа</div>
+            </div>
+          </div>
+          <div class="dk-nav">
+            <div class="dk-nav-item active"><span class="nav-icon">⊞</span> Дашборд <span class="notif-dot" style="width:14px;height:14px;font-size:8px;">3</span></div>
+            <div class="dk-nav-item"><span class="nav-icon">✦</span> Публикации</div>
+            <div class="dk-nav-item"><span class="nav-icon">◷</span> Календарь</div>
+            <div class="dk-nav-item"><span class="nav-icon">↗</span> Аналитика</div>
+            <div class="dk-nav-item"><span class="nav-icon">🔔</span> Уведомления</div>
+            <div class="dk-nav-item"><span class="nav-icon">⚙</span> Настройки</div>
+          </div>
+          <div style="padding:12px 16px;border-top:1px solid var(--dk-border);">
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div class="dk-avatar">АД</div>
+              <div>
+                <div style="font-size:12px;font-weight:600;color:var(--dk-text);">Администратор</div>
+                <div style="font-size:10px;color:var(--dk-text3);">admin@media.ru</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       ПАРА 3 — ДАШБОРД (топбар + статистика)
+  ========================================================= -->
+  <div class="section">
+    <div class="section-label">Пара 3 — Дашборд / Статистика</div>
+    <div class="pair">
+      <!-- LIGHT dashboard -->
+      <div>
+        <div class="pair-label label-light"><span class="dot dot-light"></span>Светлая</div>
+        <div style="background:var(--gl-bg); padding:16px; border-radius:var(--gl-r); border:1px solid var(--gl-border);">
+          <div class="gl-topbar">
+            <div>
+              <div class="gl-topbar-title">Дашборд</div>
+              <div class="gl-breadcrumb" style="margin-bottom:0;">
+                <a>Главная</a> <span>›</span> <span>Обзор</span>
+              </div>
+            </div>
+            <div class="gl-topbar-search">🔍 Поиск публикаций...</div>
+            <div class="gl-avatar">АД</div>
+          </div>
+          <div class="gl-stats">
+            <div class="gl-stat">
+              <div class="gl-stat-val">1 247</div>
+              <div class="gl-stat-lbl">Публикаций всего</div>
+            </div>
+            <div class="gl-stat">
+              <div class="gl-stat-val">89.4K</div>
+              <div class="gl-stat-lbl">Просмотров за месяц</div>
+            </div>
+            <div class="gl-stat">
+              <div class="gl-stat-val" style="color:var(--gl-green);">342</div>
+              <div class="gl-stat-lbl">Опубликовано</div>
+            </div>
+            <div class="gl-stat">
+              <div class="gl-stat-val" style="color:var(--gl-yellow);">58</div>
+              <div class="gl-stat-lbl">Запланировано</div>
+            </div>
+          </div>
+          <div class="gl-divider"></div>
+          <div class="gl-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+              <div class="gl-card-title">Прогресс публикаций</div>
+              <div class="gl-badge gl-badge-blue">Апрель 2026</div>
+            </div>
+            <div class="row-lbl">ВКонтакте</div>
+            <div class="gl-progress mb-8"><div class="gl-progress-fill" style="width:72%;"></div></div>
+            <div class="row-lbl">Telegram</div>
+            <div class="gl-progress"><div class="gl-progress-fill" style="width:48%;background:#1B8A4E;"></div></div>
+          </div>
+        </div>
+      </div>
+      <!-- DARK dashboard -->
+      <div>
+        <div class="pair-label label-dark"><span class="dot dot-dark"></span>Тёмная</div>
+        <div style="background:var(--dk-bg); padding:16px; border-radius:var(--gl-r); border:1px solid var(--dk-border);">
+          <div class="dk-topbar">
+            <div>
+              <div class="dk-topbar-title">Дашборд</div>
+              <div class="dk-breadcrumb" style="margin-bottom:0;">
+                <a>Главная</a> <span style="color:var(--dk-text3);">›</span> <span>Обзор</span>
+              </div>
+            </div>
+            <div class="dk-topbar-search">🔍 Поиск публикаций...</div>
+            <div class="dk-avatar">АД</div>
+          </div>
+          <div class="dk-stats">
+            <div class="dk-stat">
+              <div class="dk-stat-val">1 247</div>
+              <div class="dk-stat-lbl">Публикаций всего</div>
+            </div>
+            <div class="dk-stat">
+              <div class="dk-stat-val">89.4K</div>
+              <div class="dk-stat-lbl">Просмотров за месяц</div>
+            </div>
+            <div class="dk-stat">
+              <div class="dk-stat-val" style="color:var(--dk-green);">342</div>
+              <div class="dk-stat-lbl">Опубликовано</div>
+            </div>
+            <div class="dk-stat">
+              <div class="dk-stat-val" style="color:var(--dk-yellow);">58</div>
+              <div class="dk-stat-lbl">Запланировано</div>
+            </div>
+          </div>
+          <div class="dk-divider"></div>
+          <div class="dk-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+              <div class="dk-card-title">Прогресс публикаций</div>
+              <div class="dk-badge dk-badge-blue">Апрель 2026</div>
+            </div>
+            <div class="dk-row-lbl">ВКонтакте</div>
+            <div class="dk-progress mb-8"><div class="dk-progress-fill" style="width:72%;"></div></div>
+            <div class="dk-row-lbl">Telegram</div>
+            <div class="dk-progress"><div class="dk-progress-fill" style="width:48%;background:var(--dk-green);"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       ПАРА 4 — КНОПКИ И БЕЙДЖИ
+  ========================================================= -->
+  <div class="section">
+    <div class="section-label">Пара 4 — Кнопки и статусные бейджи</div>
+    <div class="pair">
+      <div>
+        <div class="pair-label label-light"><span class="dot dot-light"></span>Светлая</div>
+        <div class="gl-card">
+          <div class="row-lbl" style="color:var(--gl-text3);">Кнопки</div>
+          <div class="gl-btns mb-16">
+            <button class="gl-btn gl-btn-primary">Создать пост</button>
+            <button class="gl-btn gl-btn-secondary">Черновик</button>
+            <button class="gl-btn gl-btn-ghost">Отмена</button>
+            <button class="gl-btn gl-btn-danger">Удалить</button>
+          </div>
+          <div class="gl-divider"></div>
+          <div class="row-lbl" style="color:var(--gl-text3);">Статусы</div>
+          <div class="gl-badges mb-16">
+            <span class="gl-badge gl-badge-green">Опубликовано</span>
+            <span class="gl-badge gl-badge-yellow">Запланировано</span>
+            <span class="gl-badge gl-badge-red">Ошибка</span>
+            <span class="gl-badge gl-badge-gray">Черновик</span>
+            <span class="gl-badge gl-badge-blue">Новое</span>
+          </div>
+          <div class="gl-divider"></div>
+          <div class="row-lbl" style="color:var(--gl-text3);">Теги / Платформы</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <span class="gl-chip">ВКонтакте</span>
+            <span class="gl-chip">Telegram</span>
+            <span class="gl-chip">Новости</span>
+            <span class="gl-chip">Акция</span>
+          </div>
+          <div class="gl-divider"></div>
+          <div class="row-lbl" style="color:var(--gl-text3);">Переключатели</div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <div class="toggle-wrap" style="color:var(--gl-text2);">
+              <div class="gl-toggle"></div> Уведомления включены
+            </div>
+            <div class="toggle-wrap" style="color:var(--gl-text3);">
+              <div style="width:36px;height:20px;border-radius:10px;background:var(--gl-border);position:relative;flex-shrink:0;">
+                <div style="position:absolute;top:3px;left:4px;width:14px;height:14px;border-radius:50%;background:var(--gl-text3);"></div>
+              </div> Авто-публикация
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="pair-label label-dark"><span class="dot dot-dark"></span>Тёмная</div>
+        <div class="dk-card">
+          <div class="dk-row-lbl">Кнопки</div>
+          <div class="dk-btns mb-16">
+            <button class="dk-btn dk-btn-primary">Создать пост</button>
+            <button class="dk-btn dk-btn-secondary">Черновик</button>
+            <button class="dk-btn dk-btn-ghost">Отмена</button>
+            <button class="dk-btn dk-btn-danger">Удалить</button>
+          </div>
+          <div class="dk-divider"></div>
+          <div class="dk-row-lbl">Статусы</div>
+          <div class="dk-badges mb-16">
+            <span class="dk-badge dk-badge-green">Опубликовано</span>
+            <span class="dk-badge dk-badge-yellow">Запланировано</span>
+            <span class="dk-badge dk-badge-red">Ошибка</span>
+            <span class="dk-badge dk-badge-gray">Черновик</span>
+            <span class="dk-badge dk-badge-blue">Новое</span>
+          </div>
+          <div class="dk-divider"></div>
+          <div class="dk-row-lbl">Теги / Платформы</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <span class="dk-chip">ВКонтакте</span>
+            <span class="dk-chip">Telegram</span>
+            <span class="dk-chip">Новости</span>
+            <span class="dk-chip">Акция</span>
+          </div>
+          <div class="dk-divider"></div>
+          <div class="dk-row-lbl">Переключатели</div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <div class="toggle-wrap" style="color:var(--dk-text2);">
+              <div class="dk-toggle"></div> Уведомления включены
+            </div>
+            <div class="toggle-wrap" style="color:var(--dk-text3);">
+              <div style="width:36px;height:20px;border-radius:10px;background:var(--dk-surface);border:1px solid var(--dk-border);position:relative;flex-shrink:0;">
+                <div style="position:absolute;top:3px;left:4px;width:14px;height:14px;border-radius:50%;background:var(--dk-text3);"></div>
+              </div> Авто-публикация
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       ПАРА 5 — ФОРМА СОЗДАНИЯ ПОСТА
+  ========================================================= -->
+  <div class="section">
+    <div class="section-label">Пара 5 — Форма (создание публикации)</div>
+    <div class="pair">
+      <div>
+        <div class="pair-label label-light"><span class="dot dot-light"></span>Светлая</div>
+        <div class="gl-card">
+          <div class="gl-card-title">Новая публикация</div>
+          <div class="gl-card-sub">Заполните данные для публикации в соц. сети</div>
+          <div class="gl-info mb-12">Публикация будет автоматически проверена перед отправкой</div>
+          <div class="gl-field">
+            <label class="gl-label">Заголовок публикации</label>
+            <input class="gl-input" value="Акция «Весенние скидки» 2026" />
+          </div>
+          <div class="gl-field">
+            <label class="gl-label">Текст сообщения</label>
+            <textarea class="gl-input" rows="3" style="resize:vertical;">Уважаемые подписчики! Рады сообщить о начале сезонной акции...</textarea>
+            <div class="gl-char">238 / 500 символов</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div class="gl-field" style="margin-bottom:0;">
+              <label class="gl-label">Платформа</label>
+              <select class="gl-select"><option>ВКонтакте</option><option>Telegram</option></select>
+            </div>
+            <div class="gl-field" style="margin-bottom:0;">
+              <label class="gl-label">Статус</label>
+              <select class="gl-select"><option>Запланировано</option><option>Черновик</option></select>
+            </div>
+          </div>
+          <div class="gl-divider"></div>
+          <div class="gl-btns">
+            <button class="gl-btn gl-btn-primary">Сохранить и опубликовать</button>
+            <button class="gl-btn gl-btn-ghost">Отмена</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="pair-label label-dark"><span class="dot dot-dark"></span>Тёмная</div>
+        <div class="dk-card">
+          <div class="dk-card-title">Новая публикация</div>
+          <div class="dk-card-sub">Заполните данные для публикации в соц. сети</div>
+          <div class="dk-info mb-12">Публикация будет автоматически проверена перед отправкой</div>
+          <div class="dk-field">
+            <label class="dk-label">Заголовок публикации</label>
+            <input class="dk-input" value="Акция «Весенние скидки» 2026" />
+          </div>
+          <div class="dk-field">
+            <label class="dk-label">Текст сообщения</label>
+            <textarea class="dk-input" rows="3" style="resize:vertical;background:rgba(255,255,255,0.04);color:var(--dk-text);">Уважаемые подписчики! Рады сообщить о начале сезонной акции...</textarea>
+            <div class="dk-char">238 / 500 символов</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div class="dk-field" style="margin-bottom:0;">
+              <label class="dk-label">Платформа</label>
+              <select class="dk-select" style="color:var(--dk-text);"><option>ВКонтакте</option><option>Telegram</option></select>
+            </div>
+            <div class="dk-field" style="margin-bottom:0;">
+              <label class="dk-label">Статус</label>
+              <select class="dk-select" style="color:var(--dk-text);"><option>Запланировано</option><option>Черновик</option></select>
+            </div>
+          </div>
+          <div class="dk-divider"></div>
+          <div class="dk-btns">
+            <button class="dk-btn dk-btn-primary">Сохранить и опубликовать</button>
+            <button class="dk-btn dk-btn-ghost">Отмена</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       ПАРА 6 — ТАБЛИЦА ПУБЛИКАЦИЙ
+  ========================================================= -->
+  <div class="section">
+    <div class="section-label">Пара 6 — Таблица публикаций</div>
+    <div class="pair">
+      <div>
+        <div class="pair-label label-light"><span class="dot dot-light"></span>Светлая</div>
+        <div class="gl-card" style="padding:0;overflow:hidden;">
+          <div style="padding:14px 16px 10px;border-bottom:1px solid var(--gl-border);display:flex;align-items:center;justify-content:space-between;">
+            <div class="gl-card-title" style="margin-bottom:0;">Публикации</div>
+            <button class="gl-btn gl-btn-primary" style="padding:6px 14px;font-size:12px;">+ Создать</button>
+          </div>
+          <table class="gl-table">
+            <thead>
+              <tr>
+                <th>Заголовок</th>
+                <th>Платформа</th>
+                <th>Статус</th>
+                <th>Дата</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><div>Акция «Весна 2026»</div><div class="td-sub">Создан: 01.04.2026</div></td>
+                <td><span class="gl-chip" style="font-size:10px;">ВКонтакте</span></td>
+                <td><span class="gl-badge gl-badge-green">Опубликовано</span></td>
+                <td style="color:var(--gl-text2);font-size:12px;">02.04 14:30</td>
+              </tr>
+              <tr>
+                <td><div>Анонс мероприятия</div><div class="td-sub">Создан: 28.03.2026</div></td>
+                <td><span class="gl-chip" style="font-size:10px;">Telegram</span></td>
+                <td><span class="gl-badge gl-badge-yellow">Запланировано</span></td>
+                <td style="color:var(--gl-text2);font-size:12px;">05.04 10:00</td>
+              </tr>
+              <tr>
+                <td><div>Итоги квартала</div><div class="td-sub">Создан: 25.03.2026</div></td>
+                <td><span class="gl-chip" style="font-size:10px;">ВКонтакте</span></td>
+                <td><span class="gl-badge gl-badge-gray">Черновик</span></td>
+                <td style="color:var(--gl-text2);font-size:12px;">—</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <div class="pair-label label-dark"><span class="dot dot-dark"></span>Тёмная</div>
+        <div class="dk-card" style="padding:0;overflow:hidden;">
+          <div style="padding:14px 16px 10px;border-bottom:1px solid var(--dk-border);display:flex;align-items:center;justify-content:space-between;">
+            <div class="dk-card-title" style="margin-bottom:0;">Публикации</div>
+            <button class="dk-btn dk-btn-primary" style="padding:6px 14px;font-size:12px;">+ Создать</button>
+          </div>
+          <table class="dk-table">
+            <thead>
+              <tr>
+                <th>Заголовок</th>
+                <th>Платформа</th>
+                <th>Статус</th>
+                <th>Дата</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><div style="color:var(--dk-text);">Акция «Весна 2026»</div><div class="td-sub">Создан: 01.04.2026</div></td>
+                <td><span class="dk-chip" style="font-size:10px;">ВКонтакте</span></td>
+                <td><span class="dk-badge dk-badge-green">Опубликовано</span></td>
+                <td style="color:var(--dk-text2);font-size:12px;">02.04 14:30</td>
+              </tr>
+              <tr>
+                <td><div style="color:var(--dk-text);">Анонс мероприятия</div><div class="td-sub">Создан: 28.03.2026</div></td>
+                <td><span class="dk-chip" style="font-size:10px;">Telegram</span></td>
+                <td><span class="dk-badge dk-badge-yellow">Запланировано</span></td>
+                <td style="color:var(--dk-text2);font-size:12px;">05.04 10:00</td>
+              </tr>
+              <tr>
+                <td><div style="color:var(--dk-text);">Итоги квартала</div><div class="td-sub">Создан: 25.03.2026</div></td>
+                <td><span class="dk-chip" style="font-size:10px;">ВКонтакте</span></td>
+                <td><span class="dk-badge dk-badge-gray">Черновик</span></td>
+                <td style="color:var(--dk-text2);font-size:12px;">—</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       ПАРА 7 — ЭКРАН ВХОДА
+  ========================================================= -->
+  <div class="section">
+    <div class="section-label">Пара 7 — Страница входа</div>
+    <div class="pair">
+      <div>
+        <div class="pair-label label-light"><span class="dot dot-light"></span>Светлая</div>
+        <div class="gl-login">
+          <div class="gl-login-header">
+            <div class="logo">МедиаХаб</div>
+            <div class="sub">Портал управления контентом</div>
+          </div>
+          <div class="gl-login-body">
+            <div class="gl-login-title">Вход в систему</div>
+            <div class="gl-login-hint">Введите ваши данные для доступа к платформе</div>
+            <div class="gl-field">
+              <label class="gl-label">Электронная почта</label>
+              <input class="gl-input" value="admin@mediahub.ru" />
+            </div>
+            <div class="gl-field">
+              <label class="gl-label">Пароль</label>
+              <input class="gl-input" type="password" value="password" />
+            </div>
+            <div class="gl-warn" style="margin-bottom:12px;">Используйте двухфакторную аутентификацию для безопасности</div>
+            <button class="gl-btn gl-btn-primary w-full" style="text-align:center;padding:10px;">Войти в систему</button>
+          </div>
+          <div class="gl-login-footer">Нет аккаунта? <a href="#" style="color:var(--gl-accent);">Зарегистрироваться</a> · Версия 2.4.1</div>
+        </div>
+      </div>
+      <div>
+        <div class="pair-label label-dark"><span class="dot dot-dark"></span>Тёмная</div>
+        <div class="dk-login">
+          <div class="dk-login-header">
+            <div class="logo">МедиаХаб</div>
+            <div class="sub">Портал управления контентом</div>
+          </div>
+          <div class="dk-login-body">
+            <div class="dk-login-title">Вход в систему</div>
+            <div class="dk-login-hint">Введите ваши данные для доступа к платформе</div>
+            <div class="dk-field">
+              <label class="dk-label">Электронная почта</label>
+              <input class="dk-input" value="admin@mediahub.ru" />
+            </div>
+            <div class="dk-field">
+              <label class="dk-label">Пароль</label>
+              <input class="dk-input" type="password" value="password" />
+            </div>
+            <div class="dk-warn" style="margin-bottom:12px;">Используйте двухфакторную аутентификацию для безопасности</div>
+            <button class="dk-btn dk-btn-primary w-full" style="text-align:center;padding:10px;">Войти в систему</button>
+          </div>
+          <div class="dk-login-footer">Нет аккаунта? <a href="#" style="color:var(--dk-accent2);">Зарегистрироваться</a> · Версия 2.4.1</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       ПАРА 8 — МОДАЛЬНОЕ ОКНО
+  ========================================================= -->
+  <div class="section">
+    <div class="section-label">Пара 8 — Модальное окно подтверждения</div>
+    <div class="pair">
+      <div>
+        <div class="pair-label label-light"><span class="dot dot-light"></span>Светлая</div>
+        <div class="gl-modal-mini">
+          <div class="gl-modal-header">
+            <span class="gl-modal-header-title">Подтверждение удаления</span>
+            <div class="gl-modal-close">✕</div>
+          </div>
+          <div class="gl-modal-body">
+            <div style="color:var(--gl-text);font-size:14px;margin-bottom:8px;font-weight:600;">Удалить публикацию?</div>
+            <div style="color:var(--gl-text2);font-size:13px;line-height:1.5;">Вы собираетесь безвозвратно удалить публикацию <strong>«Акция Весна 2026»</strong>. Отменить это действие будет невозможно.</div>
+            <div class="gl-divider"></div>
+            <div class="gl-warn">Опубликованный контент будет удалён из всех подключённых платформ</div>
+          </div>
+          <div class="gl-modal-footer">
+            <button class="gl-btn gl-btn-ghost">Отмена</button>
+            <button class="gl-btn gl-btn-danger">Удалить навсегда</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="pair-label label-dark"><span class="dot dot-dark"></span>Тёмная</div>
+        <div class="dk-modal-mini">
+          <div class="dk-modal-header">
+            <span class="dk-modal-header-title">Подтверждение удаления</span>
+            <div class="dk-modal-close">✕</div>
+          </div>
+          <div class="dk-modal-body">
+            <div style="color:var(--dk-text);font-size:14px;margin-bottom:8px;font-weight:600;">Удалить публикацию?</div>
+            <div style="color:var(--dk-text2);font-size:13px;line-height:1.5;">Вы собираетесь безвозвратно удалить публикацию <strong style="color:var(--dk-text);">«Акция Весна 2026»</strong>. Отменить это действие будет невозможно.</div>
+            <div class="dk-divider"></div>
+            <div class="dk-warn">Опубликованный контент будет удалён из всех подключённых платформ</div>
+          </div>
+          <div class="dk-modal-footer">
+            <button class="dk-btn dk-btn-ghost">Отмена</button>
+            <button class="dk-btn dk-btn-danger">Удалить навсегда</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer note -->
+  <div style="text-align:center;font-size:12px;color:#475569;margin-top:32px;padding-bottom:32px;">
+    MediaHub Design Concepts · Светлая «Госслужба» vs Тёмная «Ночной режим» · 2026
+  </div>
+</div>
+
+</body>
+</html>
