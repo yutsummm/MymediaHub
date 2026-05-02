@@ -44,9 +44,10 @@ export default function CreateGroupModal({ onClose }: { onClose?: () => void }) 
         width: '100%',
         maxWidth: '500px',
         padding: '40px 30px',
-        borderRadius: 'var(--r-lg)',
-        border: '1px solid var(--border)',
-        background: 'var(--bg-secondary)',
+        borderRadius: 'var(--r-xl)',
+        border: '1px solid var(--border-2)',
+        background: 'var(--bg-2)',
+        boxShadow: 'var(--shadow-card)',
         position: 'relative',
       }}>
         {onClose && (
@@ -70,7 +71,17 @@ export default function CreateGroupModal({ onClose }: { onClose?: () => void }) 
             ✕
           </button>
         )}
-        <h1 style={{ fontSize: 24, marginBottom: 8, color: 'var(--text-1)' }}>
+        <div style={{
+          width: 44, height: 44,
+          borderRadius: 'var(--r-md)',
+          background: 'linear-gradient(135deg, var(--accent), var(--accent-2))',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 20, marginBottom: 20,
+          boxShadow: '0 0 18px var(--accent-glow)',
+        }}>
+          👥
+        </div>
+        <h1 style={{ fontSize: 24, marginBottom: 8, color: 'var(--text)', fontWeight: 800, letterSpacing: '-0.03em' }}>
           Создайте вашу первую группу
         </h1>
         <p style={{ fontSize: 14, color: 'var(--text-3)', marginBottom: 24 }}>
