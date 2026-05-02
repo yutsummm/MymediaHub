@@ -998,11 +998,16 @@ select option { background: var(--bg-2); color: var(--text); }
 /* ─── Emoji helper ─── */
 .emoji-textarea-wrap { position: relative; }
 .emoji-textarea { padding-bottom: 54px; }
+.post-editor-card { overflow: visible; }
 
-.emoji-fab {
+.emoji-popover-shell {
   position: absolute;
   right: 12px;
   bottom: 12px;
+  z-index: 5;
+}
+
+.emoji-fab {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1020,13 +1025,63 @@ select option { background: var(--bg-2); color: var(--text); }
 .emoji-fab:hover:not(:disabled) { transform: translateY(-1px); background: rgba(245,158,11,0.2); }
 .emoji-fab:disabled { opacity: 0.45; cursor: not-allowed; }
 
-.emoji-modal { max-width: 760px; }
-.emoji-modal-bd { padding: 18px 22px; }
-.emoji-modal-bd aside {
+.emoji-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  width: min(380px, calc(100vw - 34px));
+  padding: 10px;
+  border: 1px solid rgba(245,158,11,0.24);
+  border-radius: var(--r-lg);
+  background: rgba(12,16,24,0.96);
+  box-shadow: 0 24px 70px rgba(0,0,0,0.45);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(8px) scale(0.98);
+  transform-origin: right bottom;
+  transition: opacity 0.16s var(--spring), transform 0.16s var(--spring), visibility 0.16s;
+}
+.emoji-popover-shell.open .emoji-popover,
+.emoji-popover-shell:hover .emoji-popover,
+.emoji-popover-shell:focus-within .emoji-popover {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+.emoji-popover aside {
   width: 100% !important;
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
+}
+
+@media (min-width: 860px) {
+  .emoji-textarea-wrap { overflow: visible; }
+  .emoji-popover {
+    left: calc(100% + 10px);
+    right: auto;
+    bottom: 0;
+    transform: translateX(-8px) scale(0.98);
+    transform-origin: left bottom;
+  }
+  .emoji-popover-shell.open .emoji-popover,
+  .emoji-popover-shell:hover .emoji-popover,
+  .emoji-popover-shell:focus-within .emoji-popover {
+    transform: translateX(0) scale(1);
+  }
+}
+
+@media (max-width: 520px) {
+  .emoji-popover-shell {
+    right: 8px;
+    bottom: 8px;
+  }
+  .emoji-popover {
+    right: -8px;
+    width: calc(100vw - 28px);
+  }
 }
 
 .emoji-hints {
