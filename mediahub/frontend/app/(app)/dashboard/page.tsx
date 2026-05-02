@@ -13,6 +13,15 @@ const fmtDate = (s: string | null) => {
 const STATUS_LABEL: Record<string, string> = { draft: 'Черновик', scheduled: 'Запланирован', published: 'Опубликован' }
 const STATUS_CLASS: Record<string, string> = { draft: 's-draft', scheduled: 's-scheduled', published: 's-published' }
 
+const S = { width: 18, height: 18, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
+
+const DASH_ICONS = [
+  <svg key="posts" {...S}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>,
+  <svg key="views" {...S}><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
+  <svg key="heart" {...S}><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>,
+  <svg key="trend" {...S}><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>,
+]
+
 export default function DashboardPage() {
   const router = useRouter()
   const [sum, setSum] = useState<AnalyticsSummary | null>(null)
@@ -35,10 +44,10 @@ export default function DashboardPage() {
   }
 
   const cards = [
-    { label: 'Всего постов',    val: sum.total_posts,        delta: '+12%', bg: 'rgba(124,58,237,0.12)',  color: '#a78bfa' },
-    { label: 'Суммарный охват', val: fmtN(sum.total_views),  delta: '+18%', bg: 'rgba(59,130,246,0.12)', color: '#60a5fa' },
-    { label: 'Реакции',         val: fmtN(sum.total_reactions), delta: '+9%', bg: 'rgba(16,185,129,0.12)', color: '#34d399' },
-    { label: 'Вовлечённость',   val: sum.engagement_rate + '%', delta: '+3%', bg: 'rgba(245,158,11,0.12)', color: '#fbbf24' },
+    { label: 'Всего постов',    val: sum.total_posts,            delta: '+12%' },
+    { label: 'Суммарный охват', val: fmtN(sum.total_views),      delta: '+18%' },
+    { label: 'Реакции',         val: fmtN(sum.total_reactions),  delta: '+9%'  },
+    { label: 'Вовлечённость',   val: sum.engagement_rate + '%', delta: '+3%'  },
   ]
 
   const statusRows = [
@@ -54,14 +63,15 @@ export default function DashboardPage() {
       <div className="stats-grid" style={{ marginBottom: 20 }}>
         {cards.map((c, i) => (
           <div key={i} className="stat-card anim-in">
-            <div className="stat-icon" style={{ background: c.bg }}>
-              <span style={{ color: c.color, fontSize: 15, fontWeight: 800 }}>
-                {i === 0 ? '≡' : i === 1 ? '↗' : i === 2 ? '♥' : '◎'}
-              </span>
+            <div className="stat-head">
+              <div className="stat-label">{c.label}</div>
+              <div className="stat-ico">{DASH_ICONS[i]}</div>
             </div>
-            <div className="stat-value" style={{ color: c.color }}>{c.val}</div>
-            <div className="stat-label">{c.label}</div>
-            <div className="stat-delta">↑ {c.delta} за месяц</div>
+            <div className="stat-value">{c.val}</div>
+            <div className="stat-delta">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
+              {c.delta} за месяц
+            </div>
           </div>
         ))}
       </div>
@@ -145,12 +155,8 @@ export default function DashboardPage() {
               <div style={{
                 width: 24, height: 24,
                 borderRadius: 6,
-                background: [
-                  'linear-gradient(135deg, #f59e0b, #fbbf24)',
-                  'linear-gradient(135deg, #6b7280, #9ca3af)',
-                  'linear-gradient(135deg, #92400e, #b45309)',
-                ][i],
-                color: '#fff',
+                background: i === 0 ? 'var(--accent)' : 'var(--surface-2)',
+                color: i === 0 ? 'var(--btn-primary-fg)' : 'var(--text-3)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 10, fontWeight: 800, flexShrink: 0,
               }}>
