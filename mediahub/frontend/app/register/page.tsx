@@ -5,8 +5,43 @@ import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
 import { api } from '@/lib/api'
 
+const COMMON_PASSWORDS = [
+  '123456','123123','12345678','111111','000000','password','qwerty','abc123',
+  'iloveyou','admin','letmein','welcome','monkey','dragon','master','sunshine',
+  'princess','passw0rd','shadow','superman','michael','football','baseball',
+  'qwertyuiop','1234567890','987654321','password1','qazwsx','zxcvbnm',
+  'asdfgh','1q2w3e','1q2w3e4r','qwerty123','test1234','hello123',
+]
+
+function getPasswordStrength(pwd: string): { score: number; label: string; color: string } {
+  if (pwd.length === 0) return { score: 0, label: '', color: '' }
+  if (COMMON_PASSWORDS.includes(pwd.toLowerCase()))
+    return { score: 1, label: 'Очень слабый', color: '#ef4444' }
+
+  let score = 0
+  if (pwd.length >= 8) score++
+  if (pwd.length >= 12) score++
+  if (/[A-Z]/.test(pwd)) score++
+  if (/[a-z]/.test(pwd)) score++
+  if (/[0-9]/.test(pwd)) score++
+  if (/[^A-Za-z0-9]/.test(pwd)) score++
+
+  if (score <= 2) return { score: 1, label: 'Слабый', color: '#ef4444' }
+  if (score <= 3) return { score: 2, label: 'Средний', color: '#f59e0b' }
+  if (score <= 4) return { score: 3, label: 'Хороший', color: '#3b82f6' }
+  return { score: 4, label: 'Сильный', color: '#10b981' }
+}
+
+function validatePassword(pwd: string): string | null {
+  if (pwd.length < 8) return 'Пароль должен содержать минимум 8 символов'
+  if (COMMON_PASSWORDS.includes(pwd.toLowerCase())) return 'Пароль слишком простой — придумайте другой'
+  if (!/[A-Za-z]/.test(pwd)) return 'Пароль должен содержать хотя бы одну букву'
+  if (!/[0-9]/.test(pwd)) return 'Пароль должен содержать хотя бы одну цифру'
+  return null
+}
+
 export default function RegisterPage() {
-  const { login, user, loading } = useAuth()
+  const { user, loading } = useAuth()
   const router = useRouter()
 
   useEffect(() => {
@@ -19,17 +54,19 @@ export default function RegisterPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [err, setErr] = useState('')
 
+  const strength = getPasswordStrength(password)
+
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setErr('')
     if (!name.trim()) { setErr('Введите имя'); return }
-    if (password.length < 6) { setErr('Пароль должен содержать минимум 6 символов'); return }
+    const pwdErr = validatePassword(password)
+    if (pwdErr) { setErr(pwdErr); return }
     if (password !== confirm) { setErr('Пароли не совпадают'); return }
     setIsSubmitting(true)
     try {
-      const { user, token } = await api.register(name.trim(), email.trim(), password)
-      login(user, token)
-      router.push('/dashboard')
+      const { email: verifyEmail } = await api.register(name.trim(), email.trim(), password)
+      router.push(`/verify?email=${encodeURIComponent(verifyEmail)}`)
     } catch (ex: unknown) {
       setErr((ex as Error).message)
     } finally {
@@ -77,9 +114,36 @@ export default function RegisterPage() {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 required
-                placeholder="Минимум 6 символов"
+                placeholder="Минимум 8 символов"
                 autoComplete="new-password"
               />
+              {password.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+                    {[1,2,3,4].map(i => (
+                      <div key={i} style={{
+                        flex: 1, height: 3, borderRadius: 2,
+                        background: i <= strength.score ? strength.color : 'rgba(255,255,255,0.1)',
+                        transition: 'background 0.2s',
+                      }} />
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 11, color: strength.color }}>{strength.label}</div>
+                </div>
+              )}
+              {password.length > 0 && (
+                <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-3)', lineHeight: 1.7 }}>
+                  <span style={{ color: password.length >= 8 ? '#10b981' : 'var(--text-3)' }}>
+                    {password.length >= 8 ? '✓' : '·'} Минимум 8 символов
+                  </span>{' · '}
+                  <span style={{ color: /[A-Za-z]/.test(password) ? '#10b981' : 'var(--text-3)' }}>
+                    {/[A-Za-z]/.test(password) ? '✓' : '·'} Буква
+                  </span>{' · '}
+                  <span style={{ color: /[0-9]/.test(password) ? '#10b981' : 'var(--text-3)' }}>
+                    {/[0-9]/.test(password) ? '✓' : '·'} Цифра
+                  </span>
+                </div>
+              )}
             </div>
             <div className="fg">
               <label>Подтвердите пароль</label>
