@@ -1230,7 +1230,9 @@ def register(req: RegisterRequest):
     except ValueError as e:
         raise HTTPException(503, str(e))
     except Exception as e:
-        raise HTTPException(500, f"Не удалось отправить письмо: {e}")
+        import traceback, sys
+        traceback.print_exc(file=sys.stderr)
+        raise HTTPException(500, f"Не удалось отправить письмо: {type(e).__name__}: {e}")
     return {"status": "code_sent", "email": email}
 
 @app.post("/api/auth/verify-register")
