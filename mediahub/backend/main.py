@@ -76,35 +76,33 @@ def get_current_user_id(authorization: str = Header(None)) -> int:
         raise HTTPException(401, "Недействительный токен")
 
 def send_verification_email(to_email: str, code: str, name: str):
-    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = os.getenv("SMTP_USER", "")
-    smtp_password = os.getenv("SMTP_PASSWORD", "")
-    smtp_from = os.getenv("SMTP_FROM", smtp_user)
-
-    if not smtp_user or not smtp_password:
-        raise ValueError("SMTP не настроен: задайте переменные SMTP_USER и SMTP_PASSWORD")
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Подтверждение регистрации — MediaHub"
-    msg["From"] = smtp_from
-    msg["To"] = to_email
+    api_key = os.getenv("RESEND_API_KEY", "")
+    if not api_key:
+        raise ValueError("RESEND_API_KEY не задан")
 
     html = f"""
     <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
-      <h2 style="color:#4f46e5">📡 MediaHub</h2>
+      <h2 style="color:#4f46e5">MediaHub</h2>
       <p>Привет, <b>{name}</b>!</p>
       <p>Ваш код подтверждения для завершения регистрации:</p>
       <div style="font-size:36px;font-weight:800;letter-spacing:12px;color:#4f46e5;padding:20px;background:#f0f0ff;border-radius:12px;text-align:center">{code}</div>
       <p style="color:#888;font-size:13px;margin-top:20px">Код действителен 10 минут. Если вы не регистрировались — проигнорируйте это письмо.</p>
     </div>
     """
-    msg.attach(MIMEText(html, "html"))
 
-    with smtplib.SMTP(smtp_host, smtp_port) as server:
-        server.starttls()
-        server.login(smtp_user, smtp_password)
-        server.sendmail(smtp_from, to_email, msg.as_string())
+    resp = http_requests.post(
+        "https://api.resend.com/emails",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={
+            "from": "MediaHub <onboarding@resend.dev>",
+            "to": [to_email],
+            "subject": "Подтверждение регистрации — MediaHub",
+            "html": html,
+        },
+        timeout=10,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Resend error {resp.status_code}: {resp.text}")
 
 def require_group_member(group_id: int, user_id: int, conn) -> str:
     c = conn.cursor()
