@@ -76,9 +76,13 @@ def get_current_user_id(authorization: str = Header(None)) -> int:
         raise HTTPException(401, "Недействительный токен")
 
 def send_verification_email(to_email: str, code: str, name: str):
-    api_key = os.getenv("RESEND_API_KEY", "")
+    api_key = os.getenv("BREVO_API_KEY", "")
+    sender_email = os.getenv("BREVO_SENDER_EMAIL", "")
+    sender_name = os.getenv("BREVO_SENDER_NAME", "MediaHub")
     if not api_key:
-        raise ValueError("RESEND_API_KEY не задан")
+        raise ValueError("BREVO_API_KEY не задан")
+    if not sender_email:
+        raise ValueError("BREVO_SENDER_EMAIL не задан")
 
     html = f"""
     <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
@@ -91,18 +95,18 @@ def send_verification_email(to_email: str, code: str, name: str):
     """
 
     resp = http_requests.post(
-        "https://api.resend.com/emails",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        "https://api.brevo.com/v3/smtp/email",
+        headers={"api-key": api_key, "Content-Type": "application/json"},
         json={
-            "from": "MediaHub <onboarding@resend.dev>",
-            "to": [to_email],
+            "sender": {"name": sender_name, "email": sender_email},
+            "to": [{"email": to_email}],
             "subject": "Подтверждение регистрации — MediaHub",
-            "html": html,
+            "htmlContent": html,
         },
         timeout=10,
     )
     if resp.status_code >= 400:
-        raise RuntimeError(f"Resend error {resp.status_code}: {resp.text}")
+        raise RuntimeError(f"Brevo error {resp.status_code}: {resp.text}")
 
 def require_group_member(group_id: int, user_id: int, conn) -> str:
     c = conn.cursor()
