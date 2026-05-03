@@ -82,6 +82,9 @@ def send_verification_email(to_email: str, code: str, name: str):
     smtp_password = os.getenv("SMTP_PASSWORD", "")
     smtp_from = os.getenv("SMTP_FROM", smtp_user)
 
+    if not smtp_user or not smtp_password:
+        raise ValueError("SMTP не настроен: задайте переменные SMTP_USER и SMTP_PASSWORD")
+
     msg = MIMEMultipart("alternative")
     msg["Subject"] = "Подтверждение регистрации — MediaHub"
     msg["From"] = smtp_from
@@ -1224,8 +1227,10 @@ def register(req: RegisterRequest):
     conn.close()
     try:
         send_verification_email(email, code, req.name.strip())
+    except ValueError as e:
+        raise HTTPException(503, str(e))
     except Exception as e:
-        raise HTTPException(500, f"Ошибка отправки письма: {e}")
+        raise HTTPException(500, f"Не удалось отправить письмо: {e}")
     return {"status": "code_sent", "email": email}
 
 @app.post("/api/auth/verify-register")
