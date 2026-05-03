@@ -1200,6 +1200,23 @@ def login(req: LoginRequest):
     conn.close()
     return {"user": row_to_dict(user), "token": token, "groups": groups}
 
+@app.get("/api/debug/smtp-test")
+def smtp_test():
+    import smtplib, traceback
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER", "")
+    smtp_password = os.getenv("SMTP_PASSWORD", "")
+    if not smtp_user or not smtp_password:
+        return {"ok": False, "error": "SMTP_USER или SMTP_PASSWORD не заданы"}
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+        return {"ok": True, "message": f"SMTP подключение успешно ({smtp_user})"}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()}
+
 @app.post("/api/auth/register")
 def register(req: RegisterRequest):
     if not req.name.strip():
