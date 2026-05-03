@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>MediaHub — Медиахаб для молодёжных центров</title>
+<script src="/js/react.min.js"></script>
+<script src="/js/react-dom.min.js"></script>
+<script src="/js/chart.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --blue:#2563eb;--blue-light:#eff6ff;--blue-dark:#1d4ed8;
+  --green:#16a34a;--green-light:#f0fdf4;
+  --yellow:#d97706;--yellow-light:#fffbeb;
+  --red:#dc2626;--red-light:#fef2f2;
+  --gray-50:#f9fafb;--gray-100:#f3f4f6;--gray-200:#e5e7eb;
+  --gray-300:#d1d5db;--gray-400:#9ca3af;--gray-500:#6b7280;
+  --gray-600:#4b5563;--gray-700:#374151;--gray-800:#1f2937;--gray-900:#111827;
+  --sidebar-w:240px;--radius:12px;--radius-sm:8px;
+  --shadow:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+  --shadow-lg:0 10px 15px rgba(0,0,0,.1),0 4px 6px rgba(0,0,0,.05);
+}
+html,body,#root{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--gray-50);color:var(--gray-900)}
+#root{display:flex}
+
+/* Sidebar */
+.sidebar{width:var(--sidebar-w);min-height:100vh;background:var(--gray-900);display:flex;flex-direction:column;flex-shrink:0;position:fixed;top:0;left:0;bottom:0;z-index:100}
+.sidebar-logo{padding:20px 16px 16px;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,.08)}
+.logo-icon{width:36px;height:36px;background:var(--blue);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.logo-text{color:#fff;font-weight:700;font-size:15px;line-height:1.2}
+.logo-sub{color:var(--gray-400);font-size:11px}
+.sidebar-nav{flex:1;padding:12px 8px}
+.nav-section{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--gray-500);padding:8px 8px 4px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;cursor:pointer;color:var(--gray-400);font-size:14px;font-weight:500;transition:all .15s;margin-bottom:2px}
+.nav-item:hover{background:rgba(255,255,255,.06);color:#fff}
+.nav-item.active{background:var(--blue);color:#fff}
+.nav-icon{font-size:16px;width:20px;text-align:center}
+.nav-badge{margin-left:auto;background:var(--red);color:#fff;font-size:11px;font-weight:700;padding:1px 6px;border-radius:10px}
+.sidebar-user{padding:12px 12px 16px;border-top:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:10px}
+.avatar{width:32px;height:32px;border-radius:50%;background:var(--blue);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:12px;flex-shrink:0}
+.user-name{color:#fff;font-size:13px;font-weight:600}
+.user-role-lbl{font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;text-transform:uppercase;display:inline-block;margin-top:2px}
+.r-admin{background:rgba(37,99,235,.3);color:#93c5fd}
+.r-editor{background:rgba(22,163,74,.3);color:#86efac}
+.r-observer{background:rgba(217,119,6,.3);color:#fcd34d}
+
+/* Main */
+.main{margin-left:var(--sidebar-w);flex:1;display:flex;flex-direction:column;min-height:100vh}
+.topbar{background:#fff;border-bottom:1px solid var(--gray-200);padding:0 24px;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50}
+.topbar-title{font-size:18px;font-weight:700}
+.topbar-actions{display:flex;align-items:center;gap:12px}
+.content{padding:24px;flex:1}
+
+/* Cards */
+.card{background:#fff;border-radius:var(--radius);box-shadow:var(--shadow)}
+.card-p{padding:20px}
+.card-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--gray-100)}
+.card-title{font-size:15px;font-weight:600}
+
+/* Stats grid */
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+.stat-card{background:#fff;border-radius:var(--radius);padding:20px;box-shadow:var(--shadow)}
+.stat-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:12px}
+.stat-value{font-size:28px;font-weight:800;line-height:1}
+.stat-label{font-size:13px;color:var(--gray-500);margin-top:4px}
+.stat-delta{font-size:12px;font-weight:600;margin-top:6px;color:var(--green)}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;border-radius:var(--radius-sm);font-size:14px;font-weight:600;cursor:pointer;border:none;transition:all .15s;text-decoration:none}
+.btn-primary{background:var(--blue);color:#fff}.btn-primary:hover{background:var(--blue-dark)}
+.btn-secondary{background:var(--gray-100);color:var(--gray-700)}.btn-secondary:hover{background:var(--gray-200)}
+.btn-danger{background:var(--red-light);color:var(--red)}.btn-danger:hover{background:#fee2e2}
+.btn-success{background:var(--green-light);color:var(--green)}.btn-success:hover{background:#dcfce7}
+.btn-sm{padding:6px 12px;font-size:13px}
+.btn-ghost{background:transparent;color:var(--gray-600)}.btn-ghost:hover{background:var(--gray-100)}
+
+/* Status badges */
+.sbadge{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:3px 8px;border-radius:20px}
+.s-draft{background:var(--gray-100);color:var(--gray-600)}
+.s-scheduled{background:var(--yellow-light);color:var(--yellow)}
+.s-published{background:var(--green-light);color:var(--green)}
+
+/* Platform chips */
+.pchip{display:inline-flex;align-items:center;gap:3px;font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;background:var(--blue-light);color:var(--blue)}
+.tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;background:var(--gray-100);color:var(--gray-600);font-weight:500}
+
+/* Table */
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:12px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.04em;padding:10px 16px;background:var(--gray-50);border-bottom:1px solid var(--gray-200)}
+td{padding:12px 16px;border-bottom:1px solid var(--gray-100);font-size:14px;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--gray-50)}
+
+/* Forms */
+.fg{margin-bottom:18px}
+label{display:block;font-size:13px;font-weight:600;color:var(--gray-700);margin-bottom:6px}
+input[type=text],input[type=email],input[type=datetime-local],textarea,select{width:100%;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:var(--radius-sm);font-size:14px;color:var(--gray-900);background:#fff;transition:border-color .15s;font-family:inherit}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+textarea{resize:vertical;min-height:130px}
+
+/* Filters */
+.filters-bar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.fsel{padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:var(--radius-sm);font-size:13px;cursor:pointer;background:#fff}
+.srch{padding:8px 12px;border:1.5px solid var(--gray-200);border-radius:var(--radius-sm);font-size:13px;min-width:220px}
+.srch:focus{outline:none;border-color:var(--blue)}
+
+/* Calendar */
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr)}
+.cal-head{text-align:center;padding:8px 4px;font-size:12px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;background:var(--gray-50);border-bottom:1px solid var(--gray-200)}
+.cal-cell{min-height:100px;border:1px solid var(--gray-100);padding:6px;cursor:pointer;transition:background .1s}
+.cal-cell:hover{background:var(--blue-light)}
+.cal-cell.other{background:var(--gray-50);opacity:.45}
+.cal-cell.today{background:#eff6ff}
+.cal-cell.today .cal-date{background:var(--blue);color:#fff}
+.cal-date{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:var(--gray-700);margin-bottom:4px}
+.cal-post{font-size:11px;padding:2px 5px;border-radius:4px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.cp-draft{background:var(--gray-200);color:var(--gray-700)}
+.cp-scheduled{background:#fef3c7;color:#92400e}
+.cp-published{background:#dcfce7;color:#166534}
+.cal-more{font-size:10px;color:var(--blue);font-weight:600;padding:1px 4px;cursor:pointer}
+
+/* Chart */
+.chart-box{position:relative;height:260px}
+
+/* Modal */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px}
+.modal{background:#fff;border-radius:var(--radius);width:100%;max-width:580px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg)}
+.modal-hd{padding:20px 24px 16px;border-bottom:1px solid var(--gray-200);display:flex;align-items:center;justify-content:space-between}
+.modal-bd{padding:20px 24px}
+.modal-ft{padding:16px 24px;border-top:1px solid var(--gray-200);display:flex;justify-content:flex-end;gap:10px}
+
+/* Notifications */
+.notif-item{display:flex;gap:12px;padding:12px 16px;border-bottom:1px solid var(--gray-100)}
+.notif-item.unread{background:var(--blue-light)}
+.ndot{width:8px;height:8px;border-radius:50%;background:var(--blue);margin-top:5px;flex-shrink:0}
+.ndot.read{background:var(--gray-300)}
+
+/* Steps */
+.step-row{display:flex;align-items:center;gap:0;margin-bottom:24px}
+.step{display:flex;align-items:center}
+.step-num{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;background:var(--gray-200);color:var(--gray-500);cursor:default}
+.step.active .step-num{background:var(--blue);color:#fff}
+.step.done .step-num{background:var(--green);color:#fff;cursor:pointer}
+.step-lbl{font-size:12px;font-weight:600;color:var(--gray-500);margin-left:6px}
+.step.active .step-lbl{color:var(--blue)}
+.step-sep{height:2px;width:28px;background:var(--gray-200);margin:0 6px}
+.step.done+.step-sep,.step.done .step-sep{background:var(--green)}
+
+/* Template cards */
+.tmpl-card{border:2px solid var(--gray-200);border-radius:var(--radius);padding:16px;cursor:pointer;transition:all .15s}
+.tmpl-card:hover{border-color:var(--blue);background:var(--blue-light)}
+.tmpl-card.sel{border-color:var(--blue);background:var(--blue-light)}
+.tmpl-icon{font-size:28px;margin-bottom:8px}
+.tmpl-name{font-size:14px;font-weight:700;color:var(--gray-800)}
+.tmpl-desc{font-size:12px;color:var(--gray-500);margin-top:3px}
+
+/* Platform toggle */
+.pltoggle{display:flex;align-items:center;gap:6px;padding:8px 14px;border:2px solid var(--gray-200);border-radius:var(--radius-sm);cursor:pointer;font-size:13px;font-weight:600;transition:all .15s}
+.pltoggle.on{border-color:var(--blue);background:var(--blue-light);color:var(--blue)}
+
+/* Tag input */
+.tag-wrap{display:flex;flex-wrap:wrap;gap:6px;padding:8px;border:1.5px solid var(--gray-200);border-radius:var(--radius-sm);cursor:text;min-height:42px;align-items:center}
+.tag-chip{background:var(--blue-light);color:var(--blue);font-size:12px;font-weight:600;padding:2px 8px;border-radius:20px;display:flex;align-items:center;gap:4px}
+.tag-x{cursor:pointer;font-size:14px;line-height:1}
+.tag-ghost{display:none}
+
+/* Misc utils */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.flex{display:flex}.gap2{gap:8px}.gap3{gap:12px}.ic{align-items:center}.jb{justify-content:space-between}.fw{flex-wrap:wrap}
+.mt2{margin-top:8px}.mt3{margin-top:12px}.mt4{margin-top:16px}.mt6{margin-top:24px}
+.mb4{margin-bottom:16px}.mb6{margin-bottom:24px}
+.ts{font-size:13px}.tx{font-size:11px}.tg{color:var(--gray-500)}
+.fb{font-weight:700}.fs{font-weight:600}
+.trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.empty{text-align:center;padding:48px 24px;color:var(--gray-400)}
+.empty-ico{font-size:48px;margin-bottom:12px}
+.pbar{height:4px;background:var(--gray-200);border-radius:2px;overflow:hidden}
+.pfill{height:100%;background:var(--blue);border-radius:2px;transition:width .3s}
+.preview{background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius-sm);padding:16px;white-space:pre-wrap;font-size:14px;line-height:1.6;max-height:260px;overflow-y:auto}
+.toast{position:fixed;bottom:24px;right:24px;background:var(--gray-900);color:#fff;padding:12px 20px;border-radius:var(--radius-sm);font-size:14px;font-weight:500;box-shadow:var(--shadow-lg);z-index:500;display:flex;align-items:center;gap:8px;animation:si .2s ease}
+@keyframes si{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}
+@media(max-width:900px){.stats-grid,.grid2,.grid4{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const {useState,useEffect,useRef,useCallback}=React;
+const API='http://localhost:8000';
+
+async function api(path,opts={}){
+  const r=await fetch(API+path,{headers:{'Content-Type':'application/json',...(opts.headers||{})},
+    ...opts,body:opts.body?JSON.stringify(opts.body):undefined});
+  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||'Ошибка сервера')}
+  return r.json();
+}
+
+const fmtDate=s=>{if(!s)return'—';const d=new Date(s);return d.toLocaleDateString('ru-RU',{day:'2-digit',month:'short',year:'numeric'})};
+const fmtDt=s=>{if(!s)return'—';const d=new Date(s);return d.toLocaleDateString('ru-RU',{day:'2-digit',month:'short'})+' '+d.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})};
+const fmtN=n=>n>=1000?(n/1000).toFixed(1)+'K':''+n;
+const timeAgo=s=>{const d=(Date.now()-new Date(s))/1000;if(d<60)return'только что';if(d<3600)return Math.floor(d/60)+' мин назад';if(d<86400)return Math.floor(d/3600)+' ч назад';return Math.floor(d/86400)+' дн назад'};
+const SL={'draft':'Черновик','scheduled':'Запланирован','published':'Опубликован'};
+const PI={'vk':'🔵','telegram':'✈️'};
+const RL={'admin':'Администратор','editor':'Редактор','observer':'Наблюдатель'};
+const RC={'admin':'r-admin','editor':'r-editor','observer':'r-observer'};
+const TICO={'announcement':'📢','results':'✅','vacancy':'🚀','grant':'💰'};
+
+// Toast
+function Toast({message,type,onHide}){
+  useEffect(()=>{const t=setTimeout(onHide,3000);return()=>clearTimeout(t)},[]);
+  const ic=type==='success'?'✅':type==='error'?'❌':'ℹ️';
+  return React.createElement('div',{className:'toast'},ic,' ',message);
+}
+
+// Status badge
+function SBadge({status}){
+  const dot={draft:'○',scheduled:'◑',published:'●'}[status]||'○';
+  return React.createElement('span',{className:`sbadge s-${status}`},dot,' ',SL[status]||status);
+}
+
+// Modal
+function Modal({title,children,onClose,footer}){
+  return React.createElement('div',{className:'overlay',onClick:e=>e.target===e.currentTarget&&onClose()},
+    React.createElement('div',{className:'modal'},
+      React.createElement('div',{className:'modal-hd'},
+        React.createElement('span',{style:{fontWeight:700,fontSize:16}},title),
+        React.createElement('button',{className:'btn btn-ghost btn-sm',onClick:onClose},'✕')
+      ),
+      React.createElement('div',{className:'modal-bd'},children),
+      footer&&React.createElement('div',{className:'modal-ft'},footer)
+    )
+  );
+}
+
+// Sidebar
+function Sidebar({page,setPage,user,unread}){
+  const items=[
+    {id:'dashboard',icon:'📊',label:'Дашборд'},
+    {id:'calendar',icon:'📅',label:'Календарь'},
+    {id:'posts',icon:'📝',label:'Посты'},
+    ...(user?.role!=='observer'?[{id:'new-post',icon:'✏️',label:'Создать пост'}]:[]),
+    {id:'analytics',icon:'📈',label:'Аналитика'},
+    ...(user?.role==='admin'?[{id:'settings',icon:'⚙️',label:'Настройки'}]:[]),
+    {id:'notifications',icon:'🔔',label:'Уведомления',badge:unread},
+  ];
+  return React.createElement('div',{className:'sidebar'},
+    React.createElement('div',{className:'sidebar-logo'},
+      React.createElement('div',{className:'logo-icon'},'📡'),
+      React.createElement('div',null,
+        React.createElement('div',{className:'logo-text'},'MediaHub'),
+        React.createElement('div',{className:'logo-sub'},'Молодёжные центры КК')
+      )
+    ),
+    React.createElement('nav',{className:'sidebar-nav'},
+      React.createElement('div',{className:'nav-section'},'Навигация'),
+      items.map(it=>React.createElement('div',{key:it.id,className:`nav-item${page===it.id?' active':''}`,onClick:()=>setPage(it.id)},
+        React.createElement('span',{className:'nav-icon'},it.icon),it.label,
+        it.badge?React.createElement('span',{className:'nav-badge'},it.badge):null
+      ))
+    ),
+    user&&React.createElement('div',{className:'sidebar-user'},
+      React.createElement('div',{className:'avatar'},user.avatar||user.name?.[0]),
+      React.createElement('div',null,
+        React.createElement('div',{className:'user-name'},user.name),
+        React.createElement('div',{className:`user-role-lbl ${RC[user.role]}`},RL[user.role])
+      )
+    )
+  );
+}
+
+// Auth wrapper: login / register / verify
+function Login({onLogin}){
+  const [mode,setMode]=useState('login'); // 'login' | 'register' | 'verify'
+  const [pendingEmail,setPendingEmail]=useState('');
+
+  if(mode==='register')
+    return React.createElement(RegisterForm,{
+      onLogin,
+      onCodeSent:email=>{setPendingEmail(email);setMode('verify');},
+      onBack:()=>setMode('login')
+    });
+  if(mode==='verify')
+    return React.createElement(VerifyForm,{
+      email:pendingEmail,
+      onLogin,
+      onBack:()=>setMode('register')
+    });
+  return React.createElement(LoginForm,{onLogin,onRegister:()=>setMode('register')});
+}
+
+function LoginForm({onLogin,onRegister}){
+  const [email,setEmail]=useState('admin@mediahub.ru');
+  const [password,setPassword]=useState('demo');
+  const [err,setErr]=useState('');
+  const [loading,setLoading]=useState(false);
+  const demos=[
+    {e:'admin@mediahub.ru',l:'🔑 Администратор'},
+    {e:'editor@mediahub.ru',l:'✏️ Редактор'},
+    {e:'observer@mediahub.ru',l:'👁 Наблюдатель'},
+  ];
+  async function submit(ev){
+    ev.preventDefault();setLoading(true);setErr('');
+    try{const d=await api('/api/auth/login',{method:'POST',body:{email,password}});onLogin(d.user,d.token,d.groups);}
+    catch(e){setErr(e.message);}finally{setLoading(false);}
+  }
+  return React.createElement('div',{style:{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'var(--gray-900)'}},
+    React.createElement('div',{style:{background:'#fff',borderRadius:16,padding:40,width:400,boxShadow:'0 25px 50px rgba(0,0,0,.3)'}},
+      React.createElement('div',{style:{textAlign:'center',marginBottom:32}},
+        React.createElement('div',{style:{fontSize:52,marginBottom:10}},'📡'),
+        React.createElement('h1',{style:{fontSize:24,fontWeight:800,marginBottom:4}},'MediaHub'),
+        React.createElement('p',{style:{color:'var(--gray-500)',fontSize:14}},'Медиахаб для молодёжных центров')
+      ),
+      React.createElement('form',{onSubmit:submit},
+        React.createElement('div',{className:'fg'},
+          React.createElement('label',null,'Email'),
+          React.createElement('input',{type:'email',value:email,onChange:e=>setEmail(e.target.value),required})
+        ),
+        React.createElement('div',{className:'fg'},
+          React.createElement('label',null,'Пароль'),
+          React.createElement('input',{type:'password',value:password,onChange:e=>setPassword(e.target.value),required})
+        ),
+        err&&React.createElement('div',{style:{color:'var(--red)',fontSize:13,marginBottom:12}},err),
+        React.createElement('button',{type:'submit',className:'btn btn-primary',style:{width:'100%',justifyContent:'center',padding:'12px'},disabled:loading},
+          loading?'⏳ Входим...':'🚀 Войти')
+      ),
+      React.createElement('div',{style:{marginTop:16,textAlign:'center'}},
+        React.createElement('span',{style:{fontSize:13,color:'var(--gray-500)'}},'Нет аккаунта? '),
+        React.createElement('button',{type:'button',className:'btn btn-ghost btn-sm',onClick:onRegister,style:{display:'inline',padding:'0 4px',fontSize:13,color:'var(--primary)'}},'Зарегистрироваться')
+      ),
+      React.createElement('div',{style:{marginTop:20,borderTop:'1px solid var(--gray-200)',paddingTop:16}},
+        React.createElement('p',{style:{fontSize:12,color:'var(--gray-400)',marginBottom:10}},'Демо-аккаунты:'),
+        React.createElement('div',{style:{display:'flex',flexDirection:'column',gap:6}},
+          demos.map(d=>React.createElement('button',{key:d.e,type:'button',onClick:()=>{setEmail(d.e);setPassword('demo');},className:'btn btn-secondary btn-sm',style:{justifyContent:'flex-start',fontSize:12}},
+            d.l,' ',React.createElement('span',{style:{color:'var(--gray-400)',marginLeft:4}},d.e)
+          ))
+        )
+      )
+    )
+  );
+}
+
+function RegisterForm({onLogin,onCodeSent,onBack}){
+  const [name,setName]=useState('');
+  const [email,setEmail]=useState('');
+  const [password,setPassword]=useState('');
+  const [err,setErr]=useState('');
+  const [loading,setLoading]=useState(false);
+  async function submit(ev){
+    ev.preventDefault();setLoading(true);setErr('');
+    try{
+      await api('/api/auth/register',{method:'POST',body:{name,email,password}});
+      onCodeSent(email);
+    }
+    catch(e){setErr(e.message);}finally{setLoading(false);}
+  }
+  return React.createElement('div',{style:{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'var(--gray-900)'}},
+    React.createElement('div',{style:{background:'#fff',borderRadius:16,padding:40,width:400,boxShadow:'0 25px 50px rgba(0,0,0,.3)'}},
+      React.createElement('div',{style:{textAlign:'center',marginBottom:32}},
+        React.createElement('div',{style:{fontSize:52,marginBottom:10}},'📡'),
+        React.createElement('h1',{style:{fontSize:24,fontWeight:800,marginBottom:4}},'Регистрация'),
+        React.createElement('p',{style:{color:'var(--gray-500)',fontSize:14}},'Создайте аккаунт в MediaHub')
+      ),
+      React.createElement('form',{onSubmit:submit},
+        React.createElement('div',{className:'fg'},
+          React.createElement('label',null,'Имя'),
+          React.createElement('input',{type:'text',value:name,onChange:e=>setName(e.target.value),placeholder:'Иван Иванов',required})
+        ),
+        React.createElement('div',{className:'fg'},
+          React.createElement('label',null,'Email'),
+          React.createElement('input',{type:'email',value:email,onChange:e=>setEmail(e.target.value),placeholder:'you@example.com',required})
+        ),
+        React.createElement('div',{className:'fg'},
+          React.createElement('label',null,'Пароль'),
+          React.createElement('input',{type:'password',value:password,onChange:e=>setPassword(e.target.value),placeholder:'Минимум 6 символов',required})
+        ),
+        err&&React.createElement('div',{style:{color:'var(--red)',fontSize:13,marginBottom:12}},err),
+        React.createElement('button',{type:'submit',className:'btn btn-primary',style:{width:'100%',justifyContent:'center',padding:'12px'},disabled:loading},
+          loading?'⏳ Отправляем код...':'📧 Получить код на email')
+      ),
+      React.createElement('div',{style:{marginTop:16,textAlign:'center'}},
+        React.createElement('button',{type:'button',className:'btn btn-ghost btn-sm',onClick:onBack,style:{fontSize:13,color:'var(--gray-500)'}},'← Назад к входу')
+      )
+    )
+  );
+}
+
+function VerifyForm({email,onLogin,onBack}){
+  const [code,setCode]=useState('');
+  const [err,setErr]=useState('');
+  const [loading,setLoading]=useState(false);
+  const [resending,setResending]=useState(false);
+  async function submit(ev){
+    ev.preventDefault();setLoading(true);setErr('');
+    try{
+      const d=await api('/api/auth/verify-register',{method:'POST',body:{email,code}});
+      onLogin(d.user,d.token,d.groups);
+    }
+    catch(e){setErr(e.message);}finally{setLoading(false);}
+  }
+  return React.createElement('div',{style:{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'var(--gray-900)'}},
+    React.createElement('div',{style:{background:'#fff',borderRadius:16,padding:40,width:400,boxShadow:'0 25px 50px rgba(0,0,0,.3)'}},
+      React.createElement('div',{style:{textAlign:'center',marginBottom:32}},
+        React.createElement('div',{style:{fontSize:52,marginBottom:10}},'📬'),
+        React.createElement('h1',{style:{fontSize:24,fontWeight:800,marginBottom:4}},'Подтверждение email'),
+        React.createElement('p',{style:{color:'var(--gray-500)',fontSize:14}},'Мы отправили 6-значный код на'),
+        React.createElement('p',{style:{color:'var(--primary)',fontWeight:600,fontSize:14}},email)
+      ),
+      React.createElement('form',{onSubmit:submit},
+        React.createElement('div',{className:'fg'},
+          React.createElement('label',null,'Код подтверждения'),
+          React.createElement('input',{
+            type:'text',
+            value:code,
+            onChange:e=>setCode(e.target.value.replace(/\D/g,'').slice(0,6)),
+            placeholder:'000000',
+            maxLength:6,
+            style:{fontSize:28,letterSpacing:8,textAlign:'center',fontWeight:700},
+            autoFocus:true,
+            required
+          })
+        ),
+        err&&React.createElement('div',{style:{color:'var(--red)',fontSize:13,marginBottom:12}},err),
+        React.createElement('button',{type:'submit',className:'btn btn-primary',style:{width:'100%',justifyContent:'center',padding:'12px'},disabled:loading||code.length!==6},
+          loading?'⏳ Проверяем...':'✅ Подтвердить и войти')
+      ),
+      React.createElement('div',{style:{marginTop:16,textAlign:'center'}},
+        React.createElement('button',{type:'button',className:'btn btn-ghost btn-sm',onClick:onBack,style:{fontSize:13,color:'var(--gray-500)'}},'← Изменить данные')
+      )
+    )
+  );
+}
+
+// Dashboard
+function Dashboard({setPage,setEditPost}){
+  const [sum,setSum]=useState(null);
+  const [posts,setPosts]=useState([]);
+  useEffect(()=>{
+    api('/api/analytics/summary').then(setSum).catch(console.error);
+    api('/api/posts?limit=5').then(d=>setPosts(d.posts)).catch(console.error);
+  },[]);
+  if(!sum)return React.createElement('div',{className:'content'},'⏳ Загрузка...');
+  const cards=[
+    {icon:'📝',label:'Всего постов',   val:sum.total_posts,     bg:'#eff6ff'},
+    {icon:'👁',label:'Суммарный охват',val:fmtN(sum.total_views),bg:'#f0fdf4'},
+    {icon:'❤️',label:'Реакции',        val:fmtN(sum.total_reactions),bg:'#fff7ed'},
+    {icon:'📊',label:'Вовлечённость',  val:sum.engagement_rate+'%',bg:'#fdf4ff'},
+  ];
+  return React.createElement('div',{className:'content'},
+    React.createElement('div',{className:'stats-grid'},
+      cards.map((c,i)=>React.createElement('div',{key:i,className:'stat-card'},
+        React.createElement('div',{className:'stat-icon',style:{background:c.bg}},c.icon),
+        React.createElement('div',{className:'stat-value'},c.val),
+        React.createElement('div',{className:'stat-label'},c.label),
+        React.createElement('div',{className:'stat-delta'},'↑ +12% за месяц')
+      ))
+    ),
+    React.createElement('div',{className:'grid2'},
+      // Recent posts
+      React.createElement('div',{className:'card'},
+        React.createElement('div',{className:'card-header'},
+          React.createElement('span',{className:'card-title'},'📋 Последние посты'),
+          React.createElement('button',{className:'btn btn-ghost btn-sm',onClick:()=>setPage('posts')},'Все →')
+        ),
+        posts.map(p=>React.createElement('div',{key:p.id,style:{padding:'12px 20px',borderBottom:'1px solid var(--gray-100)',display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer'},onClick:()=>{setEditPost(p);setPage('edit-post')}},
+          React.createElement('div',{style:{flex:1,minWidth:0}},
+            React.createElement('div',{className:'trunc',style:{fontWeight:600,fontSize:14}},p.title),
+            React.createElement('div',{style:{fontSize:11,color:'var(--gray-400)',marginTop:3}},fmtDate(p.created_at))
+          ),
+          React.createElement('div',{style:{marginLeft:12}},React.createElement(SBadge,{status:p.status}))
+        ))
+      ),
+      // Right col
+      React.createElement('div',{style:{display:'flex',flexDirection:'column',gap:16}},
+        // Status breakdown
+        React.createElement('div',{className:'card card-p'},
+          React.createElement('div',{className:'card-title',style:{marginBottom:14}},'📊 Статус публикаций'),
+          [
+            {l:'Опубликованы',n:sum.published,c:'#16a34a',pct:Math.round(sum.published/Math.max(sum.total_posts,1)*100)},
+            {l:'Запланированы',n:sum.scheduled,c:'#d97706',pct:Math.round(sum.scheduled/Math.max(sum.total_posts,1)*100)},
+            {l:'Черновики',    n:sum.drafts,   c:'#6b7280',pct:Math.round(sum.drafts/Math.max(sum.total_posts,1)*100)},
+          ].map(s=>React.createElement('div',{key:s.l,style:{marginBottom:10}},
+            React.createElement('div',{style:{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:4}},
+              React.createElement('span',null,s.l),React.createElement('span',{style:{fontWeight:700}},s.n)
+            ),
+            React.createElement('div',{className:'pbar'},React.createElement('div',{className:'pfill',style:{width:s.pct+'%',background:s.c}}))
+          ))
+        ),
+        // Top posts
+        React.createElement('div',{className:'card card-p'},
+          React.createElement('div',{className:'card-title',style:{marginBottom:12}},'🏆 Топ постов'),
+          sum.top_posts.slice(0,3).map((p,i)=>React.createElement('div',{key:p.id,style:{display:'flex',alignItems:'center',gap:10,marginBottom:8}},
+            React.createElement('div',{style:{width:22,height:22,borderRadius:4,background:['#fbbf24','#9ca3af','#cd7c2f'][i],color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:800,flexShrink:0}},i+1),
+            React.createElement('div',{style:{flex:1,minWidth:0}},
+              React.createElement('div',{className:'trunc',style:{fontSize:13,fontWeight:600}},p.title),
+              React.createElement('div',{style:{fontSize:11,color:'var(--gray-400)'}},`👁 ${fmtN(p.views)} · ❤️ ${p.reactions}`)
+            )
+          ))
+        )
+      )
+    )
+  );
+}
+
+// Calendar
+function Calendar({setPage,setEditPost}){
+  const today=new Date();
+  const [yr,setYr]=useState(today.getFullYear());
+  const [mo,setMo]=useState(today.getMonth());
+  const [posts,setPosts]=useState([]);
+  const [sel,setSel]=useState(null);
+  const MONTHS=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+  const DAYS=['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+
+  useEffect(()=>{
+    const s=new Date(yr,mo,1).toISOString().slice(0,10);
+    const e=new Date(yr,mo+1,0).toISOString().slice(0,10);
+    api(`/api/calendar?start=${s}&end=${e}`).then(setPosts).catch(console.error);
+  },[yr,mo]);
+
+  function prev(){if(mo===0){setYr(y=>y-1);setMo(11);}else setMo(m=>m-1);}
+  function next(){if(mo===11){setYr(y=>y+1);setMo(0);}else setMo(m=>m+1);}
+
+  const dim=new Date(yr,mo+1,0).getDate();
+  const sdow=(new Date(yr,mo,1).getDay()+6)%7;
+  const weeks=[];let d=1-sdow;
+  while(d<=dim){
+    const wk=[];
+    for(let i=0;i<7;i++,d++){
+      const ok=d>=1&&d<=dim;
+      const ds=new Date(yr,mo,d).toISOString().slice(0,10);
+      const dp=posts.filter(p=>(p.scheduled_at||p.published_at||p.created_at||'').slice(0,10)===ds);
+      wk.push({d,ok,ds,dp});
+    }
+    weeks.push(wk);
+  }
+
+  return React.createElement('div',{className:'content'},
+    React.createElement('div',{className:'card'},
+      React.createElement('div',{className:'card-header'},
+        React.createElement('div',{style:{display:'flex',alignItems:'center',gap:12}},
+          React.createElement('button',{className:'btn btn-secondary btn-sm',onClick:prev},'◀'),
+          React.createElement('span',{style:{fontWeight:700,fontSize:16,minWidth:160,textAlign:'center'}},MONTHS[mo]+' '+yr),
+          React.createElement('button',{className:'btn btn-secondary btn-sm',onClick:next},'▶')
+        ),
+        React.createElement('div',{style:{display:'flex',gap:12,fontSize:12}},
+          ['published','scheduled','draft'].map(s=>React.createElement('span',{key:s,className:`cal-post cp-${s}`,style:{padding:'3px 8px'}},SL[s]))
+        )
+      ),
+      React.createElement('div',{className:'cal-grid'},
+        DAYS.map(d=>React.createElement('div',{key:d,className:'cal-head'},d)),
+        weeks.map((wk,wi)=>wk.map((cell,di)=>{
+          const isToday=cell.ok&&cell.d===today.getDate()&&mo===today.getMonth()&&yr===today.getFullYear();
+          return React.createElement('div',{key:`${wi}-${di}`,className:`cal-cell${!cell.ok?' other':''}${isToday?' today':''}`,onClick:()=>cell.ok&&setPage('new-post')},
+            React.createElement('div',{className:'cal-date'},cell.ok?cell.d:''),
+            cell.dp.slice(0,3).map(p=>React.createElement('div',{key:p.id,className:`cal-post cp-${p.status}`,title:p.title,onClick:e=>{e.stopPropagation();setSel(p)}},p.title)),
+            cell.dp.length>3&&React.createElement('div',{className:'cal-more'},`+${cell.dp.length-3} ещё`)
+          );
+        }))
+      )
+    ),
+    sel&&React.createElement(Modal,{title:sel.title,onClose:()=>setSel(null),
+      footer:React.createElement('div',{style:{display:'flex',gap:8}},
+        React.createElement('button',{className:'btn btn-secondary btn-sm',onClick:()=>setSel(null)},'Закрыть'),
+        React.createElement('button',{className:'btn btn-primary btn-sm',onClick:()=>{setEditPost(sel);setPage('edit-post');setSel(null);}},'✏️ Открыть')
+      )},
+      React.createElement('div',null,React.createElement(SBadge,{status:sel.status}),React.createElement('div',{className:'preview mt4'},sel.content))
+    )
+  );
+}
+
+// Posts list
+function PostsList({setPage,setEditPost,showToast,user}){
+  const [posts,setPosts]=useState([]);
+  const [stFilter,setStFilter]=useState('');
+  const [search,setSearch]=useState('');
+  const [pub,setPub]=useState(null);
+
+  function load(){api('/api/posts'+(stFilter?`?status=${stFilter}`:'')).then(d=>setPosts(d.posts)).catch(console.error);}
+  useEffect(load,[stFilter]);
+
+  const filtered=search?posts.filter(p=>p.title.toLowerCase().includes(search.toLowerCase())):posts;
+  const canEdit=user?.role!=='observer';
+
+  async function handleDelete(p){
+    if(!confirm(`Удалить «${p.title}»?`))return;
+    try{await api(`/api/posts/${p.id}`,{method:'DELETE'});showToast('Пост удалён','success');load();}
+    catch(e){showToast(e.message,'error');}
+  }
+  async function handlePublish(p){
+    setPub(p.id);
+    try{await api(`/api/posts/${p.id}/publish`,{method:'POST'});showToast('✅ Пост опубликован!','success');load();}
+    catch(e){showToast(e.message,'error');}finally{setPub(null);}
+  }
+
+  return React.createElement('div',{className:'content'},
+    React.createElement('div',{className:'filters-bar'},
+      React.createElement('input',{className:'srch',placeholder:'🔍 Поиск...',value:search,onChange:e=>setSearch(e.target.value)}),
+      React.createElement('select',{className:'fsel',value:stFilter,onChange:e=>setStFilter(e.target.value)},
+        React.createElement('option',{value:''},'Все статусы'),
+        React.createElement('option',{value:'published'},'Опубликованы'),
+        React.createElement('option',{value:'scheduled'},'Запланированы'),
+        React.createElement('option',{value:'draft'},'Черновики')
+      ),
+      React.createElement('span',{className:'ts tg',style:{marginLeft:'auto'}},`${filtered.length} постов`),
+      canEdit&&React.createElement('button',{className:'btn btn-primary',onClick:()=>{setEditPost(null);setPage('new-post');}},'+ Создать пост')
+    ),
+    React.createElement('div',{className:'card'},
+      React.createElement('div',{className:'tbl-wrap'},
+        React.createElement('table',null,
+          React.createElement('thead',null,React.createElement('tr',null,
+            React.createElement('th',null,'Заголовок'),
+            React.createElement('th',null,'Статус'),
+            React.createElement('th',null,'Платформы'),
+            React.createElement('th',null,'Теги'),
+            React.createElement('th',null,'Дата'),
+            React.createElement('th',null,'Охват'),
+            React.createElement('th',null,'Действия')
+          )),
+          React.createElement('tbody',null,
+            filtered.length===0?React.createElement('tr',null,React.createElement('td',{colSpan:7,style:{textAlign:'center',padding:40,color:'var(--gray-400)'}},'Постов нет')):
+            filtered.map(p=>React.createElement('tr',{key:p.id},
+              React.createElement('td',null,
+                React.createElement('div',{className:'trunc',style:{fontWeight:600,fontSize:14,maxWidth:260}},p.title),
+                p.author_name&&React.createElement('div',{style:{fontSize:11,color:'var(--gray-400)',marginTop:2}},'👤 '+p.author_name)
+              ),
+              React.createElement('td',null,React.createElement(SBadge,{status:p.status})),
+              React.createElement('td',null,React.createElement('div',{style:{display:'flex',gap:4,flexWrap:'wrap'}},(p.platforms||[]).map(pl=>React.createElement('span',{key:pl,className:'pchip'},PI[pl]||pl,' ',pl.toUpperCase())))),
+              React.createElement('td',null,React.createElement('div',{style:{display:'flex',gap:4,flexWrap:'wrap'}},(p.tags||[]).map(t=>React.createElement('span',{key:t,className:'tag'},t)))),
+              React.createElement('td',null,React.createElement('div',{style:{fontSize:13}},
+                p.status==='published'?fmtDt(p.published_at):p.status==='scheduled'?'⏰ '+fmtDt(p.scheduled_at):fmtDate(p.created_at)
+              )),
+              React.createElement('td',null,p.status==='published'?`👁 ${fmtN(p.views)} · ❤️ ${p.reactions}`:'—'),
+              React.createElement('td',null,React.createElement('div',{style:{display:'flex',gap:6}},
+                canEdit&&React.createElement('button',{className:'btn btn-secondary btn-sm',onClick:()=>{setEditPost(p);setPage('edit-post');}},'✏️'),
+                canEdit&&(p.status==='draft'||p.status==='scheduled')&&React.createElement('button',{className:'btn btn-success btn-sm',onClick:()=>handlePublish(p),disabled:pub===p.id},pub===p.id?'⏳':'🚀'),
+                user?.role==='admin'&&React.createElement('button',{className:'btn btn-danger btn-sm',onClick:()=>handleDelete(p)},'🗑️')
+              ))
+            ))
+          )
+        )
+      )
+    )
+  );
+}
+
+// Post editor
+function PostEditor({editPost,setEditPost,setPage,showToast}){
+  const isEdit=!!editPost;
+  const [step,setStep]=useState(isEdit?3:1);
+  const [tmplType,setTmplType]=useState(editPost?.template_type||'');
+  const [tmpls,setTmpls]=useState([]);
+  const [fields,setFields]=useState({});
+  const [title,setTitle]=useState(editPost?.title||'');
+  const [content,setContent]=useState(editPost?.content||'');
+  const [platforms,setPlatforms]=useState(editPost?.platforms||['vk']);
+  const [tags,setTags]=useState(editPost?.tags||[]);
+  const [status,setStatus]=useState(editPost?.status||'draft');
+  const [schedAt,setSchedAt]=useState(editPost?.scheduled_at?editPost.scheduled_at.slice(0,16):'');
+  const [gen,setGen]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [tagIn,setTagIn]=useState('');
+
+  useEffect(()=>{api('/api/templates').then(setTmpls).catch(console.error);},[]);
+
+  async function generateText(){
+    setGen(true);
+    try{const d=await api('/api/generate-text',{method:'POST',body:{template_type:tmplType,fields}});setContent(d.text);setTitle(d.title);setStep(3);}
+    catch(e){showToast(e.message,'error');}finally{setGen(false);}
+  }
+  async function save(){
+    if(!title.trim()){showToast('Введите заголовок','error');return;}
+    if(!content.trim()){showToast('Введите текст','error');return;}
+    setSaving(true);
+    try{
+      const body={title,content,status,platforms,tags,scheduled_at:schedAt||null,template_type:tmplType||null};
+      if(isEdit)await api(`/api/posts/${editPost.id}`,{method:'PUT',body});
+      else await api('/api/posts',{method:'POST',body});
+      showToast(isEdit?'✅ Пост обновлён!':'✅ Пост создан!','success');
+      setEditPost(null);setPage('posts');
+    }catch(e){showToast(e.message,'error');}finally{setSaving(false);}
+  }
+  function togglePl(pl){setPlatforms(p=>p.includes(pl)?p.filter(x=>x!==pl):[...p,pl]);}
+  function addTag(e){
+    if((e.key==='Enter'||e.key===',')&&tagIn.trim()){
+      e.preventDefault();
+      if(!tags.includes(tagIn.trim()))setTags(t=>[...t,tagIn.trim()]);
+      setTagIn('');
+    }
+  }
+  const tmplFields=tmpls.find(t=>t.type===tmplType)?.fields||[];
+  const STEPS=[{n:1,l:'Шаблон'},{n:2,l:'Данные'},{n:3,l:'Редактор'},{n:4,l:'Публикация'}];
+
+  return React.createElement('div',{className:'content'},
+    React.createElement('div',{style:{maxWidth:720,margin:'0 auto'}},
+      // Step indicator
+      !isEdit&&React.createElement('div',{className:'step-row'},
+        STEPS.map((s,i,arr)=>React.createElement('div',{key:s.n,style:{display:'flex',alignItems:'center'}},
+          React.createElement('div',{className:`step${step===s.n?' active':step>s.n?' done':''}`},
+            React.createElement('div',{className:'step-num',onClick:()=>step>s.n&&setStep(s.n)},step>s.n?'✓':s.n),
+            React.createElement('span',{className:'step-lbl'},s.l)
+          ),
+          i<arr.length-1&&React.createElement('div',{className:'step-sep'})
+        ))
+      ),
+
+      // Step 1: template
+      step===1&&React.createElement('div',{className:'card card-p'},
+        React.createElement('h2',{style:{fontSize:18,fontWeight:700,marginBottom:6}},'📋 Выберите шаблон'),
+        React.createElement('p',{className:'ts tg',style:{marginBottom:20}},'Шаблон заполнит структуру поста автоматически'),
+        React.createElement('div',{style:{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:12,marginBottom:20}},
+          tmpls.map(t=>React.createElement('div',{key:t.type,className:`tmpl-card${tmplType===t.type?' sel':''}`,onClick:()=>setTmplType(t.type)},
+            React.createElement('div',{className:'tmpl-icon'},TICO[t.type]||'📄'),
+            React.createElement('div',{className:'tmpl-name'},t.name),
+            React.createElement('div',{className:'tmpl-desc'},t.description)
+          )),
+          React.createElement('div',{className:`tmpl-card${tmplType===''?' sel':''}`,onClick:()=>setTmplType('')},
+            React.createElement('div',{className:'tmpl-icon'},'✍️'),
+            React.createElement('div',{className:'tmpl-name'},'С нуля'),
+            React.createElement('div',{className:'tmpl-desc'},'Написать пост самостоятельно')
+          )
+        ),
+        React.createElement('div',{style:{display:'flex',justifyContent:'flex-end'}},
+          React.createElement('button',{className:'btn btn-primary',onClick:()=>setStep(tmplType?2:3)},'Далее →')
+        )
+      ),
+
+      // Step 2: fields
+      step===2&&tmplType&&React.createElement('div',{className:'card card-p'},
+        React.createElement('h2',{style:{fontSize:18,fontWeight:700,marginBottom:6}},'📝 Заполните данные'),
+        React.createElement('p',{className:'ts tg',style:{marginBottom:20}},'Текст будет сгенерирован по шаблону'),
+        tmplFields.map(f=>React.createElement('div',{key:f.key,className:'fg'},
+          React.createElement('label',null,f.label),
+          React.createElement('input',{type:'text',placeholder:f.placeholder,value:fields[f.key]||'',onChange:e=>setFields(p=>({...p,[f.key]:e.target.value}))})
+        )),
+        React.createElement('div',{style:{display:'flex',justifyContent:'space-between',gap:10}},
+          React.createElement('button',{className:'btn btn-secondary',onClick:()=>setStep(1)},'← Назад'),
+          React.createElement('button',{className:'btn btn-primary',onClick:generateText,disabled:gen},gen?'⏳ Генерирую...':'✨ Сгенерировать текст')
+        )
+      ),
+
+      // Step 3: editor
+      step===3&&React.createElement('div',{className:'card card-p'},
+        React.createElement('h2',{style:{fontSize:18,fontWeight:700,marginBottom:20}},isEdit?'✏️ Редактировать пост':'📝 Редактор текста'),
+        React.createElement('div',{className:'fg'},
+          React.createElement('label',null,'Заголовок поста'),
+          React.createElement('input',{type:'text',value:title,onChange:e=>setTitle(e.target.value),placeholder:'Введите заголовок...'})
+        ),
+        React.createElement('div',{className:'fg'},
+          React.createElement('label',null,'Текст поста'),
+          React.createElement('textarea',{value:content,onChange:e=>setContent(e.target.value),rows:10,placeholder:'Введите текст поста...'})
+        ),
+        React.createElement('div',{style:{display:'flex',justifyContent:'space-between',gap:10}},
+          !isEdit&&React.createElement('button',{className:'btn btn-secondary',onClick:()=>setStep(tmplType?2:1)},'← Назад'),
+          isEdit&&React.createElement('button',{className:'btn btn-secondary',onClick:()=>{setEditPost(null);setPage('posts');}},'✕ Отмена'),
+          React.createElement('button',{className:'btn btn-primary',onClick:()=>isEdit?save():setStep(4),disabled:saving},
+            isEdit?(saving?'⏳ Сохраняем...':'💾 Сохранить'):'Далее →'
+          )
+        )
+      ),
+
+      // Step 4: publish
+      step===4&&React.createElement('div',{className:'card card-p'},
+        React.createElement('h2',{style:{fontSize:18,fontWeight:700,marginBottom:20}},'🚀 Настройки публикации'),
+        React.createElement('div',{className:'fg'},
+          React.createElement('label',null,'Платформы'),
+          React.createElement('div',{style:{display:'flex',gap:10}},
+            [{id:'vk',l:'🔵 ВКонтакте'},{id:'telegram',l:'✈️ Telegram'}].map(pl=>
+              React.createElement('div',{key:pl.id,className:`pltoggle${platforms.includes(pl.id)?' on':''}`,onClick:()=>togglePl(pl.id)},
+                platforms.includes(pl.id)?'✓ ':'',' ',pl.l
+              )
+            )
+          )
+        ),
+        React.createElement('div',{className:'fg'},
+          React.createElement('label',null,'Теги / рубрики'),
+          React.createElement('div',{className:'tag-wrap'},
+            tags.map(t=>React.createElement('span',{key:t,className:'tag-chip'},t,React.createElement('span',{className:'tag-x',onClick:()=>setTags(p=>p.filter(x=>x!==t))},'×'))),
+            React.createElement('input',{type:'text',value:tagIn,onChange:e=>setTagIn(e.target.value),onKeyDown:addTag,
+              placeholder:tags.length===0?'Введите тег, нажмите Enter...':'',
+              style:{border:'none',outline:'none',fontSize:13,padding:'2px 4px',flex:1,minWidth:80}})
+          ),
+          React.createElement('div',{style:{display:'flex',gap:6,marginTop:8,flexWrap:'wrap'}},
+            ['мероприятия','вакансии','гранты','новости'].map(t=>React.createElement('span',{key:t,className:'tag',style:{cursor:'pointer'},onClick:()=>!tags.includes(t)&&setTags(p=>[...p,t])},'+ '+t))
+          )
+        ),
+        React.createElement('div',{className:'fg'},
+          React.createElement('label',null,'Статус'),
+          React.createElement('select',{value:status,onChange:e=>setStatus(e.target.value)},
+            React.createElement('option',{value:'draft'},'○ Черновик'),
+            React.createElement('option',{value:'scheduled'},'◑ Запланировать'),
+            React.createElement('option',{value:'published'},'● Опубликовать сейчас')
+          )
+        ),
+        status==='scheduled'&&React.createElement('div',{className:'fg'},
+          React.createElement('label',null,'Дата и время публикации'),
+          React.createElement('input',{type:'datetime-local',value:schedAt,onChange:e=>setSchedAt(e.target.value)})
+        ),
+        React.createElement('div',{style:{marginBottom:16}},
+          React.createElement('div',{style:{fontSize:12,fontWeight:700,color:'var(--gray-500)',marginBottom:8}},'ПРЕДПРОСМОТР'),
+          React.createElement('div',{className:'preview'},content)
+        ),
+        React.createElement('div',{style:{display:'flex',justifyContent:'space-between',gap:10}},
+          React.createElement('button',{className:'btn btn-secondary',onClick:()=>setStep(3)},'← Назад'),
+          React.createElement('button',{className:'btn btn-primary',onClick:save,disabled:saving},
+            saving?'⏳ Сохраняем...':status==='published'?'🚀 Опубликовать':status==='scheduled'?'⏰ Запланировать':'💾 Сохранить'
+          )
+        )
+      )
+    )
+  );
+}
+
+// Analytics
+function Analytics(){
+  const [sum,setSum]=useState(null);
+  const [tl,setTl]=useState([]);
+  const [period,setPeriod]=useState('month');
+  const lineRef=useRef(null);lineRef.chart=useRef(null);
+  const barRef=useRef(null);barRef.chart=useRef(null);
+
+  useEffect(()=>{api('/api/analytics/summary').then(setSum).catch(console.error);},[]);
+  useEffect(()=>{api(`/api/analytics/timeline?period=${period}`).then(setTl).catch(console.error);},[period]);
+
+  useEffect(()=>{
+    if(!tl.length||!lineRef.current)return;
+    if(lineRef.chart.current)lineRef.chart.current.destroy();
+    lineRef.chart.current=new Chart(lineRef.current.getContext('2d'),{
+      type:'line',
+      data:{labels:tl.map(d=>d.label),datasets:[
+        {label:'Просмотры',data:tl.map(d=>d.views),borderColor:'#2563eb',backgroundColor:'rgba(37,99,235,.1)',tension:.4,fill:true},
+        {label:'Реакции',  data:tl.map(d=>d.reactions),borderColor:'#16a34a',backgroundColor:'rgba(22,163,74,.08)',tension:.4},
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top'}},scales:{y:{beginAtZero:true}}}
+    });
+    return()=>{if(lineRef.chart.current)lineRef.chart.current.destroy();};
+  },[tl]);
+
+  useEffect(()=>{
+    if(!sum?.platform_stats||!barRef.current)return;
+    if(barRef.chart.current)barRef.chart.current.destroy();
+    const d=sum.platform_stats;
+    barRef.chart.current=new Chart(barRef.current.getContext('2d'),{
+      type:'bar',
+      data:{labels:d.map(x=>x.platform.toUpperCase()),datasets:[
+        {label:'Постов',data:d.map(x=>x.count),backgroundColor:'#2563eb'},
+        {label:'Просмотры (÷100)',data:d.map(x=>Math.round(x.views/100)),backgroundColor:'#16a34a'},
+        {label:'Реакции',data:d.map(x=>x.reactions),backgroundColor:'#d97706'},
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'top'}}}
+    });
+    return()=>{if(barRef.chart.current)barRef.chart.current.destroy();};
+  },[sum]);
+
+  if(!sum)return React.createElement('div',{className:'content'},'⏳ Загрузка...');
+  const mc=[
+    {icon:'👁',l:'Просмотров',v:fmtN(sum.total_views)},
+    {icon:'❤️',l:'Реакций',v:fmtN(sum.total_reactions)},
+    {icon:'💬',l:'Комментариев',v:fmtN(sum.total_comments)},
+    {icon:'🔁',l:'Репостов',v:fmtN(sum.total_shares)},
+  ];
+
+  return React.createElement('div',{className:'content'},
+    React.createElement('div',{className:'grid4',style:{marginBottom:24}},
+      mc.map((c,i)=>React.createElement('div',{key:i,className:'stat-card'},
+        React.createElement('div',{className:'stat-icon',style:{background:'var(--blue-light)'}},c.icon),
+        React.createElement('div',{className:'stat-value'},c.v),
+        React.createElement('div',{className:'stat-label'},c.l)
+      ))
+    ),
+    React.createElement('div',{className:'card mb6'},
+      React.createElement('div',{className:'card-header'},
+        React.createElement('span',{className:'card-title'},'📈 Динамика охватов'),
+        React.createElement('div',{style:{display:'flex',gap:8}},
+          ['week','month','quarter'].map(p=>React.createElement('button',{key:p,className:`btn btn-sm ${period===p?'btn-primary':'btn-secondary'}`,onClick:()=>setPeriod(p)},
+            {week:'Неделя',month:'Месяц',quarter:'Квартал'}[p]
+          ))
+        )
+      ),
+      React.createElement('div',{style:{padding:20}},React.createElement('div',{className:'chart-box'},React.createElement('canvas',{ref:lineRef})))
+    ),
+    React.createElement('div',{className:'grid2'},
+      React.createElement('div',{className:'card'},
+        React.createElement('div',{className:'card-header'},React.createElement('span',{className:'card-title'},'📊 Сравнение площадок')),
+        React.createElement('div',{style:{padding:20}},React.createElement('div',{className:'chart-box',style:{height:200}},React.createElement('canvas',{ref:barRef})))
+      ),
+      React.createElement('div',{className:'card'},
+        React.createElement('div',{className:'card-header'},React.createElement('span',{className:'card-title'},'🏆 Топ-5 постов')),
+        sum.top_posts.map((p,i)=>React.createElement('div',{key:p.id,style:{padding:'12px 20px',borderBottom:'1px solid var(--gray-100)',display:'flex',gap:12,alignItems:'center'}},
+          React.createElement('div',{style:{width:26,height:26,borderRadius:6,background:['#fbbf24','#9ca3af','#cd7c2f','#e5e7eb','#e5e7eb'][i],color:i<3?'#fff':'var(--gray-600)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:800,flexShrink:0}},i+1),
+          React.createElement('div',{style:{flex:1,minWidth:0}},
+            React.createElement('div',{className:'trunc',style:{fontSize:13,fontWeight:600}},p.title),
+            React.createElement('div',{style:{fontSize:11,color:'var(--gray-400)',marginTop:3}},`👁 ${fmtN(p.views)} · ❤️ ${p.reactions} · 💬 ${p.comments}`)
+          )
+        ))
+      )
+    )
+  );
+}
+
+// Notifications
+function Notifications({onRead}){
+  const [notifs,setNotifs]=useState([]);
+  function load(){api('/api/notifications').then(setNotifs).catch(console.error);}
+  useEffect(load,[]);
+  async function markRead(id){await api(`/api/notifications/${id}/read`,{method:'PUT'});load();onRead();}
+  const unread=notifs.filter(n=>!n.is_read).length;
+  return React.createElement('div',{className:'content'},
+    React.createElement('div',{className:'card'},
+      React.createElement('div',{className:'card-header'},
+        React.createElement('span',{className:'card-title'},'🔔 Уведомления'),
+        unread>0&&React.createElement('span',{style:{fontSize:13,color:'var(--gray-400)'}},unread+' непрочитанных')
+      ),
+      notifs.length===0?React.createElement('div',{className:'empty'},React.createElement('div',{className:'empty-ico'},'🔔'),React.createElement('p',null,'Уведомлений нет')):
+      notifs.map(n=>React.createElement('div',{key:n.id,className:`notif-item${!n.is_read?' unread':''}`},
+        React.createElement('div',{className:`ndot${n.is_read?' read':''}`}),
+        React.createElement('div',{style:{flex:1}},
+          React.createElement('div',{style:{fontSize:13,color:'var(--gray-800)',lineHeight:1.4}},n.message),
+          React.createElement('div',{style:{fontSize:11,color:'var(--gray-400)',marginTop:3}},timeAgo(n.created_at))
+        ),
+        !n.is_read&&React.createElement('button',{className:'btn btn-ghost btn-sm',onClick:()=>markRead(n.id)},'✓')
+      ))
+    )
+  );
+}
+
+// Settings
+function Settings({showToast}){
+  const [users,setUsers]=useState([]);
+  useEffect(()=>{api('/api/users').then(setUsers).catch(console.error);},[]);
+  async function changeRole(id,role){
+    try{await api(`/api/users/${id}/role`,{method:'PUT',body:{role}});setUsers(p=>p.map(u=>u.id===id?{...u,role}:u));showToast('Роль обновлена','success');}
+    catch(e){showToast(e.message,'error');}
+  }
+  return React.createElement('div',{className:'content'},
+    React.createElement('div',{className:'card mb4'},
+      React.createElement('div',{className:'card-header'},React.createElement('span',{className:'card-title'},'👥 Пользователи')),
+      React.createElement('div',{className:'tbl-wrap'},
+        React.createElement('table',null,
+          React.createElement('thead',null,React.createElement('tr',null,
+            React.createElement('th',null,'Пользователь'),React.createElement('th',null,'Email'),
+            React.createElement('th',null,'Роль'),React.createElement('th',null,'Изменить роль')
+          )),
+          React.createElement('tbody',null,
+            users.map(u=>React.createElement('tr',{key:u.id},
+              React.createElement('td',null,React.createElement('div',{style:{display:'flex',alignItems:'center',gap:10}},
+                React.createElement('div',{className:'avatar',style:{width:36,height:36,fontSize:13}},u.avatar||u.name?.[0]),
+                React.createElement('span',{style:{fontWeight:600}},u.name)
+              )),
+              React.createElement('td',null,React.createElement('span',{className:'ts tg'},u.email)),
+              React.createElement('td',null,React.createElement('span',{className:`user-role-lbl ${RC[u.role]}`},RL[u.role])),
+              React.createElement('td',null,React.createElement('select',{className:'fsel',value:u.role,onChange:e=>changeRole(u.id,e.target.value)},
+                React.createElement('option',{value:'admin'},'Администратор'),
+                React.createElement('option',{value:'editor'},'Редактор'),
+                React.createElement('option',{value:'observer'},'Наблюдатель')
+              ))
+            ))
+          )
+        )
+      )
+    ),
+    React.createElement('div',{className:'card card-p'},
+      React.createElement('div',{className:'card-title',style:{marginBottom:14}},'📋 Ролевая модель'),
+      React.createElement('div',{className:'grid3'},
+        [
+          {role:'admin',icon:'🔑',label:'Администратор',perms:['Полный доступ','Управление пользователями','Удаление постов','Все функции платформы']},
+          {role:'editor',icon:'✏️',label:'Редактор',perms:['Создание постов','Редактирование постов','Планирование публикаций','Просмотр аналитики']},
+          {role:'observer',icon:'👁',label:'Наблюдатель',perms:['Просмотр постов','Аналитика и отчёты','Только чтение']},
+        ].map(r=>React.createElement('div',{key:r.role,style:{border:'2px solid var(--gray-200)',borderRadius:var_r,padding:16}},
+          React.createElement('div',{style:{fontSize:24,marginBottom:8}},r.icon),
+          React.createElement('div',{style:{fontWeight:700,marginBottom:10,fontSize:15}},r.label),
+          r.perms.map(p=>React.createElement('div',{key:p,style:{fontSize:12,color:'var(--gray-600)',marginBottom:4}},'✓ '+p))
+        ))
+      )
+    )
+  );
+}
+
+const var_r=12; // border-radius workaround
+
+// App root
+function App(){
+  const [user,setUser]=useState(null);
+  const [page,setPage]=useState('dashboard');
+  const [editPost,setEditPost]=useState(null);
+  const [toast,setToast]=useState(null);
+  const [unread,setUnread]=useState(0);
+
+  useEffect(()=>{
+    if(user)api('/api/notifications').then(d=>setUnread(d.filter(n=>!n.is_read).length)).catch(()=>{});
+  },[user,page]);
+
+  const showToast=(message,type='info')=>setToast({message,type});
+
+  if(!user)return React.createElement(Login,{onLogin:(u)=>setUser(u)});
+
+  const TITLES={dashboard:'📊 Дашборд',calendar:'📅 Календарь контента',posts:'📝 Посты',
+    'new-post':'✏️ Создать пост','edit-post':'✏️ Редактировать пост',
+    analytics:'📈 Аналитика',settings:'⚙️ Настройки',notifications:'🔔 Уведомления'};
+
+  function renderPage(){
+    switch(page){
+      case 'dashboard':    return React.createElement(Dashboard,{setPage,setEditPost});
+      case 'calendar':     return React.createElement(Calendar,{setPage,setEditPost});
+      case 'posts':        return React.createElement(PostsList,{setPage,setEditPost,showToast,user});
+      case 'new-post':     return React.createElement(PostEditor,{editPost:null,setEditPost,setPage,showToast});
+      case 'edit-post':    return React.createElement(PostEditor,{editPost,setEditPost,setPage,showToast});
+      case 'analytics':    return React.createElement(Analytics);
+      case 'settings':     return React.createElement(Settings,{showToast});
+      case 'notifications':return React.createElement(Notifications,{onRead:()=>setUnread(c=>Math.max(0,c-1))});
+      default: return null;
+    }
+  }
+
+  return React.createElement('div',{style:{display:'flex',width:'100%'}},
+    React.createElement(Sidebar,{page,setPage,user,unread}),
+    React.createElement('div',{className:'main'},
+      React.createElement('div',{className:'topbar'},
+        React.createElement('span',{className:'topbar-title'},TITLES[page]||page),
+        React.createElement('div',{className:'topbar-actions'},
+          React.createElement('span',{style:{fontSize:12,color:'var(--gray-400)'}},new Date().toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'})),
+          user?.role!=='observer'&&React.createElement('button',{className:'btn btn-primary btn-sm',onClick:()=>{setEditPost(null);setPage('new-post');}},'+ Пост')
+        )
+      ),
+      renderPage()
+    ),
+    toast&&React.createElement(Toast,{...toast,onHide:()=>setToast(null)})
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+</script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+
+# Node
+node_modules/
+.next/
+.npm/
+npm-debug.log*
+
+# Next.js
+*.tsbuildinfo
+next-env.d.ts
+
+# Database (local)
+*.sqlite3
+*.db
+*.db-journal
+
+# Env
+.env.local
+.env.*.local
+
+# Misc
+test.txt
+*.log
