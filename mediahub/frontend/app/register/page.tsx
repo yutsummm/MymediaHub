@@ -23,7 +23,9 @@ export default function RegisterPage() {
     e.preventDefault()
     setErr('')
     if (!name.trim()) { setErr('Введите имя'); return }
-    if (password.length < 6) { setErr('Пароль должен содержать минимум 6 символов'); return }
+    if (password.length < 8) { setErr('Пароль должен содержать минимум 8 символов'); return }
+    if (!/[a-zA-Zа-яА-Я]/.test(password)) { setErr('Пароль должен содержать хотя бы одну букву'); return }
+    if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) { setErr('Пароль должен содержать хотя бы один спецсимвол (!@#$% и др.)'); return }
     if (password !== confirm) { setErr('Пароли не совпадают'); return }
     setIsSubmitting(true)
     try {

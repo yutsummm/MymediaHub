@@ -5,12 +5,6 @@ import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
 import { api } from '@/lib/api'
 
-const DEMOS = [
-  { email: 'admin@mediahub.ru',    label: 'Администратор' },
-  { email: 'editor@mediahub.ru',   label: 'Редактор' },
-  { email: 'observer@mediahub.ru', label: 'Наблюдатель' },
-]
-
 export default function LoginPage() {
   const { login, user, loading: authLoading } = useAuth()
   const router = useRouter()
@@ -18,7 +12,7 @@ export default function LoginPage() {
   useEffect(() => {
     if (!authLoading && user) router.replace('/dashboard')
   }, [user, authLoading, router])
-  const [email, setEmail] = useState('admin@mediahub.ru')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
@@ -27,7 +21,7 @@ export default function LoginPage() {
     e.preventDefault()
     setLoading(true); setErr('')
     try {
-      const { user, token } = await api.login(email, password || 'demo')
+      const { user, token } = await api.login(email, password)
       login(user, token)
       router.push('/dashboard')
     } catch (ex: unknown) {
@@ -89,22 +83,6 @@ export default function LoginPage() {
             </Link>
           </div>
 
-          <div className="login-demos">
-            <p className="login-demos-label">Демо-аккаунты</p>
-            <div className="login-demos-list">
-              {DEMOS.map(d => (
-                <button
-                  key={d.email}
-                  type="button"
-                  onClick={() => { setEmail(d.email); setPassword('') }}
-                  className={`login-demo-btn${email === d.email ? ' active' : ''}`}
-                >
-                  <span className="login-demo-name">{d.label}</span>
-                  <span className="login-demo-email">{d.email}</span>
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       </div>
     </div>

@@ -1225,8 +1225,13 @@ def register(req: RegisterRequest):
         raise HTTPException(400, "Введите имя")
     if not req.email.strip():
         raise HTTPException(400, "Введите email")
-    if len(req.password) < 6:
-        raise HTTPException(400, "Пароль должен содержать минимум 6 символов")
+    import re as _re
+    if len(req.password) < 8:
+        raise HTTPException(400, "Пароль должен содержать минимум 8 символов")
+    if not _re.search(r'[a-zA-Zа-яА-Я]', req.password):
+        raise HTTPException(400, "Пароль должен содержать хотя бы одну букву")
+    if not _re.search(r'[!@#$%^&*()\-_=+\[\]{};:\'",.<>/?\\|`~]', req.password):
+        raise HTTPException(400, "Пароль должен содержать хотя бы один спецсимвол")
     email = req.email.lower().strip()
     conn = get_db()
     c = conn.cursor()
@@ -1534,8 +1539,13 @@ def create_user(body: UserCreate):
         raise HTTPException(400, "Введите имя")
     if not body.email.strip():
         raise HTTPException(400, "Введите email")
-    if len(body.password) < 6:
-        raise HTTPException(400, "Пароль должен содержать минимум 6 символов")
+    import re as _re
+    if len(body.password) < 8:
+        raise HTTPException(400, "Пароль должен содержать минимум 8 символов")
+    if not _re.search(r'[a-zA-Zа-яА-Я]', body.password):
+        raise HTTPException(400, "Пароль должен содержать хотя бы одну букву")
+    if not _re.search(r'[!@#$%^&*()\-_=+\[\]{};:\'",.<>/?\\|`~]', body.password):
+        raise HTTPException(400, "Пароль должен содержать хотя бы один спецсимвол")
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT id FROM users WHERE email=%s", (body.email.lower().strip(),))
