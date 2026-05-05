@@ -65,11 +65,15 @@ export default function PostsPage() {
       if (r.tg_error) errs.push(`Telegram: ${r.tg_error}`)
       else if (r.tg_message_ids?.length) okParts.push(`Telegram (${r.tg_message_ids.length} сообщ.)`)
       if (errs.length) {
-        showToast(`Опубликован${okParts.length ? ' в ' + okParts.join(', ') : ''}, ошибки: ${errs.join(' · ')}`, 'error')
+        showToast(
+          okParts.length ? 'Опубликован частично' : 'Ошибка публикации',
+          'error',
+          [...okParts.map(s => '✓ ' + s), ...errs.map(s => '✗ ' + s)].join('\n'),
+        )
       } else if (okParts.length) {
-        showToast(`Пост опубликован: ${okParts.join(', ')}`, 'success')
+        showToast('Пост опубликован', 'success', okParts.map(s => '✓ ' + s).join('\n'))
       } else {
-        showToast('Пост опубликован!', 'success')
+        showToast('Пост опубликован', 'success')
       }
       load()
     }

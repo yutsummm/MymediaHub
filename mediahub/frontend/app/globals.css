@@ -891,12 +891,13 @@ select option { background: var(--bg-2); color: var(--text); }
 }
 
 .cal-post {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 10.5px;
   padding: 3px 6px;
   border-radius: 5px;
-  white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   cursor: pointer;
   font-weight: 500;
   transition: transform 0.2s var(--spring);
@@ -907,6 +908,115 @@ select option { background: var(--bg-2); color: var(--text); }
 .cp-scheduled { background: var(--yellow-dim); color: var(--yellow); }
 .cp-published { background: var(--green-dim); color: var(--green); }
 .cal-more { font-size: 10px; color: var(--accent); font-weight: 600; padding: 2px 6px; cursor: pointer; }
+
+.cal-post-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.cal-post-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-post-platform {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: rgba(0,0,0,0.1);
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+/* ─── Calendar: weekend ─── */
+.cal-head.weekend { color: var(--text-2); }
+.cal-cell.weekend { background: var(--bg-2); }
+.cal-cell.weekend:hover { background: var(--surface-h); }
+
+/* ─── Calendar: drag ─── */
+.cal-cell.drag-over {
+  background: var(--accent-light) !important;
+  outline: 2px dashed var(--accent);
+  outline-offset: -3px;
+}
+
+/* ─── Calendar: tooltip ─── */
+.cal-post-wrap { position: relative; }
+.cal-tooltip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 200;
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-lg);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+  padding: 10px 12px;
+  min-width: 190px;
+  max-width: 250px;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.15s, transform 0.15s;
+}
+.cal-post-wrap:hover .cal-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+.cal-tooltip.right { left: auto; right: 0; }
+.cal-tooltip-title {
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 4px;
+  white-space: normal;
+  word-break: break-word;
+}
+.cal-tooltip-content {
+  color: var(--text-2);
+  font-size: 11px;
+  white-space: normal;
+  line-height: 1.5;
+  margin-bottom: 6px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cal-tooltip-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.cal-tooltip-time {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.cal-tooltip-platform {
+  font-size: 9.5px;
+  font-weight: 700;
+  padding: 1px 5px;
+  background: var(--surface-2);
+  border-radius: 4px;
+  color: var(--text-3);
+}
+
+/* ─── Calendar: toolbar ─── */
+.cal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+}
 
 /* ─── Chart ─── */
 .chart-box { position: relative; height: 260px; }
@@ -1247,17 +1357,46 @@ select option { background: var(--bg-2); color: var(--text); }
 
 /* ─── Toast ─── */
 .toast {
-  background: var(--bg-2);
-  border: 1px solid var(--border-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
   color: var(--text);
-  padding: 11px 18px;
-  border-radius: var(--r-full);
+  padding: 12px 14px 12px 16px;
+  border-radius: var(--r-lg);
   font-size: 13px;
   font-weight: 500;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.45);
-  display: flex; align-items: center; gap: 8px;
-  animation: slideUp 0.32s var(--spring);
+  box-shadow: var(--shadow-md), 0 8px 32px rgba(0,0,0,0.3);
+  display: flex; align-items: flex-start; gap: 10px;
+  animation: toastIn 0.3s var(--spring) both;
   letter-spacing: -0.01em;
+  width: 340px;
+  max-width: calc(100vw - 48px);
+}
+.toast-success { border-left-color: var(--green); }
+.toast-error   { border-left-color: var(--red); }
+.toast-warning { border-left-color: var(--yellow); }
+.toast-info    { border-left-color: var(--accent); }
+
+.toast-icon { flex-shrink: 0; margin-top: 1px; display: flex; }
+.toast-icon-success { color: var(--green); }
+.toast-icon-error   { color: var(--red); }
+.toast-icon-warning { color: var(--yellow); }
+.toast-icon-info    { color: var(--accent); }
+
+.toast-body  { flex: 1; min-width: 0; }
+.toast-msg   { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.4; }
+.toast-detail{ font-size: 11.5px; color: var(--text-3); margin-top: 3px; line-height: 1.45; }
+
+.toast-close {
+  flex-shrink: 0; background: none; border: none; cursor: pointer;
+  color: var(--text-3); font-size: 18px; line-height: 1; padding: 0;
+  font-family: inherit; margin-top: -2px; transition: color 0.15s;
+}
+.toast-close:hover { color: var(--text); }
+
+@keyframes toastIn {
+  from { transform: translateX(18px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
 }
 
 /* ─── Utils ─── */
@@ -1268,6 +1407,66 @@ select option { background: var(--bg-2); color: var(--text); }
 
 .empty { text-align: center; padding: 56px 24px; color: var(--text-3); }
 .empty-ico { font-size: 36px; margin-bottom: 14px; opacity: 0.45; }
+
+/* ─── Empty state (rich) ─── */
+.empty-state {
+  padding: 52px 28px;
+  display: flex; flex-direction: column; align-items: center;
+  text-align: center; gap: 10px;
+}
+.empty-state-icon { opacity: 0.15; margin-bottom: 4px; color: var(--text); }
+.empty-state-title { font-size: 14px; font-weight: 700; color: var(--text-2); letter-spacing: -0.02em; }
+.empty-state-sub {
+  font-size: 12px; color: var(--text-3);
+  max-width: 220px; line-height: 1.6; margin-bottom: 4px;
+}
+
+/* ─── Sparkline ─── */
+.sparkline-wrap {
+  margin-top: 14px;
+  opacity: 0.32;
+  color: var(--text-3);
+  transition: opacity 0.35s var(--spring), color 0.35s;
+  line-height: 0;
+}
+.stat-card:hover .sparkline-wrap { opacity: 0.72; color: var(--accent); }
+
+/* ─── Quick Post Modal ─── */
+.quick-post-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--r-xl) + 3px);
+  width: 100%; max-width: 500px;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 28px 64px rgba(0,0,0,0.6);
+  animation: slideUp 0.28s var(--spring) both;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.qpm-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 22px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.qpm-header-title { font-size: 13.5px; font-weight: 700; color: var(--text); letter-spacing: -0.02em; }
+.qpm-body { padding: 20px 22px; display: flex; flex-direction: column; gap: 10px; }
+.qpm-title-input {
+  width: 100%; background: none; border: none; outline: none;
+  font-size: 18px; font-weight: 700; color: var(--text);
+  font-family: inherit; letter-spacing: -0.03em; caret-color: var(--accent);
+}
+.qpm-title-input::placeholder { color: var(--text-3); font-weight: 600; }
+.qpm-divider { height: 1px; background: var(--border); }
+.qpm-content-input {
+  width: 100%; background: none; border: none; outline: none;
+  font-size: 13.5px; color: var(--text-2); font-family: inherit;
+  resize: none; line-height: 1.7; caret-color: var(--accent); min-height: 96px;
+}
+.qpm-content-input::placeholder { color: var(--text-3); }
+.qpm-footer {
+  display: flex; align-items: center; gap: 8px;
+  padding: 13px 22px; border-top: 1px solid var(--border);
+}
+.qpm-hint { font-size: 11px; color: var(--text-3); margin-right: auto; }
 
 .mb6 { margin-bottom: 22px; }
 .ts { font-size: 12.5px; }
