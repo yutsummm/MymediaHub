@@ -82,7 +82,7 @@ function StatCard({
 }) {
   const animated = useCountUp(raw)
   return (
-    <div className="stat-card anim-in">
+    <div className="stat-card anim-in" style={{ animationDelay: `${index * 40}ms` }}>
       <div className="stat-top">
         <div className="stat-label">{label}</div>
         <div className="stat-icon">{icon}</div>
