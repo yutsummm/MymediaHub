@@ -272,9 +272,29 @@ function Sidebar({page,setPage,user,unread}){
   );
 }
 
-// Login
+// Auth wrapper: login / register / verify
 function Login({onLogin}){
+  const [mode,setMode]=useState('login'); // 'login' | 'register' | 'verify'
+  const [pendingEmail,setPendingEmail]=useState('');
+
+  if(mode==='register')
+    return React.createElement(RegisterForm,{
+      onLogin,
+      onCodeSent:email=>{setPendingEmail(email);setMode('verify');},
+      onBack:()=>setMode('login')
+    });
+  if(mode==='verify')
+    return React.createElement(VerifyForm,{
+      email:pendingEmail,
+      onLogin,
+      onBack:()=>setMode('register')
+    });
+  return React.createElement(LoginForm,{onLogin,onRegister:()=>setMode('register')});
+}
+
+function LoginForm({onLogin,onRegister}){
   const [email,setEmail]=useState('admin@mediahub.ru');
+  const [password,setPassword]=useState('demo');
   const [err,setErr]=useState('');
   const [loading,setLoading]=useState(false);
   const demos=[
@@ -284,7 +304,7 @@ function Login({onLogin}){
   ];
   async function submit(ev){
     ev.preventDefault();setLoading(true);setErr('');
-    try{const d=await api('/api/auth/login',{method:'POST',body:{email,password:'demo'}});onLogin(d.user);}
+    try{const d=await api('/api/auth/login',{method:'POST',body:{email,password}});onLogin(d.user,d.token,d.groups);}
     catch(e){setErr(e.message);}finally{setLoading(false);}
   }
   return React.createElement('div',{style:{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'var(--gray-900)'}},
@@ -301,19 +321,114 @@ function Login({onLogin}){
         ),
         React.createElement('div',{className:'fg'},
           React.createElement('label',null,'Пароль'),
-          React.createElement('input',{type:'password',defaultValue:'••••••••',readOnly})
+          React.createElement('input',{type:'password',value:password,onChange:e=>setPassword(e.target.value),required})
         ),
         err&&React.createElement('div',{style:{color:'var(--red)',fontSize:13,marginBottom:12}},err),
         React.createElement('button',{type:'submit',className:'btn btn-primary',style:{width:'100%',justifyContent:'center',padding:'12px'},disabled:loading},
           loading?'⏳ Входим...':'🚀 Войти')
       ),
+      React.createElement('div',{style:{marginTop:16,textAlign:'center'}},
+        React.createElement('span',{style:{fontSize:13,color:'var(--gray-500)'}},'Нет аккаунта? '),
+        React.createElement('button',{type:'button',className:'btn btn-ghost btn-sm',onClick:onRegister,style:{display:'inline',padding:'0 4px',fontSize:13,color:'var(--primary)'}},'Зарегистрироваться')
+      ),
       React.createElement('div',{style:{marginTop:20,borderTop:'1px solid var(--gray-200)',paddingTop:16}},
         React.createElement('p',{style:{fontSize:12,color:'var(--gray-400)',marginBottom:10}},'Демо-аккаунты:'),
         React.createElement('div',{style:{display:'flex',flexDirection:'column',gap:6}},
-          demos.map(d=>React.createElement('button',{key:d.e,type:'button',onClick:()=>setEmail(d.e),className:'btn btn-secondary btn-sm',style:{justifyContent:'flex-start',fontSize:12}},
+          demos.map(d=>React.createElement('button',{key:d.e,type:'button',onClick:()=>{setEmail(d.e);setPassword('demo');},className:'btn btn-secondary btn-sm',style:{justifyContent:'flex-start',fontSize:12}},
             d.l,' ',React.createElement('span',{style:{color:'var(--gray-400)',marginLeft:4}},d.e)
           ))
         )
+      )
+    )
+  );
+}
+
+function RegisterForm({onLogin,onCodeSent,onBack}){
+  const [name,setName]=useState('');
+  const [email,setEmail]=useState('');
+  const [password,setPassword]=useState('');
+  const [err,setErr]=useState('');
+  const [loading,setLoading]=useState(false);
+  async function submit(ev){
+    ev.preventDefault();setLoading(true);setErr('');
+    try{
+      await api('/api/auth/register',{method:'POST',body:{name,email,password}});
+      onCodeSent(email);
+    }
+    catch(e){setErr(e.message);}finally{setLoading(false);}
+  }
+  return React.createElement('div',{style:{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'var(--gray-900)'}},
+    React.createElement('div',{style:{background:'#fff',borderRadius:16,padding:40,width:400,boxShadow:'0 25px 50px rgba(0,0,0,.3)'}},
+      React.createElement('div',{style:{textAlign:'center',marginBottom:32}},
+        React.createElement('div',{style:{fontSize:52,marginBottom:10}},'📡'),
+        React.createElement('h1',{style:{fontSize:24,fontWeight:800,marginBottom:4}},'Регистрация'),
+        React.createElement('p',{style:{color:'var(--gray-500)',fontSize:14}},'Создайте аккаунт в MediaHub')
+      ),
+      React.createElement('form',{onSubmit:submit},
+        React.createElement('div',{className:'fg'},
+          React.createElement('label',null,'Имя'),
+          React.createElement('input',{type:'text',value:name,onChange:e=>setName(e.target.value),placeholder:'Иван Иванов',required})
+        ),
+        React.createElement('div',{className:'fg'},
+          React.createElement('label',null,'Email'),
+          React.createElement('input',{type:'email',value:email,onChange:e=>setEmail(e.target.value),placeholder:'you@example.com',required})
+        ),
+        React.createElement('div',{className:'fg'},
+          React.createElement('label',null,'Пароль'),
+          React.createElement('input',{type:'password',value:password,onChange:e=>setPassword(e.target.value),placeholder:'Минимум 6 символов',required})
+        ),
+        err&&React.createElement('div',{style:{color:'var(--red)',fontSize:13,marginBottom:12}},err),
+        React.createElement('button',{type:'submit',className:'btn btn-primary',style:{width:'100%',justifyContent:'center',padding:'12px'},disabled:loading},
+          loading?'⏳ Отправляем код...':'📧 Получить код на email')
+      ),
+      React.createElement('div',{style:{marginTop:16,textAlign:'center'}},
+        React.createElement('button',{type:'button',className:'btn btn-ghost btn-sm',onClick:onBack,style:{fontSize:13,color:'var(--gray-500)'}},'← Назад к входу')
+      )
+    )
+  );
+}
+
+function VerifyForm({email,onLogin,onBack}){
+  const [code,setCode]=useState('');
+  const [err,setErr]=useState('');
+  const [loading,setLoading]=useState(false);
+  const [resending,setResending]=useState(false);
+  async function submit(ev){
+    ev.preventDefault();setLoading(true);setErr('');
+    try{
+      const d=await api('/api/auth/verify-register',{method:'POST',body:{email,code}});
+      onLogin(d.user,d.token,d.groups);
+    }
+    catch(e){setErr(e.message);}finally{setLoading(false);}
+  }
+  return React.createElement('div',{style:{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'var(--gray-900)'}},
+    React.createElement('div',{style:{background:'#fff',borderRadius:16,padding:40,width:400,boxShadow:'0 25px 50px rgba(0,0,0,.3)'}},
+      React.createElement('div',{style:{textAlign:'center',marginBottom:32}},
+        React.createElement('div',{style:{fontSize:52,marginBottom:10}},'📬'),
+        React.createElement('h1',{style:{fontSize:24,fontWeight:800,marginBottom:4}},'Подтверждение email'),
+        React.createElement('p',{style:{color:'var(--gray-500)',fontSize:14}},'Мы отправили 6-значный код на'),
+        React.createElement('p',{style:{color:'var(--primary)',fontWeight:600,fontSize:14}},email)
+      ),
+      React.createElement('form',{onSubmit:submit},
+        React.createElement('div',{className:'fg'},
+          React.createElement('label',null,'Код подтверждения'),
+          React.createElement('input',{
+            type:'text',
+            value:code,
+            onChange:e=>setCode(e.target.value.replace(/\D/g,'').slice(0,6)),
+            placeholder:'000000',
+            maxLength:6,
+            style:{fontSize:28,letterSpacing:8,textAlign:'center',fontWeight:700},
+            autoFocus:true,
+            required
+          })
+        ),
+        err&&React.createElement('div',{style:{color:'var(--red)',fontSize:13,marginBottom:12}},err),
+        React.createElement('button',{type:'submit',className:'btn btn-primary',style:{width:'100%',justifyContent:'center',padding:'12px'},disabled:loading||code.length!==6},
+          loading?'⏳ Проверяем...':'✅ Подтвердить и войти')
+      ),
+      React.createElement('div',{style:{marginTop:16,textAlign:'center'}},
+        React.createElement('button',{type:'button',className:'btn btn-ghost btn-sm',onClick:onBack,style:{fontSize:13,color:'var(--gray-500)'}},'← Изменить данные')
       )
     )
   );
@@ -880,7 +995,7 @@ function App(){
 
   const showToast=(message,type='info')=>setToast({message,type});
 
-  if(!user)return React.createElement(Login,{onLogin:u=>setUser(u)});
+  if(!user)return React.createElement(Login,{onLogin:(u)=>setUser(u)});
 
   const TITLES={dashboard:'📊 Дашборд',calendar:'📅 Календарь контента',posts:'📝 Посты',
     'new-post':'✏️ Создать пост','edit-post':'✏️ Редактировать пост',
