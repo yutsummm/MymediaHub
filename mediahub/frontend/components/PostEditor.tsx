@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
 import { api } from '@/lib/api'
@@ -8,24 +8,41 @@ import { applyEmojiSuggestion, getEmojiSuggestions } from '@/lib/postUtils'
 import type { MediaItem, Post, Template } from '@/lib/types'
 import YandexLocationPickerModal from '@/components/YandexLocationPickerModal'
 
-const TICO: Record<string, string> = { announcement: '◈', results: '✓', vacancy: '↗', grant: '◎' }
+/* ── SVG props ── */
+const S14 = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
+const S16 = { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
+const S20 = { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
+
+/* ── Template card icons ── */
+const TSVG: Record<string, ReactNode> = {
+  announcement: <svg {...S20}><path d="M3 11v2c0 .6.4 1 1 1h2l4 4V7L6 11H4a1 1 0 0 0-1 1z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>,
+  results:      <svg {...S20}><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg>,
+  vacancy:      <svg {...S20}><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>,
+  grant:        <svg {...S20}><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg>,
+}
+const TSVG_BLANK = <svg {...S20}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+
+/* ── Shared icons ── */
+const IcoCheck = <svg {...S16}><polyline points="20 6 9 17 4 12"/></svg>
+const IcoSend  = <svg {...S16}><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+const IcoAI    = <svg {...S16}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3z"/></svg>
+const IcoSmile = <svg {...S14}><circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+
 const STEPS = [{ n: 1, l: 'Шаблон' }, { n: 2, l: 'Данные' }, { n: 3, l: 'Редактор' }, { n: 4, l: 'Публикация' }]
 
 type AiMode = 'creative' | 'formal' | 'calltoaction'
 type AiModifier = 'shortify' | 'hashtags' | 'russify'
 
-// Основные режимы — вкладки (взаимоисключающие)
-const AI_MODES_CONFIG: { id: AiMode; icon: string; title: string; info: string }[] = [
-  { id: 'creative',     icon: '✨', title: 'Улучшить текст',    info: 'Переписывает текст для молодёжной аудитории: добавляет энергичность и эмодзи, сохраняя все факты, даты и имена' },
-  { id: 'formal',       icon: '🏛',  title: 'Официальный тон',   info: 'Переводит в нейтрально-деловой стиль — подходит для объявлений, вакансий и грантовых постов' },
-  { id: 'calltoaction', icon: '🎯', title: 'Призыв к действию', info: 'Дописывает сильный CTA — «зарегистрируйся», «приходи», «поделись» — по теме поста' },
+const AI_MODES_CONFIG: { id: AiMode; icon: ReactNode; title: string; info: string }[] = [
+  { id: 'creative',     icon: <svg {...S14}><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72z"/><path d="m14 7 3 3"/></svg>,    title: 'Улучшить текст',    info: 'Переписывает текст для молодёжной аудитории: добавляет энергичность и эмодзи, сохраняя все факты, даты и имена' },
+  { id: 'formal',       icon: <svg {...S14}><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg>, title: 'Официальный тон',   info: 'Переводит в нейтрально-деловой стиль — подходит для объявлений, вакансий и грантовых постов' },
+  { id: 'calltoaction', icon: <svg {...S14}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,                                                                                                                                                                                   title: 'Призыв к действию', info: 'Дописывает сильный CTA — «зарегистрируйся», «приходи», «поделись» — по теме поста' },
 ]
 
-// Модификаторы — галочки (комбинируются между собой и с основным режимом)
-const AI_MODIFIERS_CONFIG: { id: AiModifier; icon: string; title: string; info: string }[] = [
-  { id: 'shortify', icon: '✂️', title: 'Сократить',   info: 'Сокращает пост вдвое: убирает лишние слова и повторы, сохраняя ключевые факты и смысл' },
-  { id: 'hashtags', icon: '#',  title: 'Хештеги',     info: 'Анализирует тему поста и добавляет 7–10 актуальных хештегов для ВКонтакте и Telegram в конец' },
-  { id: 'russify',  icon: '🔤', title: 'Русификация', info: 'Заменяет иностранные слова на естественные русские: фидбек→отклик, дедлайн→срок, контент→публикации' },
+const AI_MODIFIERS_CONFIG: { id: AiModifier; icon: ReactNode; title: string; info: string }[] = [
+  { id: 'shortify', icon: <svg {...S14}><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>, title: 'Сократить',   info: 'Сокращает пост вдвое: убирает лишние слова и повторы, сохраняя ключевые факты и смысл' },
+  { id: 'hashtags', icon: <svg {...S14}><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>,                                          title: 'Хештеги',     info: 'Анализирует тему поста и добавляет 7–10 актуальных хештегов для ВКонтакте и Telegram в конец' },
+  { id: 'russify',  icon: <svg {...S14}><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>,                                                                               title: 'Русификация', info: 'Заменяет иностранные слова на естественные русские: фидбек→отклик, дедлайн→срок, контент→публикации' },
 ]
 
 type PostEditorProps = {
@@ -242,7 +259,7 @@ export default function PostEditor({
     setPrevContent(content)
     setContent(splitRight)
     setAiSplitOpen(false)
-    showToast('✦ ИИ-текст применён!', 'success')
+    showToast('ИИ-текст применён!', 'success')
   }
 
   function applyAllSuggestions() {
@@ -294,7 +311,7 @@ export default function PostEditor({
               <div key={s.n} style={{ display: 'flex', alignItems: 'center' }}>
                 <div className={`step${step === s.n ? ' active' : step > s.n ? ' done' : ''}`}>
                   <div className="step-num" onClick={() => step > s.n && setStep(s.n)}>
-                    {step > s.n ? '✓' : s.n}
+                    {step > s.n ? IcoCheck : s.n}
                   </div>
                   <span className="step-lbl">{s.l}</span>
                 </div>
@@ -312,13 +329,13 @@ export default function PostEditor({
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 12, marginBottom: 20 }}>
               {tmpls.map(t => (
                 <div key={t.type} className={`tmpl-card${tmplType === t.type ? ' sel' : ''}`} onClick={() => setTmplType(t.type)}>
-                  <div className="tmpl-icon" style={{ fontSize: 20 }}>{TICO[t.type] ?? '≡'}</div>
+                  <div className="tmpl-icon">{TSVG[t.type] ?? TSVG_BLANK}</div>
                   <div className="tmpl-name">{t.name}</div>
                   <div className="tmpl-desc">{t.description}</div>
                 </div>
               ))}
               <div className={`tmpl-card${tmplType === '' ? ' sel' : ''}`} onClick={() => setTmplType('')}>
-                <div className="tmpl-icon" style={{ fontSize: 20 }}>✍</div>
+                <div className="tmpl-icon">{TSVG_BLANK}</div>
                 <div className="tmpl-name">С нуля</div>
                 <div className="tmpl-desc">Написать пост самостоятельно</div>
               </div>
@@ -359,7 +376,7 @@ export default function PostEditor({
               <button className="btn btn-secondary" onClick={() => setStep(1)}>← Назад</button>
               <button className="btn btn-primary" onClick={generateText} disabled={gen}>
                 {gen ? 'Генерирую...' : 'Сгенерировать текст'}
-                {!gen && <span className="btn-icon">✦</span>}
+                {!gen && <span className="btn-icon">{IcoAI}</span>}
               </button>
             </div>
           </div>
@@ -394,7 +411,7 @@ export default function PostEditor({
                     className="btn btn-secondary btn-sm ai-assist-btn"
                     onClick={openAiSplit}
                   >
-                    <span className="ai-assist-icon">✦</span> ИИ-помощник
+                    <span className="ai-assist-icon">{IcoAI}</span> ИИ-помощник
                   </button>
                 </div>
               </div>
@@ -419,7 +436,7 @@ export default function PostEditor({
                     className="emoji-fab"
                     title="Открыть меню эмодзи"
                   >
-                    ✨ Эмодзи
+                    {IcoSmile} Эмодзи
                   </button>
                   <div className="emoji-popover" role="dialog" aria-label="Выбор эмодзи">
                     <EmojiPicker
@@ -540,7 +557,7 @@ export default function PostEditor({
               {isEdit && <button className="btn btn-secondary" onClick={() => router.push('/posts')}>Отмена</button>}
               <button className="btn btn-primary" onClick={() => isEdit ? save() : setStep(4)} disabled={saving}>
                 {isEdit ? (saving ? 'Сохраняем...' : 'Сохранить') : 'Далее'}
-                {!saving && <span className="btn-icon">{isEdit ? '✓' : '→'}</span>}
+                {!saving && <span className="btn-icon">{isEdit ? IcoCheck : '→'}</span>}
               </button>
             </div>
           </div>
@@ -556,7 +573,7 @@ export default function PostEditor({
               <div style={{ display: 'flex', gap: 10 }}>
                 {[{ id: 'vk', l: 'ВКонтакте' }, { id: 'telegram', l: 'Telegram' }].map(pl => (
                   <div key={pl.id} className={`pltoggle${platforms.includes(pl.id) ? ' on' : ''}`} onClick={() => togglePl(pl.id)}>
-                    {platforms.includes(pl.id) ? '✓ ' : ''}{pl.l}
+                    {platforms.includes(pl.id) && <span style={{ marginRight: 5, display: 'inline-flex', verticalAlign: 'middle' }}>{IcoCheck}</span>}{pl.l}
                   </div>
                 ))}
               </div>
@@ -586,9 +603,9 @@ export default function PostEditor({
             <div className="fg">
               <label>Статус</label>
               <select value={status} onChange={e => setStatus(e.target.value as 'draft' | 'scheduled' | 'published')}>
-                <option value="draft">○ Черновик</option>
-                <option value="scheduled">◑ Запланировать</option>
-                <option value="published">● Опубликовать сейчас</option>
+                <option value="draft">Черновик</option>
+                <option value="scheduled">Запланировать</option>
+                <option value="published">Опубликовать сейчас</option>
               </select>
             </div>
 
@@ -634,7 +651,7 @@ export default function PostEditor({
               <button className="btn btn-secondary" onClick={() => setStep(3)}>← Назад</button>
               <button className="btn btn-primary" onClick={save} disabled={saving}>
                 {saving ? 'Сохраняем...' : status === 'published' ? 'Опубликовать' : status === 'scheduled' ? 'Запланировать' : 'Сохранить'}
-                {!saving && <span className="btn-icon">{status === 'published' ? '↗' : '✓'}</span>}
+                {!saving && <span className="btn-icon">{status === 'published' ? IcoSend : IcoCheck}</span>}
               </button>
             </div>
           </div>
@@ -647,7 +664,7 @@ export default function PostEditor({
             {/* Header */}
             <div className="ai-split-hd">
               <div className="ai-split-hd-top">
-                <div className="card-title" style={{ fontSize: 13 }}>✦ ИИ-помощник</div>
+                <div className="card-title" style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>{IcoAI} ИИ-помощник</div>
                 <button type="button" className="btn btn-ghost btn-sm" style={{ fontSize: 16, lineHeight: 1, padding: '4px 8px' }} onClick={() => setAiSplitOpen(false)}>✕</button>
               </div>
 
@@ -733,7 +750,7 @@ export default function PostEditor({
                 disabled={!splitRight || splitLoading}
                 onClick={applyAiResult}
               >
-                Применить результат ✓
+                Применить результат <span style={{ display: 'inline-flex', verticalAlign: 'middle', marginLeft: 4 }}>{IcoCheck}</span>
               </button>
             </div>
           </div>

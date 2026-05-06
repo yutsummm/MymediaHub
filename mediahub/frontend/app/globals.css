@@ -1175,7 +1175,16 @@ select option { background: var(--bg-2); color: var(--text); }
 }
 
 .tmpl-card.sel { border-color: var(--accent); background: var(--accent-light); }
-.tmpl-icon { font-size: 24px; margin-bottom: 10px; }
+.tmpl-icon {
+  width: 40px; height: 40px; border-radius: var(--r-md);
+  background: var(--surface-2);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 12px;
+  color: var(--text-3);
+  transition: color 0.15s var(--ease-out), background 0.15s var(--ease-out);
+}
+.tmpl-card:hover .tmpl-icon,
+.tmpl-card.sel .tmpl-icon { color: var(--accent); background: rgba(139,92,246,0.12); }
 .tmpl-name { font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: -0.015em; }
 .tmpl-desc { font-size: 11.5px; color: var(--text-3); margin-top: 4px; }
 
