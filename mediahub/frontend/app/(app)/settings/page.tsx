@@ -7,6 +7,12 @@ import { useGroup } from '@/contexts/GroupContext'
 import { useToast } from '@/contexts/ToastContext'
 import type { VkSettings, TgSettings, GroupMember, InviteLink } from '@/lib/types'
 
+/* ── SVG icons ── */
+const S = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
+const IcoCheck    = <svg {...S}><polyline points="20 6 9 17 4 12"/></svg>
+const IcoExternal = <svg {...S}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+const IcoCopy     = <svg {...S}><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+
 const ROLES = [
   { v: 'admin',    l: 'Администратор', d: 'Полный доступ ко всем функциям' },
   { v: 'editor',   l: 'Редактор',      d: 'Создание и редактирование постов' },
@@ -242,7 +248,7 @@ export default function SettingsPage() {
         ) : (
           <button className="btn btn-primary" onClick={() => setShowVkForm(true)} style={{ marginBottom: showVkForm ? 16 : 0 }}>
             Подключить группу VK
-            <span className="btn-icon">↗</span>
+            <span className="btn-icon">{IcoExternal}</span>
           </button>
         )}
 
@@ -272,7 +278,7 @@ export default function SettingsPage() {
               className="btn btn-secondary"
               style={{ display: 'inline-flex', marginBottom: 14, textDecoration: 'none' }}
             >
-              Получить токен ВК ↗
+              Получить токен ВК <span className="btn-icon">{IcoExternal}</span>
             </a>
             <div className="fg">
               <label>ID группы <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(только цифры)</span></label>
@@ -290,7 +296,7 @@ export default function SettingsPage() {
               </button>
               <button className="btn btn-primary" onClick={connectVk} disabled={vkSaving}>
                 {vkSaving ? 'Проверяем...' : 'Подключить'}
-                {!vkSaving && <span className="btn-icon">✓</span>}
+                {!vkSaving && <span className="btn-icon">{IcoCheck}</span>}
               </button>
             </div>
           </div>
@@ -353,7 +359,7 @@ export default function SettingsPage() {
         ) : (
           <button className="btn btn-primary" onClick={() => setShowTgForm(true)} style={{ marginBottom: showTgForm ? 16 : 0 }}>
             Подключить канал Telegram
-            <span className="btn-icon">↗</span>
+            <span className="btn-icon">{IcoExternal}</span>
           </button>
         )}
 
@@ -389,7 +395,7 @@ export default function SettingsPage() {
               </button>
               <button className="btn btn-primary" onClick={connectTg} disabled={tgSaving}>
                 {tgSaving ? 'Проверяем...' : 'Подключить'}
-                {!tgSaving && <span className="btn-icon">✓</span>}
+                {!tgSaving && <span className="btn-icon">{IcoCheck}</span>}
               </button>
             </div>
           </div>
@@ -431,7 +437,7 @@ export default function SettingsPage() {
                 </div>
                 <button className="btn btn-primary" onClick={createInvite} disabled={creatingInvite}>
                   {creatingInvite ? 'Создаём...' : 'Создать'}
-                  {!creatingInvite && <span className="btn-icon">✓</span>}
+                  {!creatingInvite && <span className="btn-icon">{IcoCheck}</span>}
                 </button>
               </div>
             </div>

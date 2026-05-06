@@ -151,7 +151,7 @@ export default function AnalyticsPage() {
       options: {
         responsive: true, maintainAspectRatio: false,
         interaction: { mode: 'index', intersect: false },
-        plugins: { legend: { position: 'top', labels: { color: text3, font: { size: 12, family: 'Inter, sans-serif' }, boxWidth: 12, padding: 16 } } },
+        plugins: { legend: { position: 'top', labels: { color: text3, font: { size: 12, family: 'Inter, sans-serif' }, usePointStyle: true, pointStyle: 'circle', pointStyleWidth: 10, padding: 20 } } },
         scales: {
           y: { beginAtZero: true, ticks: { color: text3, font: { size: 11 } }, grid: { color: border } },
           x: { ticks: { color: text3, font: { size: 11 } }, grid: { color: border } },
@@ -181,7 +181,7 @@ export default function AnalyticsPage() {
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { position: 'top', labels: { color: text3, font: { size: 12, family: 'Inter, sans-serif' }, boxWidth: 12, padding: 16 } } },
+        plugins: { legend: { position: 'top', labels: { color: text3, font: { size: 12, family: 'Inter, sans-serif' }, usePointStyle: true, pointStyle: 'circle', pointStyleWidth: 10, padding: 20 } } },
         scales: {
           y: { ticks: { color: text3, font: { size: 11 } }, grid: { color: border } },
           x: { ticks: { color: text3, font: { size: 11 } }, grid: { color: border } },

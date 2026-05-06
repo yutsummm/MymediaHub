@@ -13,18 +13,24 @@ const fmtDt = (s: string | null) => {
   const d = new Date(s)
   return d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' }) + ' ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
 }
+
 const SL: Record<string, string> = { draft: 'Черновик', scheduled: 'Запланирован', published: 'Опубликован' }
 const SC: Record<string, string> = { draft: 's-draft', scheduled: 's-scheduled', published: 's-published' }
-const DOT: Record<string, string> = { draft: '○', scheduled: '◑', published: '●' }
-const PI: Record<string, string> = { vk: 'ВК', telegram: 'TG' }
+
+/* ── SVG props ── */
+const S = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
+
+const IcoEdit    = <svg {...S}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+const IcoSend    = <svg {...S}><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+const IcoTrash   = <svg {...S}><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
 
 export default function PostsPage() {
-  const router = useRouter()
+  const router       = useRouter()
   const searchParams = useSearchParams()
-  const { user } = useAuth()
+  const { user }     = useAuth()
   const { showToast } = useToast()
-  const [posts, setPosts] = useState<Post[]>([])
-  const [search, setSearch] = useState('')
+  const [posts, setPosts]       = useState<Post[]>([])
+  const [search, setSearch]     = useState('')
   const [stFilter, setStFilter] = useState('')
   const [dateFilter, setDateFilter] = useState(searchParams.get('date') ?? '')
   const [pub, setPub] = useState<number | null>(null)
@@ -68,10 +74,10 @@ export default function PostsPage() {
         showToast(
           okParts.length ? 'Опубликован частично' : 'Ошибка публикации',
           'error',
-          [...okParts.map(s => '✓ ' + s), ...errs.map(s => '✗ ' + s)].join('\n'),
+          [...okParts.map(s => '+ ' + s), ...errs.map(s => '- ' + s)].join('\n'),
         )
       } else if (okParts.length) {
-        showToast('Пост опубликован', 'success', okParts.map(s => '✓ ' + s).join('\n'))
+        showToast('Пост опубликован', 'success', okParts.join('\n'))
       } else {
         showToast('Пост опубликован', 'success')
       }
@@ -98,7 +104,14 @@ export default function PostsPage() {
           </div>
         )}
         <span className="ts tg" style={{ marginLeft: 'auto' }}>{filtered.length} постов</span>
-        {canEdit && <button className="btn btn-primary" onClick={() => router.push('/posts/new')}>+ Создать пост</button>}
+        {canEdit && (
+          <button className="btn btn-primary" onClick={() => router.push('/posts/new')} style={{ gap: 6 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Создать пост
+          </button>
+        )}
       </div>
 
       <div className="card">
@@ -118,10 +131,14 @@ export default function PostsPage() {
                     <div className="trunc" style={{ fontWeight: 600, fontSize: 13, maxWidth: 260, color: 'var(--text)' }}>{p.title}</div>
                     {p.author_name && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{p.author_name}</div>}
                   </td>
-                  <td><span className={`sbadge ${SC[p.status]}`}>{DOT[p.status]} {SL[p.status]}</span></td>
+                  <td><span className={`sbadge ${SC[p.status]}`}>{SL[p.status]}</span></td>
                   <td>
                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      {(p.platforms || []).map(pl => <span key={pl} className="pchip">{PI[pl] || pl} {pl.toUpperCase()}</span>)}
+                      {(p.platforms || []).map(pl => (
+                        <span key={pl} className="pchip">
+                          {pl === 'vk' ? 'ВК' : pl === 'telegram' ? 'TG' : pl.toUpperCase()}
+                        </span>
+                      ))}
                     </div>
                   </td>
                   <td>
@@ -137,14 +154,36 @@ export default function PostsPage() {
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
-                      {canEdit && <button className="btn btn-secondary btn-sm" onClick={() => router.push(`/posts/${p.id}/edit`)}>✏</button>}
+                      {canEdit && (
+                        <button
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => router.push(`/posts/${p.id}/edit`)}
+                          title="Редактировать"
+                        >
+                          {IcoEdit}
+                        </button>
+                      )}
                       {canEdit && (p.status === 'draft' || p.status === 'scheduled') && (
-                        <button className="btn btn-success btn-sm" onClick={() => handlePublish(p)} disabled={pub === p.id}>
-                          {pub === p.id ? '...' : '↗'}
+                        <button
+                          className="btn btn-success btn-sm"
+                          onClick={() => handlePublish(p)}
+                          disabled={pub === p.id}
+                          title="Опубликовать"
+                        >
+                          {pub === p.id
+                            ? <svg {...S}><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>
+                            : IcoSend
+                          }
                         </button>
                       )}
                       {user?.role === 'admin' && (
-                        <button className="btn btn-danger btn-sm" onClick={() => handleDelete(p)}>×</button>
+                        <button
+                          className="btn btn-danger btn-sm"
+                          onClick={() => handleDelete(p)}
+                          title="Удалить"
+                        >
+                          {IcoTrash}
+                        </button>
                       )}
                     </div>
                   </td>
