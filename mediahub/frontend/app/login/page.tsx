@@ -75,18 +75,8 @@ export default function LoginPage() {
               />
             </div>
 
-            <div className="fg" style={{ position: 'relative' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <label style={{ margin: 0 }}>Пароль</label>
-                <Link
-                  href="/forgot-password"
-                  style={{ fontSize: 11.5, color: 'var(--text-3)', textDecoration: 'none', fontWeight: 500, transition: 'color var(--dur-fast)' }}
-                  onMouseEnter={e => ((e.target as HTMLAnchorElement).style.color = 'var(--accent)')}
-                  onMouseLeave={e => ((e.target as HTMLAnchorElement).style.color = 'var(--text-3)')}
-                >
-                  Забыли пароль?
-                </Link>
-              </div>
+            <div className="fg" style={{ position: 'relative', marginBottom: 10 }}>
+              <label>Пароль</label>
               <div style={{ position: 'relative' }}>
                 <input
                   type={showPw ? 'text' : 'password'}
@@ -114,6 +104,22 @@ export default function LoginPage() {
                   }
                 </button>
               </div>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <Link
+                href="/forgot-password"
+                style={{
+                  fontSize: 12.5, color: 'var(--accent)', textDecoration: 'none',
+                  fontWeight: 500, opacity: 0.8,
+                  transition: 'opacity var(--dur-fast)',
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                }}
+                onMouseEnter={e => ((e.currentTarget as HTMLAnchorElement).style.opacity = '1')}
+                onMouseLeave={e => ((e.currentTarget as HTMLAnchorElement).style.opacity = '0.8')}
+              >
+                Забыли пароль?
+              </Link>
             </div>
 
             {err && (
