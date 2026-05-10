@@ -75,37 +75,6 @@ def get_current_user_id(authorization: str = Header(None)) -> int:
     except (JWTError, KeyError, ValueError, IndexError):
         raise HTTPException(401, "Недействительный токен")
 
-def send_verification_email(to_email: str, code: str, name: str):
-    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_user = os.getenv("SMTP_USER", "")
-    smtp_password = os.getenv("SMTP_PASSWORD", "")
-    smtp_from = os.getenv("SMTP_FROM", smtp_user)
-
-    if not smtp_user or not smtp_password:
-        raise ValueError("SMTP не настроен: задайте переменные SMTP_USER и SMTP_PASSWORD")
-
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Подтверждение регистрации — MediaHub"
-    msg["From"] = smtp_from
-    msg["To"] = to_email
-
-    html = f"""
-    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
-      <h2 style="color:#4f46e5">📡 MediaHub</h2>
-      <p>Привет, <b>{name}</b>!</p>
-      <p>Ваш код подтверждения для завершения регистрации:</p>
-      <div style="font-size:36px;font-weight:800;letter-spacing:12px;color:#4f46e5;padding:20px;background:#f0f0ff;border-radius:12px;text-align:center">{code}</div>
-      <p style="color:#888;font-size:13px;margin-top:20px">Код действителен 10 минут. Если вы не регистрировались — проигнорируйте это письмо.</p>
-    </div>
-    """
-    msg.attach(MIMEText(html, "html"))
-
-    with smtplib.SMTP(smtp_host, smtp_port) as server:
-        server.starttls()
-        server.login(smtp_user, smtp_password)
-        server.sendmail(smtp_from, to_email, msg.as_string())
-
 def require_group_member(group_id: int, user_id: int, conn) -> str:
     c = conn.cursor()
     c.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s", (group_id, user_id))
@@ -180,10 +149,6 @@ class RegisterRequest(BaseModel):
     name: str
     email: str
     password: str
-
-class VerifyRegisterRequest(BaseModel):
-    email: str
-    code: str
 
 class UserCreate(BaseModel):
     name: str
@@ -1209,64 +1174,23 @@ def register(req: RegisterRequest):
     if len(req.password) < 6:
         raise HTTPException(400, "Пароль должен содержать минимум 6 символов")
     email = req.email.lower().strip()
+    name = req.name.strip()
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT id FROM users WHERE email=%s", (email,))
     if c.fetchone():
         conn.close()
         raise HTTPException(409, "Пользователь с таким email уже существует")
-    # Clean up expired / previous attempts for this email
-    c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
-    code = str(random.randint(100000, 999999))
-    expires_at = datetime.utcnow() + timedelta(minutes=10)
-    c.execute(
-        "INSERT INTO email_verifications (email, name, password_hash, code, expires_at) VALUES (%s,%s,%s,%s,%s)",
-        (email, req.name.strip(), hash_password(req.password), code, expires_at),
-    )
-    conn.commit()
-    conn.close()
-    try:
-        send_verification_email(email, code, req.name.strip())
-    except ValueError as e:
-        raise HTTPException(503, str(e))
-    except Exception as e:
-        raise HTTPException(500, f"Не удалось отправить письмо: {e}")
-    return {"status": "code_sent", "email": email}
-
-@app.post("/api/auth/verify-register")
-def verify_register(req: VerifyRegisterRequest):
-    email = req.email.lower().strip()
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT * FROM email_verifications WHERE email=%s ORDER BY id DESC LIMIT 1", (email,))
-    row = c.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(400, "Код не найден. Пройдите регистрацию заново")
-    if datetime.utcnow() > row["expires_at"]:
-        c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
-        conn.commit()
-        conn.close()
-        raise HTTPException(400, "Срок действия кода истёк. Пройдите регистрацию заново")
-    if row["code"] != req.code.strip():
-        conn.close()
-        raise HTTPException(400, "Неверный код подтверждения")
-    # Create user
-    c.execute("SELECT id FROM users WHERE email=%s", (email,))
-    if c.fetchone():
-        conn.close()
-        raise HTTPException(409, "Пользователь с таким email уже существует")
-    avatar = "".join(p[0].upper() for p in row["name"].split()[:2])
+    avatar = "".join(p[0].upper() for p in name.split()[:2])
     c.execute(
         "INSERT INTO users (name, email, role, avatar, password_hash) VALUES (%s,%s,%s,%s,%s) RETURNING id",
-        (row["name"], email, "editor", avatar, row["password_hash"]),
+        (name, email, "editor", avatar, hash_password(req.password)),
     )
     uid = c.fetchone()["id"]
     c.execute("SELECT id FROM groups ORDER BY id ASC LIMIT 1")
     default_group = c.fetchone()
     if default_group:
         c.execute("INSERT INTO group_members (group_id, user_id, role) VALUES (%s, %s, 'editor') ON CONFLICT DO NOTHING", (default_group["id"], uid))
-    c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
     conn.commit()
     c.execute("SELECT * FROM users WHERE id=%s", (uid,))
     user = c.fetchone()
