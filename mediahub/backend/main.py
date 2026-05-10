@@ -75,39 +75,6 @@ def get_current_user_id(authorization: str = Header(None)) -> int:
     except (JWTError, KeyError, ValueError, IndexError):
         raise HTTPException(401, "Недействительный токен")
 
-def send_verification_email(to_email: str, code: str, name: str):
-    api_key = os.getenv("BREVO_API_KEY", "")
-    sender_email = os.getenv("BREVO_SENDER_EMAIL", "")
-    sender_name = os.getenv("BREVO_SENDER_NAME", "MediaHub")
-    if not api_key:
-        raise ValueError("BREVO_API_KEY не задан")
-    if not sender_email:
-        raise ValueError("BREVO_SENDER_EMAIL не задан")
-
-    html = f"""
-    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
-      <h2 style="color:#4f46e5">MediaHub</h2>
-      <p>Привет, <b>{name}</b>!</p>
-      <p>Ваш код подтверждения для завершения регистрации:</p>
-      <div style="font-size:36px;font-weight:800;letter-spacing:12px;color:#4f46e5;padding:20px;background:#f0f0ff;border-radius:12px;text-align:center">{code}</div>
-      <p style="color:#888;font-size:13px;margin-top:20px">Код действителен 10 минут. Если вы не регистрировались — проигнорируйте это письмо.</p>
-    </div>
-    """
-
-    resp = http_requests.post(
-        "https://api.brevo.com/v3/smtp/email",
-        headers={"api-key": api_key, "Content-Type": "application/json"},
-        json={
-            "sender": {"name": sender_name, "email": sender_email},
-            "to": [{"email": to_email}],
-            "subject": "Подтверждение регистрации — MediaHub",
-            "htmlContent": html,
-        },
-        timeout=10,
-    )
-    if resp.status_code >= 400:
-        raise RuntimeError(f"Brevo error {resp.status_code}: {resp.text}")
-
 def require_group_member(group_id: int, user_id: int, conn) -> str:
     c = conn.cursor()
     c.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s", (group_id, user_id))
@@ -182,10 +149,6 @@ class RegisterRequest(BaseModel):
     name: str
     email: str
     password: str
-
-class VerifyRegisterRequest(BaseModel):
-    email: str
-    code: str
 
 class UserCreate(BaseModel):
     name: str
@@ -1233,66 +1196,23 @@ def register(req: RegisterRequest):
     if not _re.search(r'[!@#$%^&*()\-_=+\[\]{};:\'",.<>/?\\|`~]', req.password):
         raise HTTPException(400, "Пароль должен содержать хотя бы один спецсимвол")
     email = req.email.lower().strip()
+    name = req.name.strip()
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT id FROM users WHERE email=%s", (email,))
     if c.fetchone():
         conn.close()
         raise HTTPException(409, "Пользователь с таким email уже существует")
-    # Clean up expired / previous attempts for this email
-    c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
-    code = str(random.randint(100000, 999999))
-    expires_at = datetime.utcnow() + timedelta(minutes=10)
-    c.execute(
-        "INSERT INTO email_verifications (email, name, password_hash, code, expires_at) VALUES (%s,%s,%s,%s,%s)",
-        (email, req.name.strip(), hash_password(req.password), code, expires_at),
-    )
-    conn.commit()
-    conn.close()
-    try:
-        send_verification_email(email, code, req.name.strip())
-    except ValueError as e:
-        raise HTTPException(503, str(e))
-    except Exception as e:
-        import traceback, sys
-        traceback.print_exc(file=sys.stderr)
-        raise HTTPException(500, f"Не удалось отправить письмо: {type(e).__name__}: {e}")
-    return {"status": "code_sent", "email": email}
-
-@app.post("/api/auth/verify-register")
-def verify_register(req: VerifyRegisterRequest):
-    email = req.email.lower().strip()
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT * FROM email_verifications WHERE email=%s ORDER BY id DESC LIMIT 1", (email,))
-    row = c.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(400, "Код не найден. Пройдите регистрацию заново")
-    if datetime.utcnow() > row["expires_at"]:
-        c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
-        conn.commit()
-        conn.close()
-        raise HTTPException(400, "Срок действия кода истёк. Пройдите регистрацию заново")
-    if row["code"] != req.code.strip():
-        conn.close()
-        raise HTTPException(400, "Неверный код подтверждения")
-    # Create user
-    c.execute("SELECT id FROM users WHERE email=%s", (email,))
-    if c.fetchone():
-        conn.close()
-        raise HTTPException(409, "Пользователь с таким email уже существует")
-    avatar = "".join(p[0].upper() for p in row["name"].split()[:2])
+    avatar = "".join(p[0].upper() for p in name.split()[:2])
     c.execute(
         "INSERT INTO users (name, email, role, avatar, password_hash) VALUES (%s,%s,%s,%s,%s) RETURNING id",
-        (row["name"], email, "editor", avatar, row["password_hash"]),
+        (name, email, "editor", avatar, hash_password(req.password)),
     )
     uid = c.fetchone()["id"]
     c.execute("SELECT id FROM groups ORDER BY id ASC LIMIT 1")
     default_group = c.fetchone()
     if default_group:
         c.execute("INSERT INTO group_members (group_id, user_id, role) VALUES (%s, %s, 'editor') ON CONFLICT DO NOTHING", (default_group["id"], uid))
-    c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
     conn.commit()
     c.execute("SELECT * FROM users WHERE id=%s", (uid,))
     user = c.fetchone()

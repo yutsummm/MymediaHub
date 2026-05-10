@@ -50,12 +50,8 @@ export const api = {
       method: 'POST', body: body({ email, password }),
     }),
   register: (name: string, email: string, password: string) =>
-    req<{ status: string; email: string }>('/api/auth/register', {
+    req<{ user: import('./types').User; token: string; groups: unknown[] }>('/api/auth/register', {
       method: 'POST', body: body({ name, email, password }),
-    }),
-  verifyRegister: (email: string, code: string) =>
-    req<{ user: import('./types').User; token: string }>('/api/auth/verify-register', {
-      method: 'POST', body: body({ email, code }),
     }),
 
   getUsers: () => req<import('./types').User[]>('/api/users'),
