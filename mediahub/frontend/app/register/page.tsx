@@ -34,7 +34,7 @@ function PwStrength({ pw }: { pw: string }) {
 }
 
 export default function RegisterPage() {
-  const { user, loading } = useAuth()
+  const { user, loading, login } = useAuth()
   const router = useRouter()
 
   useEffect(() => {
