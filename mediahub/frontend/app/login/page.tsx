@@ -76,7 +76,17 @@ export default function LoginPage() {
             </div>
 
             <div className="fg" style={{ position: 'relative' }}>
-              <label>Пароль</label>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <label style={{ margin: 0 }}>Пароль</label>
+                <Link
+                  href="/forgot-password"
+                  style={{ fontSize: 11.5, color: 'var(--text-3)', textDecoration: 'none', fontWeight: 500, transition: 'color var(--dur-fast)' }}
+                  onMouseEnter={e => ((e.target as HTMLAnchorElement).style.color = 'var(--accent)')}
+                  onMouseLeave={e => ((e.target as HTMLAnchorElement).style.color = 'var(--text-3)')}
+                >
+                  Забыли пароль?
+                </Link>
+              </div>
               <div style={{ position: 'relative' }}>
                 <input
                   type={showPw ? 'text' : 'password'}

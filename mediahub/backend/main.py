@@ -75,6 +75,39 @@ def get_current_user_id(authorization: str = Header(None)) -> int:
     except (JWTError, KeyError, ValueError, IndexError):
         raise HTTPException(401, "Недействительный токен")
 
+def send_reset_email(to_email: str, code: str):
+    api_key = os.getenv("BREVO_API_KEY", "")
+    sender_email = os.getenv("BREVO_SENDER_EMAIL", "")
+    sender_name = os.getenv("BREVO_SENDER_NAME", "MediaHub")
+    if not api_key:
+        raise ValueError("BREVO_API_KEY не задан")
+    if not sender_email:
+        raise ValueError("BREVO_SENDER_EMAIL не задан")
+
+    html = f"""
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
+      <h2 style="color:#4f46e5">MediaHub</h2>
+      <p>Вы запросили сброс пароля.</p>
+      <p>Ваш код для сброса пароля:</p>
+      <div style="font-size:36px;font-weight:800;letter-spacing:12px;color:#4f46e5;padding:20px;background:#f0f0ff;border-radius:12px;text-align:center">{code}</div>
+      <p style="color:#888;font-size:13px;margin-top:20px">Код действителен 15 минут. Если вы не запрашивали сброс — проигнорируйте это письмо.</p>
+    </div>
+    """
+
+    resp = http_requests.post(
+        "https://api.brevo.com/v3/smtp/email",
+        headers={"api-key": api_key, "Content-Type": "application/json"},
+        json={
+            "sender": {"name": sender_name, "email": sender_email},
+            "to": [{"email": to_email}],
+            "subject": "Сброс пароля — MediaHub",
+            "htmlContent": html,
+        },
+        timeout=10,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Brevo error {resp.status_code}: {resp.text}")
+
 def require_group_member(group_id: int, user_id: int, conn) -> str:
     c = conn.cursor()
     c.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s", (group_id, user_id))
@@ -149,6 +182,14 @@ class RegisterRequest(BaseModel):
     name: str
     email: str
     password: str
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    code: str
+    new_password: str
 
 class UserCreate(BaseModel):
     name: str
@@ -277,6 +318,16 @@ def init_db():
             email TEXT NOT NULL,
             name TEXT NOT NULL,
             password_hash TEXT NOT NULL,
+            code TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS password_resets (
+            id SERIAL PRIMARY KEY,
+            email TEXT NOT NULL,
             code TEXT NOT NULL,
             expires_at TIMESTAMP NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -1221,6 +1272,70 @@ def register(req: RegisterRequest):
     groups = [dict(r) for r in c.fetchall()]
     conn.close()
     return {"user": row_to_dict(user), "token": token, "groups": groups}
+
+@app.post("/api/auth/forgot-password")
+def forgot_password(req: ForgotPasswordRequest):
+    email = req.email.lower().strip()
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id FROM users WHERE email=%s", (email,))
+    user = c.fetchone()
+    if not user:
+        conn.close()
+        # Return success anyway to avoid email enumeration
+        return {"status": "code_sent"}
+    c.execute("DELETE FROM password_resets WHERE email=%s", (email,))
+    code = str(random.randint(100000, 999999))
+    expires_at = datetime.utcnow() + timedelta(minutes=15)
+    c.execute(
+        "INSERT INTO password_resets (email, code, expires_at) VALUES (%s, %s, %s)",
+        (email, code, expires_at),
+    )
+    conn.commit()
+    conn.close()
+    try:
+        send_reset_email(email, code)
+    except ValueError as e:
+        raise HTTPException(503, str(e))
+    except Exception as e:
+        import traceback, sys
+        traceback.print_exc(file=sys.stderr)
+        raise HTTPException(500, f"Не удалось отправить письмо: {type(e).__name__}: {e}")
+    return {"status": "code_sent"}
+
+@app.post("/api/auth/reset-password")
+def reset_password(req: ResetPasswordRequest):
+    import re as _re
+    if len(req.new_password) < 8:
+        raise HTTPException(400, "Пароль должен содержать минимум 8 символов")
+    if not _re.search(r'[a-zA-Zа-яА-Я]', req.new_password):
+        raise HTTPException(400, "Пароль должен содержать хотя бы одну букву")
+    if not _re.search(r'[!@#$%^&*()\-_=+\[\]{};:\'",.<>/?\\|`~]', req.new_password):
+        raise HTTPException(400, "Пароль должен содержать хотя бы один спецсимвол")
+    email = req.email.lower().strip()
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM password_resets WHERE email=%s ORDER BY id DESC LIMIT 1", (email,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(400, "Код не найден. Запросите сброс пароля заново")
+    if datetime.utcnow() > row["expires_at"]:
+        c.execute("DELETE FROM password_resets WHERE email=%s", (email,))
+        conn.commit()
+        conn.close()
+        raise HTTPException(400, "Срок действия кода истёк. Запросите сброс пароля заново")
+    if row["code"] != req.code.strip():
+        conn.close()
+        raise HTTPException(400, "Неверный код подтверждения")
+    c.execute(
+        "UPDATE users SET password_hash=%s WHERE email=%s",
+        (hash_password(req.new_password), email),
+    )
+    c.execute("DELETE FROM password_resets WHERE email=%s", (email,))
+    conn.commit()
+    conn.close()
+    return {"status": "ok"}
 
 # ── Groups ───────────────────────────────────────────────────────────────────
 

@@ -53,6 +53,14 @@ export const api = {
     req<{ user: import('./types').User; token: string; groups: unknown[] }>('/api/auth/register', {
       method: 'POST', body: body({ name, email, password }),
     }),
+  forgotPassword: (email: string) =>
+    req<{ status: string }>('/api/auth/forgot-password', {
+      method: 'POST', body: body({ email }),
+    }),
+  resetPassword: (email: string, code: string, new_password: string) =>
+    req<{ status: string }>('/api/auth/reset-password', {
+      method: 'POST', body: body({ email, code, new_password }),
+    }),
 
   getUsers: () => req<import('./types').User[]>('/api/users'),
   updateUserRole: (id: number, role: string) =>
