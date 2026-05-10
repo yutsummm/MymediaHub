@@ -764,25 +764,24 @@ select option { background: var(--bg-2); color: var(--text); }
 /* ─── Template cards ─── */
 .tmpl-card {
   border: 1px solid var(--border); border-radius: var(--r-lg);
-  padding: 18px; cursor: pointer; background: var(--surface);
+  padding: 16px 18px; cursor: pointer; background: var(--surface);
+  display: flex; align-items: center; gap: 14px;
   transition:
     border-color var(--dur-fast) var(--ease-out),
     background var(--dur-fast) var(--ease-out),
     transform var(--dur-fast) var(--ease-out);
 }
+.tmpl-card:active { transform: scale(0.98); }
 .tmpl-card:hover { border-color: var(--border-2); background: var(--surface-h); }
-@media (hover: hover) and (pointer: fine) {
-  .tmpl-card:hover { transform: translateY(-2px); }
-}
 .tmpl-card.sel { border-color: var(--accent); background: var(--accent-light); }
 .tmpl-icon {
   display: flex; align-items: center; justify-content: center;
-  margin-bottom: 14px; color: var(--text-2);
+  flex-shrink: 0; color: var(--text-2);
   transition: color var(--dur-fast) var(--ease-out);
 }
 .tmpl-card.sel .tmpl-icon { color: var(--accent); }
 .tmpl-name { font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: -0.015em; }
-.tmpl-desc { font-size: 11.5px; color: var(--text-3); margin-top: 4px; }
+.tmpl-desc { font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
 
 /* ─── Platform toggle ─── */
 .pltoggle {
