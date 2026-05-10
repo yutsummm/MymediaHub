@@ -11,16 +11,35 @@ import YandexLocationPickerModal from '@/components/YandexLocationPickerModal'
 /* ── SVG props ── */
 const S14 = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 const S16 = { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
-const S20 = { width: 20, height: 20, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 
 /* ── Template card icons ── */
+const SI = { width: 28, height: 28, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 const TSVG: Record<string, ReactNode> = {
-  announcement: <svg {...S20}><path d="M3 11v2c0 .6.4 1 1 1h2l4 4V7L6 11H4a1 1 0 0 0-1 1z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>,
-  results:      <svg {...S20}><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/></svg>,
-  vacancy:      <svg {...S20}><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>,
-  grant:        <svg {...S20}><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg>,
+  announcement: <svg {...SI}>
+    <path d="M4 12v-1a4 4 0 0 1 4-4h9l2-3v14l-2-3H8a4 4 0 0 1-4-4v-1z"/>
+    <path d="M8 12h.01M11 12h.01M14 12h.01"/>
+  </svg>,
+  results: <svg {...SI}>
+    <path d="M8 21h8M12 17v4"/>
+    <path d="M7 4h10l1 7a6 6 0 0 1-12 0z"/>
+    <path d="M5 4H4a1 1 0 0 0 0 5h3M19 4h1a1 1 0 0 1 0 5h-3"/>
+    <path d="M10 11l2 2 2-4"/>
+  </svg>,
+  vacancy: <svg {...SI}>
+    <rect x="3" y="8" width="18" height="13" rx="2"/>
+    <path d="M8 8V6a4 4 0 0 1 8 0v2"/>
+    <path d="M12 13v2M10 15h4"/>
+  </svg>,
+  grant: <svg {...SI}>
+    <circle cx="12" cy="9" r="5"/>
+    <path d="M9 14.5 7.5 21l4.5-2 4.5 2L15 14.5"/>
+    <path d="M10 8l1.5 1.5L14 7"/>
+  </svg>,
 }
-const TSVG_BLANK = <svg {...S20}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+const TSVG_BLANK = <svg {...SI}>
+  <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+  <path d="M15 3l4 4-8 8H7v-4z"/>
+</svg>
 
 /* ── Shared icons ── */
 const IcoCheck = <svg {...S16}><polyline points="20 6 9 17 4 12"/></svg>

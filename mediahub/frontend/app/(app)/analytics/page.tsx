@@ -204,9 +204,9 @@ export default function AnalyticsPage() {
 
       {/* Timeline chart */}
       <div className="card mb6 anim-in" style={{ animationDelay: '200ms' }}>
-        <div className="card-header">
+        <div className="card-header" style={{ flexWrap: 'wrap', gap: 10 }}>
           <span className="card-title">Динамика охватов</span>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginLeft: 'auto' }}>
             <div className="period-seg">
               {(['week', 'month', 'quarter'] as const).map(p => (
                 <button key={p} className={`period-seg-btn${period === p ? ' active' : ''}`} onClick={() => setPeriod(p)}>
@@ -214,11 +214,12 @@ export default function AnalyticsPage() {
                 </button>
               ))}
             </div>
-            <div style={{ width: 1, height: 20, background: 'var(--border)', flexShrink: 0 }} />
-            <select className="fsel" value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} style={{ fontSize: 12, padding: '5px 10px', borderRadius: 'var(--r-full)' }}>
+            <select className="fsel" value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))}
+              style={{ fontSize: 12, padding: '5px 10px', borderRadius: 'var(--r-full)', maxWidth: 180 }}>
               {monthOptions.map((o, i) => <option key={i} value={i}>{o.label}</option>)}
             </select>
-            <button className="btn btn-sm btn-secondary" onClick={handleExport} disabled={exporting} style={{ gap: 5 }}>
+            <div style={{ width: 1, height: 18, background: 'var(--border)', flexShrink: 0 }} />
+            <button className="btn btn-sm btn-secondary" onClick={handleExport} disabled={exporting} style={{ gap: 5, flexShrink: 0 }}>
               {exporting ? <div className="ai-spinner" style={{ width: 13, height: 13 }} /> : IcoDownload}
               {exporting ? 'Формируем...' : 'Excel'}
             </button>

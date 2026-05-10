@@ -108,8 +108,8 @@
   --accent-glow:  rgba(8,64,181,0.15);
 
   --text:   rgba(10,10,10,0.92);
-  --text-2: rgba(10,10,10,0.50);
-  --text-3: rgba(10,10,10,0.32);
+  --text-2: rgba(10,10,10,0.62);
+  --text-3: rgba(10,10,10,0.44);
 
   --border:   rgba(0,0,0,0.08);
   --border-2: rgba(0,0,0,0.14);
@@ -776,12 +776,11 @@ select option { background: var(--bg-2); color: var(--text); }
 }
 .tmpl-card.sel { border-color: var(--accent); background: var(--accent-light); }
 .tmpl-icon {
-  width: 40px; height: 40px; border-radius: var(--r-md);
-  background: var(--surface-2); display: flex; align-items: center; justify-content: center;
-  margin-bottom: 12px; color: var(--text-3);
-  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 14px; color: var(--text-2);
+  transition: color var(--dur-fast) var(--ease-out);
 }
-.tmpl-card.sel .tmpl-icon { color: var(--accent); background: var(--accent-light); }
+.tmpl-card.sel .tmpl-icon { color: var(--accent); }
 .tmpl-name { font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: -0.015em; }
 .tmpl-desc { font-size: 11.5px; color: var(--text-3); margin-top: 4px; }
 
