@@ -166,11 +166,29 @@ export default function PostEditor({
       if (isEdit) {
         if (currentGroup) await api.updateGroupPost(currentGroup.id, editPost!.id, body)
         else await api.updatePost(editPost!.id, body)
+        showToast('Пост обновлён!', 'success')
       } else {
-        if (currentGroup) await api.createGroupPost(currentGroup.id, body)
-        else await api.createPost(body)
+        let newPost: import('@/lib/types').Post
+        if (currentGroup) newPost = await api.createGroupPost(currentGroup.id, body)
+        else newPost = await api.createPost(body)
+        if (status === 'published' && currentGroup) {
+          try {
+            const r = await api.publishGroupPost(currentGroup.id, newPost.id) as any
+            const errs: string[] = []
+            const okParts: string[] = []
+            if (r.vk_error) errs.push(`VK: ${r.vk_error}`)
+            else if (r.vk_post_id) okParts.push(`VK`)
+            if (r.tg_error) errs.push(`Telegram: ${r.tg_error}`)
+            else if (r.tg_message_ids?.length) okParts.push(`Telegram`)
+            if (errs.length) showToast(okParts.length ? 'Опубликован частично' : 'Ошибка публикации', 'error', errs.join('\n'))
+            else showToast('Пост опубликован!', 'success', okParts.length ? okParts.join(' + ') : undefined)
+          } catch {
+            showToast('Пост создан, но ошибка публикации', 'error')
+          }
+        } else {
+          showToast('Пост создан!', 'success')
+        }
       }
-      showToast(isEdit ? 'Пост обновлён!' : 'Пост создан!', 'success')
       router.push('/posts')
     } catch (e: unknown) { showToast((e as Error).message, 'error') }
     finally { setSaving(false) }
