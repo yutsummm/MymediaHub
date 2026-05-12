@@ -58,6 +58,7 @@ export default function SettingsPage() {
   const [vkSaving, setVkSaving]     = useState(false)
   const [vkDis, setVkDis]           = useState(false)
   const [showVkForm, setShowVkForm] = useState(false)
+  const [showVkToken, setShowVkToken] = useState(false)
 
   const [tg, setTg]                 = useState<TgSettings | null>(null)
   const [tgBotToken, setTgBotToken] = useState('')
@@ -65,6 +66,7 @@ export default function SettingsPage() {
   const [tgSaving, setTgSaving]     = useState(false)
   const [tgDis, setTgDis]           = useState(false)
   const [showTgForm, setShowTgForm] = useState(false)
+  const [showTgToken, setShowTgToken] = useState(false)
 
   const [showCreateInvite, setShowCreateInvite] = useState(false)
   const [inviteRole, setInviteRole]   = useState('editor')
@@ -264,25 +266,41 @@ export default function SettingsPage() {
           <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
             {infoBox('rgba(59,130,246,0.08)', <>
               <strong style={{ color: 'var(--text)', fontSize: 12.5 }}>Как получить токен:</strong><br />
-              <strong>1.</strong> Нажмите <strong>«Получить токен ВК»</strong> — откроется авторизация<br />
-              <strong>2.</strong> Разрешите доступ → в URL найдите <code style={{ background: 'var(--surface-2)', padding: '1px 5px', borderRadius: 3 }}>access_token=</code><br />
-              <strong>3.</strong> Скопируйте значение <strong>до символа &amp;</strong><br />
-              <strong>4.</strong> ID группы: число из URL <code style={{ background: 'var(--surface-2)', padding: '1px 5px', borderRadius: 3 }}>vk.com/club<strong>123456</strong></code>
+              <strong>1.</strong> Нажмите <strong>«Получить токен ВК»</strong> → откроется страница VK<br />
+              <strong>2.</strong> Нажмите <strong>«Разрешить»</strong> → вас перекинет на пустую страницу<br />
+              <strong>3.</strong> В адресной строке браузера найдите <code style={{ background: 'var(--surface-2)', padding: '1px 5px', borderRadius: 3 }}>#access_token=</code> — скопируйте всё <strong>от символа после = до ближайшего &amp;</strong><br />
+              <strong>4.</strong> ID группы — цифры из URL вашей группы: <code style={{ background: 'var(--surface-2)', padding: '1px 5px', borderRadius: 3 }}>vk.com/club<strong>123456789</strong></code>
             </>)}
-            <a href="https://oauth.vk.com/authorize?client_id=2685278&scope=wall,photos,groups,manage,offline&redirect_uri=https://oauth.vk.com/blank.html&display=page&response_type=token&revoke=1&v=5.199"
+            <a href="https://oauth.vk.com/authorize?client_id=2685278&scope=wall,photos,video,docs,groups,offline&redirect_uri=https://oauth.vk.com/blank.html&display=page&response_type=token&revoke=1&v=5.131"
               target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm" style={{ display: 'inline-flex', marginBottom: 14, textDecoration: 'none' }}>
               Получить токен ВК {IcoExternal}
             </a>
             <div className="fg">
-              <label>ID группы <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(только цифры)</span></label>
-              <input type="text" inputMode="numeric" placeholder="238076799" value={vkGroupId} onChange={e => setVkGroupId(e.target.value.replace(/[^\d]/g, ''))} />
+              <label>ID группы <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>(только цифры из URL)</span></label>
+              <input type="text" inputMode="numeric" placeholder="123456789" value={vkGroupId} onChange={e => setVkGroupId(e.target.value.replace(/[^\d]/g, ''))} />
             </div>
             <div className="fg">
               <label>Токен доступа</label>
-              <input type="password" placeholder="vk1.a.XXXXXXXX..." value={vkToken} onChange={e => setVkToken(e.target.value.trim())} autoComplete="off" />
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showVkToken ? 'text' : 'password'}
+                  placeholder="vk1.a.XXXXXXXX..."
+                  value={vkToken}
+                  onChange={e => setVkToken(e.target.value.trim())}
+                  autoComplete="off"
+                  style={{ width: '100%', paddingRight: 40 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowVkToken(v => !v)}
+                  style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: 12, padding: 0 }}
+                >
+                  {showVkToken ? 'Скрыть' : 'Показать'}
+                </button>
+              </div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-secondary btn-sm" onClick={() => { setShowVkForm(false); setVkGroupId(''); setVkToken('') }}>Отмена</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => { setShowVkForm(false); setVkGroupId(''); setVkToken(''); setShowVkToken(false) }}>Отмена</button>
               <button className="btn btn-primary btn-sm" onClick={connectVk} disabled={vkSaving}>{vkSaving ? 'Проверяем...' : <>{IcoCheck} Подключить</>}</button>
             </div>
           </div>
@@ -317,20 +335,36 @@ export default function SettingsPage() {
           <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
             {infoBox('rgba(34,158,217,0.08)', <>
               <strong style={{ color: 'var(--text)', fontSize: 12.5 }}>Как подключить канал:</strong><br />
-              <strong>1.</strong> В Telegram: <strong>@BotFather</strong> → <code style={{ background: 'var(--surface-2)', padding: '1px 5px', borderRadius: 3 }}>/newbot</code> → получите токен<br />
-              <strong>2.</strong> В канале: Управление → Администраторы → добавьте бота с правом публикации<br />
-              <strong>3.</strong> Публичный канал: <code style={{ background: 'var(--surface-2)', padding: '1px 5px', borderRadius: 3 }}>@username</code>; приватный: <code style={{ background: 'var(--surface-2)', padding: '1px 5px', borderRadius: 3 }}>-100xxxxxxxxxx</code>
+              <strong>1.</strong> В Telegram откройте <strong>@BotFather</strong> → <code style={{ background: 'var(--surface-2)', padding: '1px 5px', borderRadius: 3 }}>/newbot</code> → получите токен вида <code style={{ background: 'var(--surface-2)', padding: '1px 5px', borderRadius: 3 }}>123456:ABC-DEF...</code><br />
+              <strong>2.</strong> В вашем канале: <strong>Управление канала → Администраторы → Добавить администратора</strong> → найдите бота по @username → дайте право <strong>«Публикация сообщений»</strong><br />
+              <strong>3.</strong> ID: публичный канал — <code style={{ background: 'var(--surface-2)', padding: '1px 5px', borderRadius: 3 }}>@username</code>; приватный — <code style={{ background: 'var(--surface-2)', padding: '1px 5px', borderRadius: 3 }}>-100xxxxxxxxxx</code> (можно узнать через @username_to_id_bot)
             </>)}
             <div className="fg">
               <label>Токен бота</label>
-              <input type="password" placeholder="123456:ABC-DEF..." value={tgBotToken} onChange={e => setTgBotToken(e.target.value.trim())} autoComplete="off" />
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showTgToken ? 'text' : 'password'}
+                  placeholder="123456789:AABBccDDee..."
+                  value={tgBotToken}
+                  onChange={e => setTgBotToken(e.target.value.trim())}
+                  autoComplete="off"
+                  style={{ width: '100%', paddingRight: 40 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowTgToken(v => !v)}
+                  style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: 12, padding: 0 }}
+                >
+                  {showTgToken ? 'Скрыть' : 'Показать'}
+                </button>
+              </div>
             </div>
             <div className="fg">
               <label>ID канала или @username</label>
               <input type="text" placeholder="@mychannel или -1001234567890" value={tgChatId} onChange={e => setTgChatId(e.target.value.trim())} />
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-secondary btn-sm" onClick={() => { setShowTgForm(false); setTgBotToken(''); setTgChatId('') }}>Отмена</button>
+              <button className="btn btn-secondary btn-sm" onClick={() => { setShowTgForm(false); setTgBotToken(''); setTgChatId(''); setShowTgToken(false) }}>Отмена</button>
               <button className="btn btn-primary btn-sm" onClick={connectTg} disabled={tgSaving}>{tgSaving ? 'Проверяем...' : <>{IcoCheck} Подключить</>}</button>
             </div>
           </div>

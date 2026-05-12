@@ -1044,12 +1044,30 @@ def save_group_vk_settings(gid: int, body: VkSettingsSave, user_id: int = Depend
     if role != "admin":
         conn.close()
         raise HTTPException(403, "Только администратор может изменять настройки")
+    # Validate token is alive (users.get works with any valid token)
+    try:
+        val_r = http_requests.get(
+            "https://api.vk.com/method/users.get",
+            params={"access_token": body.access_token, "v": VK_API_VERSION},
+            timeout=10,
+        )
+        val_data = val_r.json()
+        if "error" in val_data:
+            conn.close()
+            err_msg = val_data["error"].get("error_msg", "Ошибка VK")
+            raise HTTPException(400, f"Недействительный токен ВК: {err_msg}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.close()
+        raise HTTPException(400, f"Не удалось связаться с VK: {e}")
+    # Try to get group name (non-blocking — cosmetic only)
+    clean_id = body.group_id.lstrip("-")
+    group_name = f"Группа {clean_id}"
     try:
         group_name = vk_get_group_name(body.access_token, body.group_id)
-    except ValueError as e:
-        conn.close()
-        raise HTTPException(400, str(e))
-    clean_id = body.group_id.lstrip("-")
+    except Exception:
+        pass
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
     c.execute("SELECT workspace_id FROM vk_settings WHERE workspace_id=%s", (gid,))
     exists = c.fetchone()
