@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
 import { api } from '@/lib/api'
 import { useToast } from '@/contexts/ToastContext'
+import { useGroup } from '@/contexts/GroupContext'
 import { applyEmojiSuggestion, getEmojiSuggestions } from '@/lib/postUtils'
 import type { MediaItem, Post, Template } from '@/lib/types'
 import YandexLocationPickerModal from '@/components/YandexLocationPickerModal'
@@ -81,6 +82,7 @@ export default function PostEditor({
 }: PostEditorProps) {
   const router = useRouter()
   const { showToast } = useToast()
+  const { currentGroup } = useGroup()
   const isEdit = !!editPost
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const emojiCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -161,8 +163,13 @@ export default function PostEditor({
         location_lng: locationLng,
         template_type: tmplType || null,
       }
-      if (isEdit) await api.updatePost(editPost!.id, body)
-      else await api.createPost(body)
+      if (isEdit) {
+        if (currentGroup) await api.updateGroupPost(currentGroup.id, editPost!.id, body)
+        else await api.updatePost(editPost!.id, body)
+      } else {
+        if (currentGroup) await api.createGroupPost(currentGroup.id, body)
+        else await api.createPost(body)
+      }
       showToast(isEdit ? 'Пост обновлён!' : 'Пост создан!', 'success')
       router.push('/posts')
     } catch (e: unknown) { showToast((e as Error).message, 'error') }

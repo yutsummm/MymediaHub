@@ -1740,49 +1740,72 @@ def publish_group_post(gid: int, post_id: int, user_id: int = Depends(get_curren
     vk_error = None
     photo_errors: list = []
     platforms = post_dict.get("platforms", [])
+    backend_base = os.getenv("BACKEND_URL", "https://backend-production-30d6.up.railway.app").rstrip("/")
     if "vk" in platforms:
-        c.execute("SELECT group_id, access_token FROM vk_settings WHERE group_id=%s", (gid,))
+        c.execute("SELECT group_id, access_token FROM vk_settings WHERE workspace_id=%s", (gid,))
         vk = c.fetchone()
         if vk:
             try:
                 message = f"{post_dict['title']}\n\n{post_dict['content']}"
                 attachments = []
-                backend_base = os.getenv("BACKEND_URL", "https://backend-production-30d6.up.railway.app").rstrip("/")
-                for media in post_dict.get("media", []):
-                    if media.get("type") == "image":
-                        try:
-                            filename = media.get("filename", "image")
-                            image_data = http_requests.get(f"{backend_base}/{media['url']}", timeout=15).content
-                            photo_id = vk_upload_photo_to_wall(vk["access_token"], vk["group_id"], image_data, filename)
-                            attachments.append(photo_id)
-                        except Exception as e:
-                            photo_errors.append(str(e))
-                    elif media.get("type") == "video":
-                        try:
-                            filename = media.get("filename", "video.mp4")
-                            video_data = http_requests.get(f"{backend_base}/{media['url']}", timeout=120).content
-                            video_id = vk_upload_video_to_wall(vk["access_token"], vk["group_id"], video_data, filename, post_dict["title"])
-                            attachments.append(video_id)
-                        except Exception as e:
-                            photo_errors.append(f"Video upload error: {str(e)}")
-                r = http_requests.post(
-                    "https://api.vk.com/method/wall.post",
-                    data={
-                        "owner_id": f"-{vk['group_id']}",
-                        "message": message,
-                        "attachments": ",".join(attachments),
-                        "access_token": vk["access_token"],
-                        "v": VK_API_VERSION,
-                    },
-                    timeout=30,
-                )
-                vk_result = r.json()
-                if "response" in vk_result:
-                    vk_post_id = vk_result["response"].get("post_id")
-                else:
-                    vk_error = vk_result.get("error", {}).get("error_msg", "Unknown VK error")
+                for item in (post_dict.get("media") or []):
+                    item_type = item.get("type")
+                    if item_type not in ("image", "video", "doc"):
+                        continue
+                    fname = os.path.basename(item["url"])
+                    orig_name = item.get("filename") or fname
+                    fpath = os.path.join(UPLOAD_DIR, fname)
+                    try:
+                        if os.path.exists(fpath):
+                            with open(fpath, "rb") as f:
+                                file_data = f.read()
+                        else:
+                            file_url = f"{backend_base}{item['url']}"
+                            resp = http_requests.get(file_url, timeout=120)
+                            resp.raise_for_status()
+                            file_data = resp.content
+                        if item_type == "image":
+                            att = vk_upload_photo_to_wall(vk["access_token"], vk["group_id"], file_data, fname)
+                        elif item_type == "video":
+                            att = vk_upload_video_to_wall(
+                                vk["access_token"], vk["group_id"], file_data, fname,
+                                title=post_dict.get("title", ""),
+                                description=post_dict.get("content", ""),
+                            )
+                        else:
+                            att = vk_upload_doc_to_wall(
+                                vk["access_token"], vk["group_id"], file_data, orig_name,
+                                title=post_dict.get("title", "") or orig_name,
+                            )
+                        attachments.append(att)
+                    except Exception as media_err:
+                        msg = str(media_err)
+                        if any(kw in msg.lower() for kw in [
+                            "unavailable with group auth", "group authorization", "access denied",
+                            "this action is not available", "community token", "group token",
+                            "error_code: 15", "no access to call this method",
+                        ]):
+                            msg = f"Нет прав на загрузку {item_type}. Получите пользовательский токен в Настройках"
+                        photo_errors.append(msg)
+                vk_post_id = vk_wall_post(vk["access_token"], vk["group_id"], message, attachments)
             except Exception as e:
                 vk_error = str(e)
+
+    tg_message_ids: list = []
+    tg_error = None
+    if "telegram" in platforms:
+        c.execute("SELECT bot_token, chat_id FROM tg_settings WHERE workspace_id=%s", (gid,))
+        tg = c.fetchone()
+        if tg:
+            try:
+                tg_message = f"{post_dict['title']}\n\n{post_dict['content']}" if post_dict.get("title") else post_dict.get("content", "")
+                tg_message_ids = tg_send_post(
+                    tg["bot_token"], tg["chat_id"], tg_message,
+                    post_dict.get("media") or [], backend_base,
+                )
+            except Exception as e:
+                tg_error = str(e)
+
     c.execute("SELECT * FROM posts WHERE id=%s", (post_id,))
     row = c.fetchone()
     conn.close()
@@ -1790,6 +1813,8 @@ def publish_group_post(gid: int, post_id: int, user_id: int = Depends(get_curren
     result["vk_post_id"] = vk_post_id
     result["vk_error"] = vk_error
     result["photo_errors"] = photo_errors
+    result["tg_message_ids"] = tg_message_ids
+    result["tg_error"] = tg_error
     return result
 
 # ── Posts ────────────────────────────────────────────────────────────────────

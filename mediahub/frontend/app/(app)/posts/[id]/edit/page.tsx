@@ -2,16 +2,20 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import { api } from '@/lib/api'
+import { useGroup } from '@/contexts/GroupContext'
 import type { Post } from '@/lib/types'
 import PostEditor from '@/components/PostEditor'
 
 export default function EditPostPage() {
   const { id } = useParams<{ id: string }>()
+  const { currentGroup } = useGroup()
   const [post, setPost] = useState<Post | null>(null)
 
   useEffect(() => {
-    api.getPost(Number(id)).then(setPost).catch(console.error)
-  }, [id])
+    const numId = Number(id)
+    if (currentGroup) api.getGroupPost(currentGroup.id, numId).then(setPost).catch(console.error)
+    else api.getPost(numId).then(setPost).catch(console.error)
+  }, [id, currentGroup])
 
   if (!post) return (
     <div className="content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>

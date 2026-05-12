@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/contexts/ToastContext'
+import { useGroup } from '@/contexts/GroupContext'
 import type { Post } from '@/lib/types'
 
 const fmtN = (n: number) => n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + 'M' : n >= 1000 ? Math.round(n / 1000) + 'K' : String(n)
@@ -60,6 +61,7 @@ export default function PostsPage() {
   const searchParams = useSearchParams()
   const { user } = useAuth()
   const { showToast } = useToast()
+  const { currentGroup } = useGroup()
   const [posts, setPosts] = useState<Post[] | null>(null)
   const [search, setSearch] = useState('')
   const [stFilter, setStFilter] = useState('')
@@ -70,9 +72,13 @@ export default function PostsPage() {
     const params: Record<string, string> = {}
     if (stFilter) params.status = stFilter
     setPosts(null)
-    api.getPosts(params).then(d => setPosts(d.posts)).catch(console.error)
+    if (currentGroup) {
+      api.getGroupPosts(currentGroup.id, params).then(d => setPosts(d.posts)).catch(console.error)
+    } else {
+      api.getPosts(params).then(d => setPosts(d.posts)).catch(console.error)
+    }
   }
-  useEffect(load, [stFilter])
+  useEffect(load, [stFilter, currentGroup])
 
   const filtered = (posts ?? []).filter(p => {
     if (search && !p.title.toLowerCase().includes(search.toLowerCase())) return false
@@ -87,20 +93,26 @@ export default function PostsPage() {
 
   async function handleDelete(p: Post) {
     if (!confirm(`Удалить «${p.title}»?`)) return
-    try { await api.deletePost(p.id); showToast('Пост удалён', 'success'); load() }
+    try {
+      if (currentGroup) await api.deleteGroupPost(currentGroup.id, p.id)
+      else await api.deletePost(p.id)
+      showToast('Пост удалён', 'success'); load()
+    }
     catch (e: unknown) { showToast((e as Error).message, 'error') }
   }
 
   async function handlePublish(p: Post) {
     setPub(p.id)
     try {
-      const result = await api.publishPost(p.id)
+      const result = currentGroup
+        ? await api.publishGroupPost(currentGroup.id, p.id)
+        : await api.publishPost(p.id)
       const r = result as any
       const errs: string[] = []
       const okParts: string[] = []
       if (r.vk_error) errs.push(`VK: ${r.vk_error}`)
       else if (r.vk_post_id) okParts.push(`VK (id: ${r.vk_post_id})`)
-      if (r.vk_photo_errors?.length) errs.push(`VK медиа: ${r.vk_photo_errors[0]}`)
+      if (r.photo_errors?.length) errs.push(`VK медиа: ${r.photo_errors[0]}`)
       if (r.tg_error) errs.push(`Telegram: ${r.tg_error}`)
       else if (r.tg_message_ids?.length) okParts.push(`Telegram (${r.tg_message_ids.length} сообщ.)`)
       if (errs.length) {
