@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FullscreenControl, Map, Placemark, YMaps, ZoomControl } from '@pbe/react-yandex-maps'
 import type ymaps from 'yandex-maps'
+import { useYandexMapsKey } from '@/lib/useYandexMapsKey'
 
 type Coordinates = [number, number] // [lat, lon] for Yandex Maps
 
@@ -21,7 +22,6 @@ declare global {
   }
 }
 
-const YANDEX_MAPS_KEY = process.env.NEXT_PUBLIC_YANDEX_MAPS_KEY ?? ''
 const FALLBACK_CENTER: Coordinates = [55.751244, 37.618423]
 
 function formatCoords(coords: Coordinates) {
@@ -64,6 +64,7 @@ export default function EventLocationPickerModal({
   onClose,
   onSelect,
 }: Props) {
+  const { key: yandexMapsKey, loading: mapsKeyLoading, error: mapsKeyError } = useYandexMapsKey()
   const mapRef = useRef<ymaps.Map | null>(null)
   const ymapsRef = useRef<typeof ymaps | null>(null)
   const watchIdRef = useRef<number | null>(null)
@@ -278,12 +279,16 @@ export default function EventLocationPickerModal({
           </div>
 
           <div className="location-map-box event-location-map">
-            {!YANDEX_MAPS_KEY ? (
+            {mapsKeyLoading ? (
               <div className="event-location-map-empty">
-                Не задан `NEXT_PUBLIC_YANDEX_MAPS_KEY` в `.env.local`
+                Загружаем настройки Яндекс Карт...
+              </div>
+            ) : !yandexMapsKey ? (
+              <div className="event-location-map-empty">
+                {mapsKeyError || 'Не задан NEXT_PUBLIC_YANDEX_MAPS_KEY в переменных frontend-сервиса Railway'}
               </div>
             ) : (
-              <YMaps query={{ apikey: YANDEX_MAPS_KEY, lang: 'ru_RU', load: 'package.full' }}>
+              <YMaps query={{ apikey: yandexMapsKey, lang: 'ru_RU', load: 'package.full' }}>
                 <Map
                   state={mapState}
                   width="100%"
@@ -346,7 +351,7 @@ export default function EventLocationPickerModal({
               </YMaps>
             )}
 
-            {YANDEX_MAPS_KEY && (geoLoading || reverseLoading || !mapReady) && (
+            {yandexMapsKey && (geoLoading || reverseLoading || !mapReady) && (
               <div className="location-map-loading">
                 {geoLoading ? 'Определяем ваше местоположение...' : reverseLoading ? 'Определяем адрес точки...' : 'Загружаем Яндекс.Карту...'}
               </div>

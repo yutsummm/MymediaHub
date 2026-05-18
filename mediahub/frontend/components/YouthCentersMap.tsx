@@ -5,6 +5,7 @@ import { FullscreenControl, Map, Placemark, YMaps, ZoomControl } from '@pbe/reac
 import type ymaps from 'yandex-maps'
 import { api } from '@/lib/api'
 import type { YouthCenter } from '@/lib/types'
+import { useYandexMapsKey } from '@/lib/useYandexMapsKey'
 
 type Coordinates = [number, number] // [lat, lon] for Yandex Maps
 
@@ -19,7 +20,6 @@ declare global {
   }
 }
 
-const YANDEX_MAPS_KEY = process.env.NEXT_PUBLIC_YANDEX_MAPS_KEY ?? ''
 const FALLBACK_POSITION: Position = { coordinates: [55.751244, 37.618423], source: 'fallback' }
 
 const LOCAL_MOCK_CENTERS: YouthCenter[] = [
@@ -108,6 +108,7 @@ function buildCenterBalloon(center: YouthCenter) {
 }
 
 export default function YouthCentersMap() {
+  const { key: yandexMapsKey, loading: mapsKeyLoading, error: mapsKeyError } = useYandexMapsKey()
   const mapRef = useRef<ymaps.Map | null>(null)
   const ymapsRef = useRef<typeof ymaps | null>(null)
   const watchIdRef = useRef<number | null>(null)
@@ -285,12 +286,16 @@ export default function YouthCentersMap() {
             </button>
           </div>
 
-          {!YANDEX_MAPS_KEY ? (
+          {mapsKeyLoading ? (
             <div className="youth-map youth-map-empty">
-              Не задан `NEXT_PUBLIC_YANDEX_MAPS_KEY` в `.env.local`
+              Загружаем настройки Яндекс Карт...
+            </div>
+          ) : !yandexMapsKey ? (
+            <div className="youth-map youth-map-empty">
+              {mapsKeyError || 'Не задан NEXT_PUBLIC_YANDEX_MAPS_KEY в переменных frontend-сервиса Railway'}
             </div>
           ) : (
-            <YMaps query={{ apikey: YANDEX_MAPS_KEY, lang: 'ru_RU', load: 'package.full' }}>
+            <YMaps query={{ apikey: yandexMapsKey, lang: 'ru_RU', load: 'package.full' }}>
               <Map
                 state={mapState}
                 width="100%"
@@ -351,7 +356,7 @@ export default function YouthCentersMap() {
             </YMaps>
           )}
 
-          {(geoLoading || centersLoading || !mapReady) && YANDEX_MAPS_KEY && (
+          {(geoLoading || centersLoading || !mapReady) && yandexMapsKey && (
             <div className="youth-map-overlay">
               <span className="youth-map-loader" />
               {geoLoading ? 'Определяем ваше местоположение...' : centersLoading ? 'Загружаем молодежные центры...' : 'Загружаем Яндекс.Карту...'}
