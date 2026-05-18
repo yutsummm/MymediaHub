@@ -703,7 +703,7 @@ export default function PostEditor({
               </div>
               {(locationLat !== null && locationLng !== null) && (
                 <div className="ts tg" style={{ marginTop: 8 }}>
-                  Точка события: {locationLat.toFixed(6)}, {locationLng.toFixed(6)}
+                  Место события: {locationAddress || 'точка выбрана на карте'}
                 </div>
               )}
             </div>
