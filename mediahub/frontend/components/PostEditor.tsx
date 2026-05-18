@@ -1,13 +1,13 @@
 'use client'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
 import { api } from '@/lib/api'
 import { useToast } from '@/contexts/ToastContext'
 import { useGroup } from '@/contexts/GroupContext'
 import { applyEmojiSuggestion, getEmojiSuggestions } from '@/lib/postUtils'
 import type { MediaItem, Post, Template } from '@/lib/types'
-import YandexLocationPickerModal from '@/components/YandexLocationPickerModal'
 
 /* ── SVG props ── */
 const S14 = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
@@ -71,6 +71,26 @@ type PostEditorProps = {
   initialLocationLat?: number | null
   initialLocationLng?: number | null
 }
+
+type LocationPickerPayload = {
+  address: string
+  lat: number | null
+  lng: number | null
+}
+
+type LocationPickerProps = {
+  open: boolean
+  initialAddress?: string
+  initialLat?: number | null
+  initialLng?: number | null
+  onClose: () => void
+  onSelect: (payload: LocationPickerPayload) => void
+}
+
+const EventLocationPickerModal = dynamic<LocationPickerProps>(
+  () => import('@/components/EventLocationPickerModal'),
+  { ssr: false }
+)
 
 export default function PostEditor({
   editPost,
@@ -673,7 +693,7 @@ export default function PostEditor({
                   style={{ flex: 1, minWidth: 240 }}
                 />
                 <button type="button" className="btn btn-secondary" onClick={() => setLocationPickerOpen(true)}>
-                  Выбрать на карте
+                  Отметить на карте
                 </button>
                 {locationAddress && (
                   <button type="button" className="btn btn-ghost" onClick={clearLocation}>
@@ -683,7 +703,7 @@ export default function PostEditor({
               </div>
               {(locationLat !== null && locationLng !== null) && (
                 <div className="ts tg" style={{ marginTop: 8 }}>
-                  Координаты: {locationLat.toFixed(6)}, {locationLng.toFixed(6)}
+                  Точка события: {locationLat.toFixed(6)}, {locationLng.toFixed(6)}
                 </div>
               )}
             </div>
@@ -802,7 +822,7 @@ export default function PostEditor({
           </div>
         </div>
       )}
-      <YandexLocationPickerModal
+      <EventLocationPickerModal
         open={locationPickerOpen}
         initialAddress={locationAddress}
         initialLat={locationLat}

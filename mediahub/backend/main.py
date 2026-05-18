@@ -17,6 +17,7 @@ from email.mime.multipart import MIMEMultipart
 from urllib.parse import quote
 import requests as http_requests
 from datetime import datetime, timedelta
+from math import asin, cos, radians, sin, sqrt
 from dotenv import load_dotenv
 from jose import jwt, JWTError
 from fastapi.responses import StreamingResponse
@@ -214,6 +215,21 @@ class InviteLinkCreate(BaseModel):
     expires_hours: int = 24
     max_uses: Optional[int] = None
 
+YOUTH_CENTERS_MOCK = [
+    {
+        "id": 1,
+        "name": "Молодежный центр Север",
+        "address": "ул. Ленина, 12",
+        "coordinates": [55.751244, 37.618423],
+    },
+    {
+        "id": 2,
+        "name": "Youth Hub",
+        "address": "пр. Мира, 7",
+        "coordinates": [55.761244, 37.628423],
+    },
+]
+
 # ── DB ───────────────────────────────────────────────────────────────────────
 
 def get_db():
@@ -233,6 +249,13 @@ def row_to_dict(row):
         elif key not in d:
             d[key] = []
     return d
+
+def distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    radius = 6371.0
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    return round(2 * radius * asin(sqrt(a)), 2)
 
 def init_db():
     conn = get_db()
@@ -2358,6 +2381,21 @@ def analytics_export(start_date: str = Query(...), end_date: str = Query(...)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname_encoded}"},
     )
+
+# ── Youth Centers ────────────────────────────────────────────────────────────
+
+@app.get("/api/youth-centers")
+def get_youth_centers(lat: float = Query(...), lon: float = Query(...)):
+    centers = []
+    for center in YOUTH_CENTERS_MOCK:
+        center_lat, center_lon = center["coordinates"]
+        centers.append({
+            **center,
+            "lat": center_lat,
+            "lon": center_lon,
+            "distance_km": distance_km(lat, lon, center_lat, center_lon),
+        })
+    return sorted(centers, key=lambda c: c["distance_km"])
 
 # ── Notifications ─────────────────────────────────────────────────────────────
 

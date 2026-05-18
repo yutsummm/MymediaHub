@@ -10,6 +10,7 @@ import CreateGroupModal from '@/components/CreateGroupModal'
 const TITLES: Record<string, string> = {
   '/dashboard':     'Дашборд',
   '/calendar':      'Календарь контента',
+  '/youth-centers': 'Молодёжные центры рядом',
   '/posts':         'Посты',
   '/posts/new':     'Создать пост',
   '/analytics':     'Аналитика',

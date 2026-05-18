@@ -84,6 +84,8 @@ export const api = {
 
   getCalendar: (start: string, end: string) =>
     req<import('./types').Post[]>(`/api/calendar?start=${start}&end=${end}`),
+  getYouthCenters: (lat: number, lon: number) =>
+    req<import('./types').YouthCenter[]>(`/api/youth-centers?lat=${lat}&lon=${lon}`),
 
   getTemplates: () => req<import('./types').Template[]>('/api/templates'),
   generateText: (template_type: string, fields: Record<string, string>) =>

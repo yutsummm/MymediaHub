@@ -30,6 +30,13 @@ const NAV_ICONS = {
       <circle cx="16" cy="15" r="1" fill="currentColor" stroke="none"/>
     </svg>
   ),
+  centers: (
+    <svg {...S}>
+      <path d="M12 21s7-4.35 7-11a7 7 0 0 0-14 0c0 6.65 7 11 7 11z"/>
+      <circle cx="12" cy="10" r="2.5"/>
+      <path d="M8.2 18.3h7.6"/>
+    </svg>
+  ),
   /* Документ с разными строками — «контент» */
   posts: (
     <svg {...S}>
@@ -82,6 +89,7 @@ const NAV_GROUPS = [
     items: [
       { href: '/dashboard', icon: 'dashboard',     label: 'Дашборд' },
       { href: '/calendar',  icon: 'calendar',      label: 'Календарь' },
+      { href: '/youth-centers', icon: 'centers',   label: 'Центры рядом' },
       { href: '/posts',     icon: 'posts',         label: 'Посты' },
       { href: '/posts/new', icon: 'newPost',       label: 'Создать пост' },
     ],

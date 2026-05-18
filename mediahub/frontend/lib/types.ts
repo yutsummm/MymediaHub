@@ -81,6 +81,16 @@ export interface TimelinePoint {
   posts: number
 }
 
+export interface YouthCenter {
+  id: number
+  name: string
+  address: string
+  coordinates?: [number, number]
+  lat: number
+  lon: number
+  distance_km?: number
+}
+
 export interface Notification {
   id: number
   user_id: number
