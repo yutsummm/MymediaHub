@@ -16,6 +16,13 @@ type Props = {
   onSelect: (payload: { address: string; lat: number | null; lng: number | null }) => void
 }
 
+type GeocodeResponse = {
+  address?: string
+  lat?: number
+  lon?: number
+  error?: string
+}
+
 declare global {
   interface Window {
     ymaps?: typeof ymaps
@@ -24,36 +31,36 @@ declare global {
 
 const FALLBACK_CENTER: Coordinates = [55.751244, 37.618423]
 
-function formatCoords(coords: Coordinates) {
-  return `${coords[0].toFixed(6)}, ${coords[1].toFixed(6)}`
-}
-
 function getGlobalYMaps() {
   return typeof window !== 'undefined' ? window.ymaps ?? null : null
 }
 
-function readGeocodeResult(result: ymaps.IGeocodeResult, fallbackAddress: string) {
-  const first = result.geoObjects.get(0) as ymaps.GeocodeResult | undefined
-  if (!first) throw new Error('Адрес не найден. Попробуйте указать его точнее.')
+async function requestGeocode(params: URLSearchParams) {
+  const response = await fetch(`/config/maps/geocode?${params.toString()}`, {
+    cache: 'no-store',
+  })
+  const data = await response.json() as GeocodeResponse
 
-  const geometry = first.geometry as ymaps.geometry.Point | null
-  const coordinates = geometry?.getCoordinates()
-  if (!coordinates || coordinates.length < 2) throw new Error('Не удалось получить координаты адреса.')
+  if (!response.ok || !data.address || typeof data.lat !== 'number' || typeof data.lon !== 'number') {
+    throw new Error(data.error || 'Не удалось определить адрес. Попробуйте выбрать точку рядом или ввести адрес вручную.')
+  }
 
   return {
-    coordinates: [coordinates[0], coordinates[1]] as Coordinates,
-    address: first.getAddressLine?.() || fallbackAddress,
+    address: data.address,
+    coordinates: [data.lat, data.lon] as Coordinates,
   }
 }
 
-async function geocodeAddress(ymapsApi: typeof ymaps, query: string) {
-  const result = await ymapsApi.geocode(query, { results: 1 })
-  return readGeocodeResult(result, query)
+async function geocodeAddress(query: string) {
+  return requestGeocode(new URLSearchParams({ q: query }))
 }
 
-async function reverseGeocode(ymapsApi: typeof ymaps, coordinates: Coordinates) {
-  const result = await ymapsApi.geocode(coordinates, { results: 1, kind: 'house' })
-  return readGeocodeResult(result, `Точка на карте: ${formatCoords(coordinates)}`).address
+async function reverseGeocode(coordinates: Coordinates) {
+  const result = await requestGeocode(new URLSearchParams({
+    lat: String(coordinates[0]),
+    lon: String(coordinates[1]),
+  }))
+  return result.address
 }
 
 export default function EventLocationPickerModal({
@@ -173,16 +180,16 @@ export default function EventLocationPickerModal({
   }, [clearGeolocation, initialAddress, initialLat, initialLng, open, requestLocation])
 
   useEffect(() => {
-    if (!open || !selectedCoords || !ymapsRef.current) return
+    if (!open || !selectedCoords) return
 
     const callId = ++reverseCallIdRef.current
     setReverseLoading(true)
-    reverseGeocode(ymapsRef.current, selectedCoords)
+    reverseGeocode(selectedCoords)
       .then(nextAddress => {
         if (callId === reverseCallIdRef.current) setAddress(nextAddress)
       })
       .catch(() => {
-        if (callId === reverseCallIdRef.current) setAddress(`Точка на карте: ${formatCoords(selectedCoords)}`)
+        if (callId === reverseCallIdRef.current) setAddress('Место выбрано на карте')
       })
       .finally(() => {
         if (callId === reverseCallIdRef.current) setReverseLoading(false)
@@ -213,14 +220,9 @@ export default function EventLocationPickerModal({
 
   async function handleSearch() {
     const query = address.trim()
-    const ymapsApi = ymapsRef.current
 
     if (!query) {
       setSearchError('Введите адрес или выберите точку на карте.')
-      return
-    }
-    if (!ymapsApi) {
-      setSearchError('Карта ещё загружается. Попробуйте через пару секунд.')
       return
     }
 
@@ -229,12 +231,14 @@ export default function EventLocationPickerModal({
     setSearchError('')
 
     try {
-      const result = await geocodeAddress(ymapsApi, query)
+      const result = await geocodeAddress(query)
       if (callId !== searchCallIdRef.current) return
       setAddress(result.address)
       handlePick(result.coordinates)
     } catch (error) {
-      if (callId === searchCallIdRef.current) setSearchError((error as Error).message)
+      if (callId === searchCallIdRef.current) {
+        setSearchError(error instanceof Error ? error.message : 'Не удалось найти адрес.')
+      }
     } finally {
       if (callId === searchCallIdRef.current) setSearching(false)
     }
@@ -294,7 +298,7 @@ export default function EventLocationPickerModal({
                   width="100%"
                   height="100%"
                   className="event-location-map-inner"
-                  modules={['geocode', 'geoObject.addon.balloon', 'geoObject.addon.hint']}
+                  modules={['geoObject.addon.balloon', 'geoObject.addon.hint']}
                   onClick={handleMapClick}
                   onLoad={ymapsApi => {
                     ymapsRef.current = ymapsApi
@@ -337,7 +341,7 @@ export default function EventLocationPickerModal({
                       geometry={selectedCoords}
                       properties={{
                         balloonContentHeader: '<strong>Место события</strong>',
-                        balloonContentBody: address || `Точка на карте: ${formatCoords(selectedCoords)}`,
+                        balloonContentBody: address || 'Место выбрано на карте',
                         hintContent: 'Место события',
                         iconCaption: 'Событие',
                       }}
@@ -371,8 +375,8 @@ export default function EventLocationPickerModal({
           {selectedCoords && (
             <div className="location-selected-box">
               <div className="location-selected-title">Выбранная точка</div>
-              <div className="location-selected-text">{address || `Точка на карте: ${formatCoords(selectedCoords)}`}</div>
-              <div className="location-selected-meta">{formatCoords(selectedCoords)}</div>
+              <div className="location-selected-text">{address || 'Место выбрано на карте'}</div>
+              <div className="location-selected-meta">Адрес будет добавлен в пост как место проведения.</div>
             </div>
           )}
         </div>
@@ -388,7 +392,7 @@ export default function EventLocationPickerModal({
             onClick={() => {
               if (!selectedCoords) return
               onSelect({
-                address: address.trim() || `Точка на карте: ${formatCoords(selectedCoords)}`,
+                address: address.trim() || 'Место выбрано на карте',
                 lat: selectedCoords[0],
                 lng: selectedCoords[1],
               })
