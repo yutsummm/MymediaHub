@@ -29,7 +29,7 @@ declare global {
   }
 }
 
-const FALLBACK_CENTER: Coordinates = [55.751244, 37.618423]
+const FALLBACK_CENTER: Coordinates = [56.010563, 92.852572]
 
 function getGlobalYMaps() {
   return typeof window !== 'undefined' ? window.ymaps ?? null : null
