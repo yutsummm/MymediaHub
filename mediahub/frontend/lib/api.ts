@@ -50,8 +50,16 @@ export const api = {
       method: 'POST', body: body({ email, password }),
     }),
   register: (name: string, email: string, password: string) =>
-    req<{ user: import('./types').User; token: string }>('/api/auth/register', {
+    req<{ user: import('./types').User; token: string; groups: unknown[] }>('/api/auth/register', {
       method: 'POST', body: body({ name, email, password }),
+    }),
+  forgotPassword: (email: string) =>
+    req<{ status: string }>('/api/auth/forgot-password', {
+      method: 'POST', body: body({ email }),
+    }),
+  resetPassword: (email: string, code: string, new_password: string) =>
+    req<{ status: string }>('/api/auth/reset-password', {
+      method: 'POST', body: body({ email, code, new_password }),
     }),
 
   getUsers: () => req<import('./types').User[]>('/api/users'),
@@ -76,6 +84,8 @@ export const api = {
 
   getCalendar: (start: string, end: string) =>
     req<import('./types').Post[]>(`/api/calendar?start=${start}&end=${end}`),
+  getYouthCenters: (lat: number, lon: number) =>
+    req<import('./types').YouthCenter[]>(`/api/youth-centers?lat=${lat}&lon=${lon}`),
 
   getTemplates: () => req<import('./types').Template[]>('/api/templates'),
   generateText: (template_type: string, fields: Record<string, string>) =>
@@ -83,7 +93,7 @@ export const api = {
       method: 'POST', body: body({ template_type, fields }),
     }),
 
-  enhanceText: (text: string, mode: 'creative' | 'russify') =>
+  enhanceText: (text: string, mode: string) =>
     req<{ text: string }>('/api/ai-enhance', {
       method: 'POST', body: body({ text, mode }),
     }),
@@ -91,6 +101,22 @@ export const api = {
   getAnalyticsSummary: () => req<import('./types').AnalyticsSummary>('/api/analytics/summary'),
   getTimeline: (period: string) =>
     req<import('./types').TimelinePoint[]>(`/api/analytics/timeline?period=${period}`),
+  exportAnalytics: async (startDate: string, endDate: string): Promise<void> => {
+    const url = `${BASE}/api/analytics/export?start_date=${startDate}&end_date=${endDate}`
+    const token = _getToken()
+    const headers: Record<string, string> = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const res = await fetch(url, { headers })
+    if (!res.ok) throw new Error(`Ошибка экспорта: ${res.status}`)
+    const blob = await res.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    const cd = res.headers.get('content-disposition') ?? ''
+    const match = cd.match(/filename\*=UTF-8''(.+)/)
+    a.download = match ? decodeURIComponent(match[1]) : `аналитика.xlsx`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  },
 
   getNotifications: (user_id?: number) =>
     req<import('./types').Notification[]>(`/api/notifications${user_id ? `?user_id=${user_id}` : ''}`),

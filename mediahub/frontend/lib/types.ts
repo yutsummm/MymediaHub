@@ -31,6 +31,9 @@ export interface Post {
   template_type: string | null
   created_at: string
   media: MediaItem[]
+  location_address: string | null
+  location_lat: number | null
+  location_lng: number | null
 }
 
 export interface TemplateField {
@@ -76,6 +79,16 @@ export interface TimelinePoint {
   views: number
   reactions: number
   posts: number
+}
+
+export interface YouthCenter {
+  id: number
+  name: string
+  address: string
+  coordinates?: [number, number]
+  lat: number
+  lon: number
+  distance_km?: number
 }
 
 export interface Notification {

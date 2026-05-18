@@ -10,6 +10,7 @@ import CreateGroupModal from '@/components/CreateGroupModal'
 const TITLES: Record<string, string> = {
   '/dashboard':     'Дашборд',
   '/calendar':      'Календарь контента',
+  '/youth-centers': 'Молодёжные центры рядом',
   '/posts':         'Посты',
   '/posts/new':     'Создать пост',
   '/analytics':     'Аналитика',
@@ -47,6 +48,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div style={{ display: 'flex', width: '100%' }}>
+      <div className="top-stripe" />
       <Sidebar unread={unread} open={navOpen} onClose={() => setNavOpen(false)} />
 
       <div className="main-layout">

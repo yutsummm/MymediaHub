@@ -10,11 +10,20 @@ from pydantic import BaseModel
 from typing import Optional, List
 import psycopg2
 import psycopg2.extras
-import json, os, random, uuid, shutil, hashlib
+import json, os, random, uuid, shutil, hashlib, io
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from urllib.parse import quote
 import requests as http_requests
 from datetime import datetime, timedelta
+from math import asin, cos, radians, sin, sqrt
 from dotenv import load_dotenv
 from jose import jwt, JWTError
+from fastapi.responses import StreamingResponse
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 load_dotenv()
 
@@ -67,6 +76,39 @@ def get_current_user_id(authorization: str = Header(None)) -> int:
     except (JWTError, KeyError, ValueError, IndexError):
         raise HTTPException(401, "Недействительный токен")
 
+def send_reset_email(to_email: str, code: str):
+    api_key = os.getenv("BREVO_API_KEY", "")
+    sender_email = os.getenv("BREVO_SENDER_EMAIL", "")
+    sender_name = os.getenv("BREVO_SENDER_NAME", "MediaHub")
+    if not api_key:
+        raise ValueError("BREVO_API_KEY не задан")
+    if not sender_email:
+        raise ValueError("BREVO_SENDER_EMAIL не задан")
+
+    html = f"""
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
+      <h2 style="color:#4f46e5">MediaHub</h2>
+      <p>Вы запросили сброс пароля.</p>
+      <p>Ваш код для сброса пароля:</p>
+      <div style="font-size:36px;font-weight:800;letter-spacing:12px;color:#4f46e5;padding:20px;background:#f0f0ff;border-radius:12px;text-align:center">{code}</div>
+      <p style="color:#888;font-size:13px;margin-top:20px">Код действителен 15 минут. Если вы не запрашивали сброс — проигнорируйте это письмо.</p>
+    </div>
+    """
+
+    resp = http_requests.post(
+        "https://api.brevo.com/v3/smtp/email",
+        headers={"api-key": api_key, "Content-Type": "application/json"},
+        json={
+            "sender": {"name": sender_name, "email": sender_email},
+            "to": [{"email": to_email}],
+            "subject": "Сброс пароля — MediaHub",
+            "htmlContent": html,
+        },
+        timeout=10,
+    )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"Brevo error {resp.status_code}: {resp.text}")
+
 def require_group_member(group_id: int, user_id: int, conn) -> str:
     c = conn.cursor()
     c.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s", (group_id, user_id))
@@ -92,6 +134,9 @@ class PostCreate(BaseModel):
     template_type: Optional[str] = None
     author_id: int = 1
     media: List[MediaItem] = []
+    location_address: Optional[str] = None
+    location_lat: Optional[float] = None
+    location_lng: Optional[float] = None
 
 class PostUpdate(BaseModel):
     title: Optional[str] = None
@@ -101,6 +146,9 @@ class PostUpdate(BaseModel):
     tags: Optional[List[str]] = None
     scheduled_at: Optional[str] = None
     media: Optional[List[MediaItem]] = None
+    location_address: Optional[str] = None
+    location_lat: Optional[float] = None
+    location_lng: Optional[float] = None
 
 class GenerateRequest(BaseModel):
     template_type: str
@@ -136,6 +184,14 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    code: str
+    new_password: str
+
 class UserCreate(BaseModel):
     name: str
     email: str
@@ -159,6 +215,21 @@ class InviteLinkCreate(BaseModel):
     expires_hours: int = 24
     max_uses: Optional[int] = None
 
+YOUTH_CENTERS_MOCK = [
+    {
+        "id": 1,
+        "name": "Молодежный центр Север",
+        "address": "ул. Ленина, 12",
+        "coordinates": [55.751244, 37.618423],
+    },
+    {
+        "id": 2,
+        "name": "Youth Hub",
+        "address": "пр. Мира, 7",
+        "coordinates": [55.761244, 37.628423],
+    },
+]
+
 # ── DB ───────────────────────────────────────────────────────────────────────
 
 def get_db():
@@ -178,6 +249,13 @@ def row_to_dict(row):
         elif key not in d:
             d[key] = []
     return d
+
+def distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    radius = 6371.0
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    return round(2 * radius * asin(sqrt(a)), 2)
 
 def init_db():
     conn = get_db()
@@ -257,8 +335,33 @@ def init_db():
         )
     """)
 
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS email_verifications (
+            id SERIAL PRIMARY KEY,
+            email TEXT NOT NULL,
+            name TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            code TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS password_resets (
+            id SERIAL PRIMARY KEY,
+            email TEXT NOT NULL,
+            code TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
     c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS media TEXT DEFAULT '[]'")
     c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
+    c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS location_address TEXT")
+    c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS location_lat DOUBLE PRECISION")
+    c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS location_lng DOUBLE PRECISION")
 
     # ── Groups and memberships ───────────────────────────────────────────────
     c.execute("""
@@ -495,18 +598,51 @@ async def upload_file(file: UploadFile = File(...)):
 
 _AI_PROMPTS = {
     "creative": (
-        "Ты — опытный SMM-специалист и копирайтер молодёжного медиацентра. "
-        "Перепиши текст поста: сделай его ярким, цепляющим и живым для молодёжной аудитории. "
-        "Сохрани основной смысл и все ключевые факты (даты, места, имена, цифры). "
-        "Используй эмодзи там, где это уместно. "
-        "Верни ТОЛЬКО готовый текст — без пояснений, без кавычек, без предисловий."
+        "Ты — опытный SMM-редактор молодёжного центра. Перепиши текст так, чтобы он "
+        "цеплял аудиторию 16–30 лет с первой строки: замени канцеляризмы живыми словами, "
+        "добавь энергию и искренние эмоции, сделай ритм лёгким и читаемым. "
+        "Вставь эмодзи там, где они усиливают смысл или настроение — не переусердствуй, "
+        "1–3 эмодзи в нужных местах лучше, чем россыпь везде. "
+        "Сохрани все факты, даты, имена и длину оригинала. "
+        "Верни только готовый текст, без комментариев и пояснений."
+    ),
+    "formal": (
+        "Ты — пресс-секретарь молодёжного центра с опытом работы в госструктурах. "
+        "Перепиши текст в официальном, но живом стиле: грамотно, структурированно, "
+        "без сленга и излишней эмоциональности, но и без бюрократической сухости. "
+        "Используй чёткие формулировки, активный залог, уважительный тон. "
+        "Текст должен подходить для официальных анонсов, партнёрских постов и отчётов. "
+        "Сохрани все факты и структуру. Верни только готовый текст, без пояснений."
+    ),
+    "calltoaction": (
+        "Ты — копирайтер молодёжного центра. Оставь основной текст без изменений "
+        "и добавь в конец яркий, мотивирующий призыв к действию для аудитории 16–30 лет. "
+        "Выбери глагол по смыслу поста: записаться, прийти, написать нам, подать заявку, "
+        "узнать подробнее, поделиться с друзьями — и т.д. "
+        "Тон — дружеский и воодушевляющий, без давления и манипуляций. "
+        "Добавь 1–2 уместных эмодзи в призыв, чтобы он выделялся визуально. "
+        "Верни полный текст с добавленным призывом, без комментариев."
+    ),
+    "shortify": (
+        "Ты — редактор с острым чувством слова. Сократи текст примерно вдвое: "
+        "безжалостно убери воду, повторы, лишние вводные слова и затянутые конструкции. "
+        "Сохрани главную мысль, все ключевые факты (даты, имена, цифры) и живой тон. "
+        "Не добавляй ничего нового. Верни только сокращённый вариант, без пояснений."
+    ),
+    "hashtags": (
+        "Ты — SMM-специалист молодёжного центра. Проанализируй тему поста и придумай "
+        "5–7 релевантных хештегов: микс из широких (#молодёжь, #события) и нишевых "
+        "(по конкретной теме поста). Часть хештегов — на русском, часть — на английском. "
+        "Хештеги должны реально использоваться в ВКонтакте и Telegram. "
+        "Верни только хештеги через пробел, без текста поста и без пояснений."
     ),
     "russify": (
-        "Ты — редактор русского языка. "
-        "Замени все англицизмы, иностранный сленг и заимствованные слова на естественные русские аналоги, "
-        "которые органично вписываются в контекст и не режут слух. "
-        "Не меняй смысл, тон и структуру текста. Все факты, даты, имена и эмодзи оставь без изменений. "
-        "Верни ТОЛЬКО готовый текст — без пояснений, без кавычек, без предисловий."
+        "Ты — редактор русского языка. Пройдись по тексту и замени все англицизмы, "
+        "заимствованный сленг и кальки на естественные русские аналоги, которые не режут слух. "
+        "Примеры: контент → материал, дедлайн → срок, фидбек → отклик, "
+        "постить → публиковать, ивент → мероприятие, воркшоп → мастер-класс. "
+        "Сохрани стиль, тон и структуру текста. Имена, названия и аббревиатуры не трогай. "
+        "Верни только исправленный текст, без пояснений и списка замен."
     ),
 }
 
@@ -517,7 +653,7 @@ def ai_enhance(body: AIEnhanceRequest):
 
     system_prompt = _AI_PROMPTS.get(body.mode)
     if not system_prompt:
-        raise HTTPException(400, "Неверный режим. Допустимые значения: creative, russify")
+        raise HTTPException(400, "Неверный режим. Допустимые значения: creative, russify, shortify, formal, hashtags, calltoaction")
 
     groq_key = os.getenv("GROQ_API_KEY", "")
     if not groq_key:
@@ -536,7 +672,8 @@ def ai_enhance(body: AIEnhanceRequest):
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": body.text},
                 ],
-                "temperature": 0.75 if body.mode == "creative" else 0.25,
+                "temperature": {"creative": 0.75, "shortify": 0.3, "formal": 0.3,
+                                "hashtags": 0.5, "calltoaction": 0.6, "russify": 0.25}.get(body.mode, 0.5),
                 "max_tokens": 2000,
             },
             timeout=30,
@@ -930,12 +1067,30 @@ def save_group_vk_settings(gid: int, body: VkSettingsSave, user_id: int = Depend
     if role != "admin":
         conn.close()
         raise HTTPException(403, "Только администратор может изменять настройки")
+    # Validate token is alive (users.get works with any valid token)
+    try:
+        val_r = http_requests.get(
+            "https://api.vk.com/method/users.get",
+            params={"access_token": body.access_token, "v": VK_API_VERSION},
+            timeout=10,
+        )
+        val_data = val_r.json()
+        if "error" in val_data:
+            conn.close()
+            err_msg = val_data["error"].get("error_msg", "Ошибка VK")
+            raise HTTPException(400, f"Недействительный токен ВК: {err_msg}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.close()
+        raise HTTPException(400, f"Не удалось связаться с VK: {e}")
+    # Try to get group name (non-blocking — cosmetic only)
+    clean_id = body.group_id.lstrip("-")
+    group_name = f"Группа {clean_id}"
     try:
         group_name = vk_get_group_name(body.access_token, body.group_id)
-    except ValueError as e:
-        conn.close()
-        raise HTTPException(400, str(e))
-    clean_id = body.group_id.lstrip("-")
+    except Exception:
+        pass
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
     c.execute("SELECT workspace_id FROM vk_settings WHERE workspace_id=%s", (gid,))
     exists = c.fetchone()
@@ -1102,24 +1257,48 @@ def login(req: LoginRequest):
     conn.close()
     return {"user": row_to_dict(user), "token": token, "groups": groups}
 
+@app.get("/api/debug/smtp-test")
+def smtp_test():
+    import smtplib, traceback
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER", "")
+    smtp_password = os.getenv("SMTP_PASSWORD", "")
+    if not smtp_user or not smtp_password:
+        return {"ok": False, "error": "SMTP_USER или SMTP_PASSWORD не заданы"}
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+        return {"ok": True, "message": f"SMTP подключение успешно ({smtp_user})"}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()}
+
 @app.post("/api/auth/register")
 def register(req: RegisterRequest):
     if not req.name.strip():
         raise HTTPException(400, "Введите имя")
     if not req.email.strip():
         raise HTTPException(400, "Введите email")
-    if len(req.password) < 6:
-        raise HTTPException(400, "Пароль должен содержать минимум 6 символов")
+    import re as _re
+    if len(req.password) < 8:
+        raise HTTPException(400, "Пароль должен содержать минимум 8 символов")
+    if not _re.search(r'[a-zA-Zа-яА-Я]', req.password):
+        raise HTTPException(400, "Пароль должен содержать хотя бы одну букву")
+    if not _re.search(r'[!@#$%^&*()\-_=+\[\]{};:\'",.<>/?\\|`~]', req.password):
+        raise HTTPException(400, "Пароль должен содержать хотя бы один спецсимвол")
+    email = req.email.lower().strip()
+    name = req.name.strip()
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT id FROM users WHERE email=%s", (req.email.lower().strip(),))
+    c.execute("SELECT id FROM users WHERE email=%s", (email,))
     if c.fetchone():
         conn.close()
         raise HTTPException(409, "Пользователь с таким email уже существует")
-    avatar = "".join(p[0].upper() for p in req.name.strip().split()[:2])
+    avatar = "".join(p[0].upper() for p in name.split()[:2])
     c.execute(
         "INSERT INTO users (name, email, role, avatar, password_hash) VALUES (%s,%s,%s,%s,%s) RETURNING id",
-        (req.name.strip(), req.email.lower().strip(), "editor", avatar, hash_password(req.password)),
+        (name, email, "editor", avatar, hash_password(req.password)),
     )
     uid = c.fetchone()["id"]
     c.execute("SELECT id FROM groups ORDER BY id ASC LIMIT 1")
@@ -1134,6 +1313,70 @@ def register(req: RegisterRequest):
     groups = [dict(r) for r in c.fetchall()]
     conn.close()
     return {"user": row_to_dict(user), "token": token, "groups": groups}
+
+@app.post("/api/auth/forgot-password")
+def forgot_password(req: ForgotPasswordRequest):
+    email = req.email.lower().strip()
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id FROM users WHERE email=%s", (email,))
+    user = c.fetchone()
+    if not user:
+        conn.close()
+        # Return success anyway to avoid email enumeration
+        return {"status": "code_sent"}
+    c.execute("DELETE FROM password_resets WHERE email=%s", (email,))
+    code = str(random.randint(100000, 999999))
+    expires_at = datetime.utcnow() + timedelta(minutes=15)
+    c.execute(
+        "INSERT INTO password_resets (email, code, expires_at) VALUES (%s, %s, %s)",
+        (email, code, expires_at),
+    )
+    conn.commit()
+    conn.close()
+    try:
+        send_reset_email(email, code)
+    except ValueError as e:
+        raise HTTPException(503, str(e))
+    except Exception as e:
+        import traceback, sys
+        traceback.print_exc(file=sys.stderr)
+        raise HTTPException(500, f"Не удалось отправить письмо: {type(e).__name__}: {e}")
+    return {"status": "code_sent"}
+
+@app.post("/api/auth/reset-password")
+def reset_password(req: ResetPasswordRequest):
+    import re as _re
+    if len(req.new_password) < 8:
+        raise HTTPException(400, "Пароль должен содержать минимум 8 символов")
+    if not _re.search(r'[a-zA-Zа-яА-Я]', req.new_password):
+        raise HTTPException(400, "Пароль должен содержать хотя бы одну букву")
+    if not _re.search(r'[!@#$%^&*()\-_=+\[\]{};:\'",.<>/?\\|`~]', req.new_password):
+        raise HTTPException(400, "Пароль должен содержать хотя бы один спецсимвол")
+    email = req.email.lower().strip()
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT * FROM password_resets WHERE email=%s ORDER BY id DESC LIMIT 1", (email,))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(400, "Код не найден. Запросите сброс пароля заново")
+    if datetime.utcnow() > row["expires_at"]:
+        c.execute("DELETE FROM password_resets WHERE email=%s", (email,))
+        conn.commit()
+        conn.close()
+        raise HTTPException(400, "Срок действия кода истёк. Запросите сброс пароля заново")
+    if row["code"] != req.code.strip():
+        conn.close()
+        raise HTTPException(400, "Неверный код подтверждения")
+    c.execute(
+        "UPDATE users SET password_hash=%s WHERE email=%s",
+        (hash_password(req.new_password), email),
+    )
+    c.execute("DELETE FROM password_resets WHERE email=%s", (email,))
+    conn.commit()
+    conn.close()
+    return {"status": "ok"}
 
 # ── Groups ───────────────────────────────────────────────────────────────────
 
@@ -1372,8 +1615,13 @@ def create_user(body: UserCreate):
         raise HTTPException(400, "Введите имя")
     if not body.email.strip():
         raise HTTPException(400, "Введите email")
-    if len(body.password) < 6:
-        raise HTTPException(400, "Пароль должен содержать минимум 6 символов")
+    import re as _re
+    if len(body.password) < 8:
+        raise HTTPException(400, "Пароль должен содержать минимум 8 символов")
+    if not _re.search(r'[a-zA-Zа-яА-Я]', body.password):
+        raise HTTPException(400, "Пароль должен содержать хотя бы одну букву")
+    if not _re.search(r'[!@#$%^&*()\-_=+\[\]{};:\'",.<>/?\\|`~]', body.password):
+        raise HTTPException(400, "Пароль должен содержать хотя бы один спецсимвол")
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT id FROM users WHERE email=%s", (body.email.lower().strip(),))
@@ -1438,8 +1686,8 @@ def create_group_post(gid: int, body: PostCreate, user_id: int = Depends(get_cur
         conn.close()
         raise HTTPException(403, "Наблюдатели не могут создавать посты")
     c.execute(
-        "INSERT INTO posts (title,content,status,platforms,tags,scheduled_at,author_id,template_type,media,group_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (body.title, body.content, body.status, json.dumps(body.platforms), json.dumps(body.tags), body.scheduled_at, user_id, body.template_type, json.dumps([m.dict() for m in body.media]), gid),
+        "INSERT INTO posts (title,content,status,platforms,tags,scheduled_at,location_address,location_lat,location_lng,author_id,template_type,media,group_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (body.title, body.content, body.status, json.dumps(body.platforms), json.dumps(body.tags), body.scheduled_at, body.location_address, body.location_lat, body.location_lng, user_id, body.template_type, json.dumps([m.dict() for m in body.media]), gid),
     )
     pid = c.fetchone()["id"]
     conn.commit()
@@ -1480,6 +1728,9 @@ def update_group_post(gid: int, post_id: int, body: PostUpdate, user_id: int = D
     if body.tags       is not None: updates.append("tags=%s");         params.append(json.dumps(body.tags))
     if body.scheduled_at is not None: updates.append("scheduled_at=%s"); params.append(body.scheduled_at)
     if body.media      is not None: updates.append("media=%s");        params.append(json.dumps([m.dict() for m in body.media]))
+    if body.location_address is not None: updates.append("location_address=%s"); params.append(body.location_address)
+    if body.location_lat is not None: updates.append("location_lat=%s"); params.append(body.location_lat)
+    if body.location_lng is not None: updates.append("location_lng=%s"); params.append(body.location_lng)
     if updates:
         params.append(post_id)
         c.execute(f"UPDATE posts SET {', '.join(updates)} WHERE id=%s", params)
@@ -1530,49 +1781,72 @@ def publish_group_post(gid: int, post_id: int, user_id: int = Depends(get_curren
     vk_error = None
     photo_errors: list = []
     platforms = post_dict.get("platforms", [])
+    backend_base = os.getenv("BACKEND_URL", "https://backend-production-30d6.up.railway.app").rstrip("/")
     if "vk" in platforms:
-        c.execute("SELECT group_id, access_token FROM vk_settings WHERE group_id=%s", (gid,))
+        c.execute("SELECT group_id, access_token FROM vk_settings WHERE workspace_id=%s", (gid,))
         vk = c.fetchone()
         if vk:
             try:
                 message = f"{post_dict['title']}\n\n{post_dict['content']}"
                 attachments = []
-                backend_base = os.getenv("BACKEND_URL", "https://backend-production-30d6.up.railway.app").rstrip("/")
-                for media in post_dict.get("media", []):
-                    if media.get("type") == "image":
-                        try:
-                            filename = media.get("filename", "image")
-                            image_data = http_requests.get(f"{backend_base}/{media['url']}", timeout=15).content
-                            photo_id = vk_upload_photo_to_wall(vk["access_token"], vk["group_id"], image_data, filename)
-                            attachments.append(photo_id)
-                        except Exception as e:
-                            photo_errors.append(str(e))
-                    elif media.get("type") == "video":
-                        try:
-                            filename = media.get("filename", "video.mp4")
-                            video_data = http_requests.get(f"{backend_base}/{media['url']}", timeout=120).content
-                            video_id = vk_upload_video_to_wall(vk["access_token"], vk["group_id"], video_data, filename, post_dict["title"])
-                            attachments.append(video_id)
-                        except Exception as e:
-                            photo_errors.append(f"Video upload error: {str(e)}")
-                r = http_requests.post(
-                    "https://api.vk.com/method/wall.post",
-                    data={
-                        "owner_id": f"-{vk['group_id']}",
-                        "message": message,
-                        "attachments": ",".join(attachments),
-                        "access_token": vk["access_token"],
-                        "v": VK_API_VERSION,
-                    },
-                    timeout=30,
-                )
-                vk_result = r.json()
-                if "response" in vk_result:
-                    vk_post_id = vk_result["response"].get("post_id")
-                else:
-                    vk_error = vk_result.get("error", {}).get("error_msg", "Unknown VK error")
+                for item in (post_dict.get("media") or []):
+                    item_type = item.get("type")
+                    if item_type not in ("image", "video", "doc"):
+                        continue
+                    fname = os.path.basename(item["url"])
+                    orig_name = item.get("filename") or fname
+                    fpath = os.path.join(UPLOAD_DIR, fname)
+                    try:
+                        if os.path.exists(fpath):
+                            with open(fpath, "rb") as f:
+                                file_data = f.read()
+                        else:
+                            file_url = f"{backend_base}{item['url']}"
+                            resp = http_requests.get(file_url, timeout=120)
+                            resp.raise_for_status()
+                            file_data = resp.content
+                        if item_type == "image":
+                            att = vk_upload_photo_to_wall(vk["access_token"], vk["group_id"], file_data, fname)
+                        elif item_type == "video":
+                            att = vk_upload_video_to_wall(
+                                vk["access_token"], vk["group_id"], file_data, fname,
+                                title=post_dict.get("title", ""),
+                                description=post_dict.get("content", ""),
+                            )
+                        else:
+                            att = vk_upload_doc_to_wall(
+                                vk["access_token"], vk["group_id"], file_data, orig_name,
+                                title=post_dict.get("title", "") or orig_name,
+                            )
+                        attachments.append(att)
+                    except Exception as media_err:
+                        msg = str(media_err)
+                        if any(kw in msg.lower() for kw in [
+                            "unavailable with group auth", "group authorization", "access denied",
+                            "this action is not available", "community token", "group token",
+                            "error_code: 15", "no access to call this method",
+                        ]):
+                            msg = f"Нет прав на загрузку {item_type}. Получите пользовательский токен в Настройках"
+                        photo_errors.append(msg)
+                vk_post_id = vk_wall_post(vk["access_token"], vk["group_id"], message, attachments)
             except Exception as e:
                 vk_error = str(e)
+
+    tg_message_ids: list = []
+    tg_error = None
+    if "telegram" in platforms:
+        c.execute("SELECT bot_token, chat_id FROM tg_settings WHERE workspace_id=%s", (gid,))
+        tg = c.fetchone()
+        if tg:
+            try:
+                tg_message = f"{post_dict['title']}\n\n{post_dict['content']}" if post_dict.get("title") else post_dict.get("content", "")
+                tg_message_ids = tg_send_post(
+                    tg["bot_token"], tg["chat_id"], tg_message,
+                    post_dict.get("media") or [], backend_base,
+                )
+            except Exception as e:
+                tg_error = str(e)
+
     c.execute("SELECT * FROM posts WHERE id=%s", (post_id,))
     row = c.fetchone()
     conn.close()
@@ -1580,6 +1854,8 @@ def publish_group_post(gid: int, post_id: int, user_id: int = Depends(get_curren
     result["vk_post_id"] = vk_post_id
     result["vk_error"] = vk_error
     result["photo_errors"] = photo_errors
+    result["tg_message_ids"] = tg_message_ids
+    result["tg_error"] = tg_error
     return result
 
 # ── Posts ────────────────────────────────────────────────────────────────────
@@ -1621,8 +1897,8 @@ def create_post(body: PostCreate):
     conn = get_db()
     c = conn.cursor()
     c.execute(
-        "INSERT INTO posts (title,content,status,platforms,tags,scheduled_at,author_id,template_type,media) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (body.title, body.content, body.status, json.dumps(body.platforms), json.dumps(body.tags), body.scheduled_at, body.author_id, body.template_type, json.dumps([m.dict() for m in body.media])),
+        "INSERT INTO posts (title,content,status,platforms,tags,scheduled_at,location_address,location_lat,location_lng,author_id,template_type,media) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+        (body.title, body.content, body.status, json.dumps(body.platforms), json.dumps(body.tags), body.scheduled_at, body.location_address, body.location_lat, body.location_lng, body.author_id, body.template_type, json.dumps([m.dict() for m in body.media])),
     )
     pid = c.fetchone()["id"]
     conn.commit()
@@ -1647,6 +1923,9 @@ def update_post(post_id: int, body: PostUpdate):
     if body.tags       is not None: updates.append("tags=%s");         params.append(json.dumps(body.tags))
     if body.scheduled_at is not None: updates.append("scheduled_at=%s"); params.append(body.scheduled_at)
     if body.media      is not None: updates.append("media=%s");        params.append(json.dumps([m.dict() for m in body.media]))
+    if body.location_address is not None: updates.append("location_address=%s"); params.append(body.location_address)
+    if body.location_lat is not None: updates.append("location_lat=%s"); params.append(body.location_lat)
+    if body.location_lng is not None: updates.append("location_lng=%s"); params.append(body.location_lng)
     if updates:
         params.append(post_id)
         c.execute(f"UPDATE posts SET {', '.join(updates)} WHERE id=%s", params)
@@ -1920,6 +2199,203 @@ def analytics_timeline(period: str = "month"):
         result.append({"date": ds, "label": day.strftime("%d.%m"), "views": row["v"] or 0, "reactions": row["r"] or 0, "posts": row["p"] or 0})
     conn.close()
     return result
+
+@app.get("/api/analytics/export")
+def analytics_export(start_date: str = Query(...), end_date: str = Query(...)):
+    now = datetime.now()
+    try:
+        dt_start = datetime.strptime(start_date, "%Y-%m-%d")
+        dt_end   = datetime.strptime(end_date,   "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Формат дат: YYYY-MM-DD")
+
+    conn = get_db()
+    c = conn.cursor()
+
+    # Summary data — только за выбранный период
+    date_filter = "published_at >= %s AND published_at < %s AND status='published'"
+    end_next    = (dt_end + timedelta(days=1)).strftime("%Y-%m-%d")
+    start_str   = dt_start.strftime("%Y-%m-%d")
+
+    c.execute(f"SELECT COUNT(*) FROM posts WHERE {date_filter}", (start_str, end_next))
+    published = c.fetchone()["count"]
+    c.execute("SELECT COUNT(*) FROM posts WHERE status='scheduled'"); scheduled = c.fetchone()["count"]
+    c.execute("SELECT COUNT(*) FROM posts WHERE status='draft'");     drafts    = c.fetchone()["count"]
+    c.execute(f"SELECT COUNT(*) FROM posts WHERE published_at >= %s AND published_at < %s", (start_str, end_next))
+    total = c.fetchone()["count"]
+    c.execute(
+        f"SELECT SUM(views) v,SUM(reactions) r,SUM(comments) cm,SUM(shares) sh FROM posts WHERE {date_filter}",
+        (start_str, end_next),
+    )
+    s = c.fetchone()
+    total_views = s["v"] or 0
+    eng = round(((s["r"] or 0) + (s["cm"] or 0)) / max(total_views, 1) * 100, 1)
+
+    # Timeline: каждый день периода
+    timeline = []
+    delta = (dt_end - dt_start).days + 1
+    for i in range(delta):
+        day = dt_start + timedelta(days=i)
+        ds  = day.strftime("%Y-%m-%d")
+        c.execute("SELECT SUM(views) v, SUM(reactions) r, COUNT(*) p FROM posts WHERE published_at LIKE %s", (ds + "%",))
+        row = c.fetchone()
+        timeline.append({"date": ds, "label": day.strftime("%d.%m"), "views": row["v"] or 0, "reactions": row["r"] or 0, "posts": row["p"] or 0})
+
+    # Platform stats — за период
+    pl_stats = []
+    for pl in ["vk", "telegram"]:
+        c.execute(
+            f"SELECT COUNT(*) cnt,SUM(views) v,SUM(reactions) r FROM posts WHERE platforms LIKE %s AND {date_filter}",
+            (f'%"{pl}"%', start_str, end_next),
+        )
+        ps = c.fetchone()
+        pl_stats.append({"platform": pl.upper(), "count": ps["cnt"] or 0, "views": ps["v"] or 0, "reactions": ps["r"] or 0})
+
+    # Top posts — за период
+    c.execute(
+        f"SELECT title,views,reactions,comments,shares,published_at FROM posts WHERE {date_filter} "
+        "ORDER BY (views+reactions*3+comments*2+shares*4) DESC LIMIT 10",
+        (start_str, end_next),
+    )
+    top_posts = c.fetchall()
+    conn.close()
+
+    # ── Build Excel ──
+    wb = openpyxl.Workbook()
+
+    BLUE   = "1D4ED8"
+    WHITE  = "FFFFFF"
+    GRAY   = "F1F5F9"
+    DARK   = "1E293B"
+
+    header_font  = Font(bold=True, color=WHITE, size=11)
+    header_fill  = PatternFill("solid", fgColor=BLUE)
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    cell_align   = Alignment(vertical="center")
+    thin_border  = Border(
+        bottom=Side(style="thin", color="CBD5E1"),
+        right=Side(style="thin", color="E2E8F0"),
+    )
+
+    def style_header_row(ws, row, cols):
+        for col in range(1, cols + 1):
+            cell = ws.cell(row=row, column=col)
+            cell.font      = header_font
+            cell.fill      = header_fill
+            cell.alignment = header_align
+            cell.border    = thin_border
+
+    def style_data_row(ws, row, cols, shade=False):
+        fill = PatternFill("solid", fgColor=GRAY) if shade else None
+        for col in range(1, cols + 1):
+            cell = ws.cell(row=row, column=col)
+            cell.alignment = cell_align
+            cell.border    = thin_border
+            if shade:
+                cell.fill = fill
+
+    period_label = f"{dt_start.strftime('%d.%m.%Y')} — {dt_end.strftime('%d.%m.%Y')}"
+
+    # ── Лист 1: Сводка ──
+    ws1 = wb.active
+    ws1.title = "Сводка"
+    ws1.row_dimensions[1].height = 30
+    ws1["A1"] = f"Отчёт по аналитике — {period_label}"
+    ws1["A1"].font = Font(bold=True, size=14, color=DARK)
+    ws1["A1"].alignment = Alignment(horizontal="left", vertical="center")
+    ws1.merge_cells("A1:B1")
+    ws1.append([])
+
+    headers = ["Показатель", "Значение"]
+    ws1.append(headers)
+    style_header_row(ws1, 3, 2)
+    ws1.row_dimensions[3].height = 24
+
+    rows = [
+        ("Всего постов",       total),
+        ("Опубликовано",       published),
+        ("Запланировано",      scheduled),
+        ("Черновиков",         drafts),
+        ("Всего просмотров",   total_views),
+        ("Реакции",            s["r"] or 0),
+        ("Комментарии",        s["cm"] or 0),
+        ("Репосты",            s["sh"] or 0),
+        ("Средние просмотры",  round(total_views / max(published, 1))),
+        ("Вовлечённость, %",   eng),
+    ]
+    for i, (label, val) in enumerate(rows, start=4):
+        ws1.append([label, val])
+        ws1.row_dimensions[i].height = 20
+        style_data_row(ws1, i, 2, shade=(i % 2 == 0))
+
+    ws1.column_dimensions["A"].width = 28
+    ws1.column_dimensions["B"].width = 18
+
+    # ── Лист 2: Динамика ──
+    ws2 = wb.create_sheet("Динамика")
+    ws2.append(["Дата", "Просмотры", "Реакции", "Публикаций"])
+    style_header_row(ws2, 1, 4)
+    ws2.row_dimensions[1].height = 24
+    for i, row in enumerate(timeline, start=2):
+        ws2.append([row["date"], row["views"], row["reactions"], row["posts"]])
+        ws2.row_dimensions[i].height = 18
+        style_data_row(ws2, i, 4, shade=(i % 2 == 0))
+    for col, w in zip("ABCD", [14, 14, 12, 14]):
+        ws2.column_dimensions[col].width = w
+
+    # ── Лист 3: Площадки ──
+    ws3 = wb.create_sheet("Площадки")
+    ws3.append(["Площадка", "Публикаций", "Просмотры", "Реакции"])
+    style_header_row(ws3, 1, 4)
+    ws3.row_dimensions[1].height = 24
+    for i, pl in enumerate(pl_stats, start=2):
+        ws3.append([pl["platform"], pl["count"], pl["views"], pl["reactions"]])
+        ws3.row_dimensions[i].height = 20
+        style_data_row(ws3, i, 4, shade=(i % 2 == 0))
+    for col, w in zip("ABCD", [16, 14, 14, 12]):
+        ws3.column_dimensions[col].width = w
+
+    # ── Лист 4: Топ постов ──
+    ws4 = wb.create_sheet("Топ постов")
+    ws4.append(["#", "Заголовок", "Просмотры", "Реакции", "Комментарии", "Репосты", "Дата публикации"])
+    style_header_row(ws4, 1, 7)
+    ws4.row_dimensions[1].height = 24
+    for i, p in enumerate(top_posts, start=2):
+        ws4.append([i - 1, p["title"], p["views"] or 0, p["reactions"] or 0, p["comments"] or 0, p["shares"] or 0, str(p["published_at"] or "")])
+        ws4.row_dimensions[i].height = 20
+        style_data_row(ws4, i, 7, shade=(i % 2 == 0))
+    for col, w in zip("ABCDEFG", [4, 40, 12, 10, 14, 10, 22]):
+        ws4.column_dimensions[col].width = w
+
+    # ── Stream response ──
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    month_ru = ["январь","февраль","март","апрель","май","июнь","июль","август","сентябрь","октябрь","ноябрь","декабрь"]
+    fname = f"аналитика_{month_ru[dt_start.month-1]}_{dt_start.year}.xlsx"
+    fname_encoded = quote(fname, safe="")
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname_encoded}"},
+    )
+
+# ── Youth Centers ────────────────────────────────────────────────────────────
+
+@app.get("/api/youth-centers")
+def get_youth_centers(lat: float = Query(...), lon: float = Query(...)):
+    centers = []
+    for center in YOUTH_CENTERS_MOCK:
+        center_lat, center_lon = center["coordinates"]
+        centers.append({
+            **center,
+            "lat": center_lat,
+            "lon": center_lon,
+            "distance_km": distance_km(lat, lon, center_lat, center_lon),
+        })
+    return sorted(centers, key=lambda c: c["distance_km"])
 
 # ── Notifications ─────────────────────────────────────────────────────────────
 
