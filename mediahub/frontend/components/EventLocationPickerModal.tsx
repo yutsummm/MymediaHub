@@ -3,9 +3,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FullscreenControl, Map, Placemark, YMaps, ZoomControl } from '@pbe/react-yandex-maps'
 import type ymaps from 'yandex-maps'
+import type { YouthCenter } from '@/lib/types'
 import { useYandexMapsKey } from '@/lib/useYandexMapsKey'
-
-type Coordinates = [number, number] // [lat, lon] for Yandex Maps
+import {
+  formatYouthCenterAddress,
+  getCenterCoordinates,
+  KRASNOYARSK_CENTER,
+  KRASNOYARSK_YOUTH_CENTERS,
+  sortYouthCentersByDistance,
+  type Coordinates,
+} from '@/lib/youthCenters'
 
 type Props = {
   open: boolean
@@ -29,10 +36,32 @@ declare global {
   }
 }
 
-const FALLBACK_CENTER: Coordinates = [56.010563, 92.852572]
+const FALLBACK_CENTER: Coordinates = KRASNOYARSK_CENTER
 
 function getGlobalYMaps() {
   return typeof window !== 'undefined' ? window.ymaps ?? null : null
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
+}
+
+function buildCenterBalloon(center: YouthCenter) {
+  const distance = typeof center.distance_km === 'number'
+    ? `<div style="margin-top:8px;color:#0840b5;font-weight:700">${center.distance_km.toFixed(2)} км от выбранной точки</div>`
+    : ''
+
+  return {
+    balloonContentHeader: `<strong>${escapeHtml(center.name)}</strong>`,
+    balloonContentBody: `<div>${escapeHtml(center.address)}</div>${distance}<div style="margin-top:8px;color:#64748b">Нажмите, чтобы выбрать центр местом события</div>`,
+    hintContent: center.name,
+    iconCaption: center.name,
+  }
 }
 
 async function requestGeocode(params: URLSearchParams) {
@@ -79,11 +108,13 @@ export default function EventLocationPickerModal({
   const reverseCallIdRef = useRef(0)
   const searchCallIdRef = useRef(0)
   const selectedCoordsRef = useRef<Coordinates | null>(null)
+  const skipNextReverseRef = useRef(false)
 
   const [address, setAddress] = useState(initialAddress)
   const [selectedCoords, setSelectedCoords] = useState<Coordinates | null>(
     initialLat != null && initialLng != null ? [initialLat, initialLng] : null
   )
+  const [selectedCenterId, setSelectedCenterId] = useState<number | null>(null)
   const [userCoords, setUserCoords] = useState<Coordinates | null>(null)
   const [mapCenter, setMapCenter] = useState<Coordinates>(
     initialLat != null && initialLng != null ? [initialLat, initialLng] : FALLBACK_CENTER
@@ -167,6 +198,7 @@ export default function EventLocationPickerModal({
     const initialCoords = initialLat != null && initialLng != null ? [initialLat, initialLng] as Coordinates : null
     setAddress(initialAddress)
     setSelectedCoords(initialCoords)
+    setSelectedCenterId(null)
     setUserCoords(null)
     setMapCenter(initialCoords ?? FALLBACK_CENTER)
     setGeoError('')
@@ -181,6 +213,10 @@ export default function EventLocationPickerModal({
 
   useEffect(() => {
     if (!open || !selectedCoords) return
+    if (skipNextReverseRef.current) {
+      skipNextReverseRef.current = false
+      return
+    }
 
     const callId = ++reverseCallIdRef.current
     setReverseLoading(true)
@@ -205,8 +241,18 @@ export default function EventLocationPickerModal({
     [mapCenter, selectedCoords]
   )
 
-  function handlePick(coordinates: Coordinates) {
+  const centersWithDistances = useMemo(
+    () => sortYouthCentersByDistance(KRASNOYARSK_YOUTH_CENTERS, userCoords ?? selectedCoords ?? mapCenter),
+    [mapCenter, selectedCoords, userCoords]
+  )
+
+  function handlePick(coordinates: Coordinates, nextAddress?: string, centerId: number | null = null) {
+    if (nextAddress) {
+      skipNextReverseRef.current = true
+      setAddress(nextAddress)
+    }
     setSelectedCoords(coordinates)
+    setSelectedCenterId(centerId)
     setMapCenter(coordinates)
     setSearchError('')
     void mapRef.current?.setCenter(coordinates, 15, { duration: 300 })
@@ -216,6 +262,10 @@ export default function EventLocationPickerModal({
     const coords = event.get('coords') as Coordinates | undefined
     if (!coords) return
     handlePick([coords[0], coords[1]])
+  }
+
+  function selectYouthCenter(center: YouthCenter) {
+    handlePick(getCenterCoordinates(center), formatYouthCenterAddress(center), center.id)
   }
 
   async function handleSearch() {
@@ -234,7 +284,7 @@ export default function EventLocationPickerModal({
       const result = await geocodeAddress(query)
       if (callId !== searchCallIdRef.current) return
       setAddress(result.address)
-      handlePick(result.coordinates)
+      handlePick(result.coordinates, result.address)
     } catch (error) {
       if (callId === searchCallIdRef.current) {
         setSearchError(error instanceof Error ? error.message : 'Не удалось найти адрес.')
@@ -282,103 +332,143 @@ export default function EventLocationPickerModal({
             </div>
           </div>
 
-          <div className="location-map-box event-location-map">
-            {mapsKeyLoading ? (
-              <div className="event-location-map-empty">
-                Загружаем настройки Яндекс Карт...
-              </div>
-            ) : !yandexMapsKey ? (
-              <div className="event-location-map-empty">
-                {mapsKeyError || 'Не задан NEXT_PUBLIC_YANDEX_MAPS_KEY в переменных frontend-сервиса Railway'}
-              </div>
-            ) : (
-              <YMaps query={{ apikey: yandexMapsKey, lang: 'ru_RU', load: 'package.full' }}>
-                <Map
-                  state={mapState}
-                  width="100%"
-                  height="100%"
-                  className="event-location-map-inner"
-                  modules={['geoObject.addon.balloon', 'geoObject.addon.hint']}
-                  onClick={handleMapClick}
-                  onLoad={ymapsApi => {
-                    ymapsRef.current = ymapsApi
-                    setMapReady(true)
-                  }}
-                  instanceRef={(mapInstance: ymaps.Map | null) => {
-                    mapRef.current = mapInstance
-                    if (mapInstance) {
-                      ymapsRef.current = ymapsRef.current ?? getGlobalYMaps()
-                      setMapReady(true)
-                    } else {
-                      setMapReady(false)
-                    }
-                  }}
-                  options={{
-                    suppressMapOpenBlock: true,
-                    yandexMapDisablePoiInteractivity: true,
-                  }}
-                >
-                  <ZoomControl options={{ position: { right: 12, top: 52 } }} />
-                  <FullscreenControl options={{ position: { right: 12, top: 12 } }} />
-
-                  {userCoords && (
-                    <Placemark
-                      geometry={userCoords}
-                      properties={{
-                        balloonContentHeader: '<strong>Вы здесь</strong>',
-                        balloonContentBody: 'Местоположение определено браузером',
-                        hintContent: 'Вы здесь',
+          <div className="event-location-grid">
+            <div className="event-location-main">
+              <div className="location-map-box event-location-map">
+                {mapsKeyLoading ? (
+                  <div className="event-location-map-empty">
+                    Загружаем настройки Яндекс Карт...
+                  </div>
+                ) : !yandexMapsKey ? (
+                  <div className="event-location-map-empty">
+                    {mapsKeyError || 'Не задан NEXT_PUBLIC_YANDEX_MAPS_KEY в переменных frontend-сервиса Railway'}
+                  </div>
+                ) : (
+                  <YMaps query={{ apikey: yandexMapsKey, lang: 'ru_RU', load: 'package.full' }}>
+                    <Map
+                      state={mapState}
+                      width="100%"
+                      height="100%"
+                      className="event-location-map-inner"
+                      modules={['geoObject.addon.balloon', 'geoObject.addon.hint']}
+                      onClick={handleMapClick}
+                      onLoad={ymapsApi => {
+                        ymapsRef.current = ymapsApi
+                        setMapReady(true)
+                      }}
+                      instanceRef={(mapInstance: ymaps.Map | null) => {
+                        mapRef.current = mapInstance
+                        if (mapInstance) {
+                          ymapsRef.current = ymapsRef.current ?? getGlobalYMaps()
+                          setMapReady(true)
+                        } else {
+                          setMapReady(false)
+                        }
                       }}
                       options={{
-                        preset: 'islands#blueCircleDotIcon',
-                        iconColor: '#0840B5',
+                        suppressMapOpenBlock: true,
+                        yandexMapDisablePoiInteractivity: true,
                       }}
-                    />
-                  )}
+                    >
+                      <ZoomControl options={{ position: { right: 12, top: 52 } }} />
+                      <FullscreenControl options={{ position: { right: 12, top: 12 } }} />
 
-                  {selectedCoords && (
-                    <Placemark
-                      geometry={selectedCoords}
-                      properties={{
-                        balloonContentHeader: '<strong>Место события</strong>',
-                        balloonContentBody: address || 'Место выбрано на карте',
-                        hintContent: 'Место события',
-                        iconCaption: 'Событие',
-                      }}
-                      options={{
-                        preset: 'islands#redStretchyIcon',
-                        iconColor: '#EF4444',
-                      }}
-                    />
-                  )}
-                </Map>
-              </YMaps>
-            )}
+                      {userCoords && (
+                        <Placemark
+                          geometry={userCoords}
+                          properties={{
+                            balloonContentHeader: '<strong>Вы здесь</strong>',
+                            balloonContentBody: 'Местоположение определено браузером',
+                            hintContent: 'Вы здесь',
+                          }}
+                          options={{
+                            preset: 'islands#blueCircleDotIcon',
+                            iconColor: '#0840B5',
+                          }}
+                        />
+                      )}
 
-            {yandexMapsKey && (geoLoading || reverseLoading || !mapReady) && (
-              <div className="location-map-loading">
-                {geoLoading ? 'Определяем ваше местоположение...' : reverseLoading ? 'Определяем адрес точки...' : 'Загружаем Яндекс.Карту...'}
+                      {centersWithDistances.map(center => (
+                        <Placemark
+                          key={center.id}
+                          geometry={getCenterCoordinates(center)}
+                          properties={buildCenterBalloon(center)}
+                          options={{
+                            preset: center.id === selectedCenterId ? 'islands#violetStretchyIcon' : 'islands#greenStretchyIcon',
+                            iconColor: center.id === selectedCenterId ? '#7C3AED' : '#10B981',
+                          }}
+                          onClick={() => selectYouthCenter(center)}
+                        />
+                      ))}
+
+                      {selectedCoords && (
+                        <Placemark
+                          geometry={selectedCoords}
+                          properties={{
+                            balloonContentHeader: '<strong>Место события</strong>',
+                            balloonContentBody: address || 'Место выбрано на карте',
+                            hintContent: 'Место события',
+                            iconCaption: 'Событие',
+                          }}
+                          options={{
+                            preset: 'islands#redStretchyIcon',
+                            iconColor: '#EF4444',
+                          }}
+                        />
+                      )}
+                    </Map>
+                  </YMaps>
+                )}
+
+                {yandexMapsKey && (geoLoading || reverseLoading || !mapReady) && (
+                  <div className="location-map-loading">
+                    {geoLoading ? 'Определяем ваше местоположение...' : reverseLoading ? 'Определяем адрес точки...' : 'Загружаем Яндекс.Карту...'}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          <div className="location-map-note">
-            Клик по карте поставит маркер события. Адрес можно поправить вручную перед сохранением.
-          </div>
+              <div className="location-map-note">
+                Клик по карте поставит маркер события. Адрес можно поправить вручную перед сохранением.
+              </div>
 
-          {(geoError || searchError) && (
-            <div className="location-error-box" style={{ marginTop: 8 }}>
-              {searchError || geoError}
+              {(geoError || searchError) && (
+                <div className="location-error-box" style={{ marginTop: 8 }}>
+                  {searchError || geoError}
+                </div>
+              )}
+
+              {selectedCoords && (
+                <div className="location-selected-box">
+                  <div className="location-selected-title">Выбранная точка</div>
+                  <div className="location-selected-text">{address || 'Место выбрано на карте'}</div>
+                  <div className="location-selected-meta">Адрес будет добавлен в пост как место проведения.</div>
+                </div>
+              )}
             </div>
-          )}
 
-          {selectedCoords && (
-            <div className="location-selected-box">
-              <div className="location-selected-title">Выбранная точка</div>
-              <div className="location-selected-text">{address || 'Место выбрано на карте'}</div>
-              <div className="location-selected-meta">Адрес будет добавлен в пост как место проведения.</div>
-            </div>
-          )}
+            <aside className="event-centers-panel">
+              <div className="card-title" style={{ marginBottom: 6 }}>Молодёжные центры</div>
+              <div className="ts tg" style={{ marginBottom: 12 }}>
+                Выберите центр из списка или отметьте любую точку на карте.
+              </div>
+              <div className="event-centers-list">
+                {centersWithDistances.map(center => (
+                  <button
+                    key={center.id}
+                    type="button"
+                    className={`youth-center-item${center.id === selectedCenterId ? ' active' : ''}`}
+                    onClick={() => selectYouthCenter(center)}
+                  >
+                    <div className="youth-center-name">{center.name}</div>
+                    <div className="youth-center-address">{center.address}</div>
+                    {typeof center.distance_km === 'number' && (
+                      <span className="youth-center-distance">{center.distance_km.toFixed(2)} км</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </aside>
+          </div>
         </div>
 
         <div className="modal-ft">

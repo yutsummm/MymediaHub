@@ -1193,11 +1193,30 @@ select option { background: var(--bg-2); color: var(--text); }
 }
 
 /* ─── Location modal ─── */
-.location-modal { max-width: 880px; }
+.location-modal {
+  max-width: min(1180px, calc(100vw - 40px));
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.location-modal .modal-bd { overflow-y: auto; min-height: 0; }
 .location-map-box { width: 100%; min-height: 320px; border-radius: var(--r-lg); overflow: hidden; border: 1px solid var(--border); }
 .location-search-row { display: flex; gap: 10px; }
 .event-location-map { position: relative; height: min(56vh, 460px); min-height: 340px; background: var(--surface-2); }
 .event-location-map-inner { width: 100%; height: 100%; }
+.event-location-grid {
+  display: grid; grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 14px; align-items: stretch; min-height: 0;
+}
+.event-location-main { min-width: 0; }
+.event-centers-panel {
+  min-height: 0; max-height: min(56vh, 560px);
+  display: flex; flex-direction: column;
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+  background: rgba(255,255,255,0.02); padding: 14px;
+}
+.event-centers-list {
+  display: grid; gap: 10px; min-height: 0;
+  overflow-y: auto; padding-right: 4px;
+}
 .event-location-map-empty {
   width: 100%; height: 100%; min-height: inherit;
   display: flex; align-items: center; justify-content: center;
@@ -1245,7 +1264,7 @@ select option { background: var(--bg-2); color: var(--text); }
 }
 .youth-centers-shell {
   display: grid; grid-template-columns: minmax(0, 1fr) 340px;
-  gap: 16px; align-items: stretch;
+  gap: 16px; align-items: start; min-height: 0;
 }
 .youth-centers-main,
 .youth-centers-panel,
@@ -1294,8 +1313,15 @@ select option { background: var(--bg-2); color: var(--text); }
   background: rgba(245,158,11,0.08); color: #fcd34d;
   font-size: 12px; line-height: 1.45;
 }
-.youth-centers-panel { padding: 18px; }
-.youth-centers-list { display: grid; gap: 10px; }
+.youth-centers-panel {
+  padding: 18px; display: flex; flex-direction: column;
+  max-height: calc(100vh - 112px); min-height: 0;
+  overflow: hidden; position: sticky; top: 74px;
+}
+.youth-centers-list {
+  display: grid; gap: 10px; min-height: 0;
+  overflow-y: auto; padding-right: 4px;
+}
 .youth-center-item {
   width: 100%; text-align: left; cursor: pointer; font-family: inherit;
   padding: 13px 14px; border: 1px solid var(--border);
@@ -1381,8 +1407,11 @@ select option { background: var(--bg-2); color: var(--text); }
   .stats-grid, .grid2, .grid4 { grid-template-columns: 1fr; gap: 12px; margin-bottom: 18px; }
   .grid3 { grid-template-columns: repeat(2,1fr); }
   .youth-centers-shell { grid-template-columns: 1fr; }
+  .youth-centers-panel { position: static; max-height: 52vh; }
   .youth-map { height: 52vh; min-height: 360px; }
   .youth-map-toolbar { max-width: calc(100% - 28px); }
+  .event-location-grid { grid-template-columns: 1fr; }
+  .event-centers-panel { max-height: 280px; }
   .event-location-map { height: 50vh; min-height: 340px; }
   .youth-centers-hero { align-items: flex-start; flex-direction: column; }
   .card-p { padding: 16px; }
@@ -1421,6 +1450,7 @@ select option { background: var(--bg-2); color: var(--text); }
     justify-content: stretch;
   }
   .youth-map-toolbar .btn { flex: 1; justify-content: center; }
+  .event-centers-panel { max-height: 240px; }
   .event-location-map { height: 46vh; min-height: 300px; }
   .location-search-row { flex-direction: column; }
   .location-search-row .btn { width: 100%; }
