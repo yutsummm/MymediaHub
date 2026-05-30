@@ -62,7 +62,7 @@ export const api = {
       method: 'POST', body: body({ email, code, new_password }),
     }),
 
-  getUsers: () => req<import('./types').User[]>('/api/users'),
+  getUsers: () => req<{ users: import('./types').User[]; total: number }>('/api/users'),
   updateUserRole: (id: number, role: string) =>
     req<import('./types').User>(`/api/users/${id}/role`, { method: 'PUT', body: body({ role }) }),
   createUser: (name: string, email: string, role: string, password: string) =>
@@ -118,8 +118,8 @@ export const api = {
     URL.revokeObjectURL(a.href)
   },
 
-  getNotifications: (user_id?: number) =>
-    req<import('./types').Notification[]>(`/api/notifications${user_id ? `?user_id=${user_id}` : ''}`),
+  getNotifications: () =>
+    req<{ items: import('./types').Notification[]; total: number }>('/api/notifications'),
   markRead: (id: number) => req<{ ok: boolean }>(`/api/notifications/${id}/read`, { method: 'PUT' }),
 
   uploadFile: async (file: File): Promise<import('./types').MediaItem> => {
@@ -199,7 +199,7 @@ export const api = {
   // Volunteer media
   getVolunteerMedia: (groupId: number, params?: Record<string, string>) => {
     const qs = params ? '?' + new URLSearchParams(params).toString() : ''
-    return req<import('./types').VolunteerMedia[]>(`/api/groups/${groupId}/volunteer-media${qs}`)
+    return req<{ items: import('./types').VolunteerMedia[]; total: number }>(`/api/groups/${groupId}/volunteer-media${qs}`)
   },
   createVolunteerMedia: (groupId: number, data: { event_name: string; media: import('./types').MediaItem[] }) =>
     req<import('./types').VolunteerMedia>(`/api/groups/${groupId}/volunteer-media`, {
