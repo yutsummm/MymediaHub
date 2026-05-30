@@ -61,7 +61,9 @@ def verify_password(password: str, hashed: str) -> bool:
 
 JWT_SECRET = os.getenv("JWT_SECRET")
 if not JWT_SECRET:
-    raise RuntimeError("JWT_SECRET environment variable is required. Set a strong random value in production.")
+    import secrets
+    JWT_SECRET = secrets.token_hex(32)
+    print("WARNING: JWT_SECRET not set. Using a random key. Set JWT_SECRET in environment for persistence across restarts.")
 JWT_ALGORITHM = "HS256"
 
 def create_token(user_id: int) -> str:
