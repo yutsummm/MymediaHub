@@ -30,7 +30,7 @@ export function GroupProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   const refreshGroups = async () => {
-    if (!user || !token) return
+    if (!token) return
     try {
       const data = await api.getGroups()
       setGroups(data)
@@ -42,6 +42,9 @@ export function GroupProvider({ children }: { children: React.ReactNode }) {
           setCurrentGroup(group)
           localStorage.setItem('mediahub_current_group', group.id.toString())
         }
+      } else if (data.length > 0 && !currentGroup) {
+        setCurrentGroup(data[0])
+        localStorage.setItem('mediahub_current_group', data[0].id.toString())
       }
     } catch (e) {
       console.error('Failed to load groups:', e)
@@ -50,6 +53,8 @@ export function GroupProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (user && token) {
+      refreshGroups().finally(() => setLoading(false))
+    } else if (token) {
       refreshGroups().finally(() => setLoading(false))
     } else {
       setLoading(false)
