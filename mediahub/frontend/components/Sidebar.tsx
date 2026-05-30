@@ -8,7 +8,7 @@ type Theme = 'dark' | 'light'
 
 const S = { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 
-const NAV_ICONS = {
+const NAV_ICONS: Record<string, React.ReactNode> = {
   /* Бенто-сетка — «обзор всего» */
   dashboard: (
     <svg {...S}>
@@ -67,6 +67,22 @@ const NAV_ICONS = {
       <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
     </svg>
   ),
+  /* Камера — «медиа от волонтёров» */
+  volunteerMedia: (
+    <svg {...S}>
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+      <circle cx="12" cy="13" r="4"/>
+    </svg>
+  ),
+  /* Мои загрузки — облако со стрелкой вверх */
+  myUploads: (
+    <svg {...S}>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <polyline points="14 2 14 8 20 8"/>
+      <polyline points="12 12 12 18"/>
+      <polyline points="9 15 12 12 15 15"/>
+    </svg>
+  ),
   /* Микшер со скруглёнными ручками — «управление» */
   settings: (
     <svg {...S}>
@@ -83,7 +99,9 @@ const NAV_ICONS = {
   ),
 }
 
-const NAV_GROUPS = [
+type NavItem = { href: string; icon: string; label: string; roles?: string[] }
+
+const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   {
     label: 'Основное',
     items: [
@@ -91,7 +109,15 @@ const NAV_GROUPS = [
       { href: '/calendar',  icon: 'calendar',      label: 'Календарь' },
       { href: '/youth-centers', icon: 'centers',   label: 'Центры рядом' },
       { href: '/posts',     icon: 'posts',         label: 'Посты' },
-      { href: '/posts/new', icon: 'newPost',       label: 'Создать пост' },
+      { href: '/posts/new', icon: 'newPost',       label: 'Создать пост', roles: ['admin', 'editor'] },
+    ],
+  },
+  {
+    label: 'Медиа',
+    items: [
+      { href: '/volunteer-media',   icon: 'volunteerMedia', label: 'Медиа волонтёров', roles: ['admin', 'editor'] },
+      { href: '/volunteer-media/upload', icon: 'myUploads', label: 'Загрузить медиа',  roles: ['volunteer'] },
+      { href: '/volunteer-media/my',     icon: 'myUploads', label: 'Мои загрузки',     roles: ['volunteer'] },
     ],
   },
   {
@@ -109,8 +135,8 @@ const NAV_GROUPS = [
   },
 ]
 
-const ROLE_CLASS: Record<string, string> = { admin: 'r-admin', editor: 'r-editor', observer: 'r-observer' }
-const ROLE_LABEL: Record<string, string> = { admin: 'Администратор', editor: 'Редактор', observer: 'Наблюдатель' }
+const ROLE_CLASS: Record<string, string> = { admin: 'r-admin', editor: 'r-editor', volunteer: 'r-volunteer' }
+const ROLE_LABEL: Record<string, string> = { admin: 'Администратор', editor: 'Редактор', volunteer: 'Волонтёр' }
 
 export default function Sidebar({
   unread = 0,
@@ -280,10 +306,14 @@ export default function Sidebar({
 
         {/* Navigation */}
         <nav className="sidebar-nav">
-          {NAV_GROUPS.map(group => (
+          {NAV_GROUPS.map(group => {
+            const role = currentGroup?.role || user?.role || ''
+            const visible = group.items.filter(i => !i.roles || i.roles.includes(role))
+            if (visible.length === 0) return null
+            return (
             <div key={group.label}>
               <div className="nav-group">{group.label}</div>
-              {group.items.map(item => (
+              {visible.map(item => (
                 <div
                   key={item.href}
                   className={`nav-item${pathname === item.href ? ' active' : ''}`}
@@ -299,7 +329,8 @@ export default function Sidebar({
                 </div>
               ))}
             </div>
-          ))}
+          )
+        })}
         </nav>
 
         {/* User profile */}

@@ -337,9 +337,9 @@ body::after {
   border-radius: var(--r-full); text-transform: uppercase;
   letter-spacing: 0.07em; display: inline-block; margin-top: 2px;
 }
-.r-admin    { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.45); }
-.r-editor   { background: rgba(16,185,129,0.14); color: #6ee7b7; }
-.r-observer { background: rgba(245,158,11,0.14); color: #fcd34d; }
+.r-admin     { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.45); }
+.r-editor    { background: rgba(16,185,129,0.14); color: #6ee7b7; }
+.r-volunteer { background: rgba(59,130,246,0.14); color: #93c5fd; }
 
 /* ─── Logo helpers ─── */
 .logo-text { color: var(--text); font-weight: 700; font-size: 14px; line-height: 1.2; letter-spacing: -0.02em; }
