@@ -204,9 +204,38 @@ export default function Sidebar({
           >×</button>
         </div>
 
-        {/* Groups Switcher — always visible */}
+        {/* Navigation */}
+        <nav className="sidebar-nav">
+          {NAV_GROUPS.map(group => {
+            const role = currentGroup?.role || user?.role || ''
+            const visible = group.items.filter(i => !i.roles || i.roles.includes(role))
+            if (visible.length === 0) return null
+            return (
+            <div key={group.label}>
+              <div className="nav-group">{group.label}</div>
+              {visible.map(item => (
+                <div
+                  key={item.href}
+                  className={`nav-item${pathname === item.href ? ' active' : ''}`}
+                  onClick={() => go(item.href)}
+                >
+                  <span className="nav-icon">
+                    {NAV_ICONS[item.icon as keyof typeof NAV_ICONS]}
+                  </span>
+                  {item.label}
+                  {item.href === '/notifications' && unread > 0 && (
+                    <span className="nav-badge">{unread}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )
+        })}
+        </nav>
+
+        {/* Groups Switcher — under settings */}
         {groups.length > 0 && (
-          <div style={{ padding: '0 12px 16px', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ padding: '8px 12px 8px', borderTop: '1px solid var(--border)' }}>
             <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span>Группы</span>
               <button
@@ -256,35 +285,6 @@ export default function Sidebar({
             </div>
           </div>
         )}
-
-        {/* Navigation */}
-        <nav className="sidebar-nav">
-          {NAV_GROUPS.map(group => {
-            const role = currentGroup?.role || user?.role || ''
-            const visible = group.items.filter(i => !i.roles || i.roles.includes(role))
-            if (visible.length === 0) return null
-            return (
-            <div key={group.label}>
-              <div className="nav-group">{group.label}</div>
-              {visible.map(item => (
-                <div
-                  key={item.href}
-                  className={`nav-item${pathname === item.href ? ' active' : ''}`}
-                  onClick={() => go(item.href)}
-                >
-                  <span className="nav-icon">
-                    {NAV_ICONS[item.icon as keyof typeof NAV_ICONS]}
-                  </span>
-                  {item.label}
-                  {item.href === '/notifications' && unread > 0 && (
-                    <span className="nav-badge">{unread}</span>
-                  )}
-                </div>
-              ))}
-            </div>
-          )
-        })}
-        </nav>
 
         {/* User profile */}
         {user && (
