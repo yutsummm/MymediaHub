@@ -13,7 +13,7 @@ const YouthCentersMap = dynamic(() => import('@/components/YouthCentersMap'), {
 
 export default function YouthCentersPage() {
   return (
-    <div className="content">
+    <div className="content youth-centers-content">
       <div className="youth-centers-hero">
         <div>
           <div className="ts tg" style={{ textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, marginBottom: 8 }}>
