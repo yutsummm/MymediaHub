@@ -239,7 +239,7 @@ export default function PostEditor({
     setVolModalOpen(true)
     if (!volItems && currentGroup) {
       api.getVolunteerMedia(currentGroup.id, { status: 'approved' })
-        .then(data => setVolItems(data.items))
+        .then(data => setVolItems(data))
         .catch(() => {})
     }
   }
