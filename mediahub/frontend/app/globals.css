@@ -337,9 +337,9 @@ body::after {
   border-radius: var(--r-full); text-transform: uppercase;
   letter-spacing: 0.07em; display: inline-block; margin-top: 2px;
 }
-.r-admin    { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.45); }
-.r-editor   { background: rgba(16,185,129,0.14); color: #6ee7b7; }
-.r-observer { background: rgba(245,158,11,0.14); color: #fcd34d; }
+.r-admin     { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.45); }
+.r-editor    { background: rgba(16,185,129,0.14); color: #6ee7b7; }
+.r-volunteer { background: rgba(59,130,246,0.14); color: #93c5fd; }
 
 /* ─── Logo helpers ─── */
 .logo-text { color: var(--text); font-weight: 700; font-size: 14px; line-height: 1.2; letter-spacing: -0.02em; }
@@ -1195,6 +1195,22 @@ select option { background: var(--bg-2); color: var(--text); }
 /* ─── Location modal ─── */
 .location-modal { max-width: 880px; }
 .location-map-box { width: 100%; min-height: 320px; border-radius: var(--r-lg); overflow: hidden; border: 1px solid var(--border); }
+.location-search-row { display: flex; gap: 10px; }
+.event-location-map { position: relative; height: min(56vh, 460px); min-height: 340px; background: var(--surface-2); }
+.event-location-map-inner { width: 100%; height: 100%; }
+.event-location-map-empty {
+  width: 100%; height: 100%; min-height: inherit;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; color: var(--text-2); text-align: center;
+  font-size: 13px; font-weight: 700;
+}
+.location-map-loading {
+  position: absolute; inset: 0; z-index: 500;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-2); font-size: 13px; font-weight: 600;
+  background: rgba(8, 8, 10, 0.42); backdrop-filter: blur(2px);
+  pointer-events: none;
+}
 .location-map-note { margin-top: 8px; font-size: 12px; color: var(--text-3); }
 .location-map-fallback, .location-error-box, .location-selected-box { margin-top: 14px; border-radius: var(--r-lg); padding: 14px 16px; border: 1px solid var(--border); background: rgba(255,255,255,0.02); }
 .location-error-box { border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.07); color: #fca5a5; }
@@ -1202,6 +1218,124 @@ select option { background: var(--bg-2); color: var(--text); }
 .location-selected-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); margin-bottom: 6px; font-weight: 700; }
 .location-selected-text { color: var(--text); font-size: 14px; line-height: 1.45; }
 .location-selected-meta { margin-top: 8px; color: var(--text-3); font-size: 12px; }
+.event-user-marker {
+  border-radius: 999px;
+  background: rgba(8, 64, 181, 0.18);
+  border: 1px solid rgba(8, 64, 181, 0.55);
+}
+.event-user-marker span {
+  position: absolute; inset: 6px;
+  border-radius: 999px;
+  background: #0840b5;
+  box-shadow: 0 0 0 4px rgba(8,64,181,0.18), 0 0 18px rgba(8,64,181,0.5);
+}
+
+/* ─── Youth centers map ─── */
+.youth-centers-hero {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  gap: 18px; margin-bottom: 18px;
+}
+.youth-centers-title {
+  margin: 0; color: var(--text);
+  font-size: 28px; font-weight: 800; letter-spacing: 0;
+}
+.youth-centers-subtitle {
+  max-width: 720px; margin: 8px 0 0;
+  color: var(--text-2); font-size: 14px; line-height: 1.6;
+}
+.youth-centers-shell {
+  display: grid; grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 16px; align-items: stretch;
+}
+.youth-centers-main,
+.youth-centers-panel,
+.youth-map-skeleton {
+  border: 1px solid var(--border); border-radius: var(--r-xl);
+  background: var(--surface); box-shadow: var(--shadow-card);
+}
+.youth-centers-main { min-width: 0; padding: 14px; }
+.youth-map-card {
+  position: relative; overflow: hidden; border-radius: var(--r-lg);
+  border: 1px solid var(--border); background: var(--surface-2);
+}
+.youth-map-toolbar {
+  position: absolute; z-index: 5; top: 14px; left: 14px;
+  display: flex; gap: 8px; flex-wrap: wrap;
+  padding: 8px; border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--r-lg); background: rgba(8,8,10,0.72);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 14px 40px rgba(0,0,0,0.28);
+}
+.youth-map {
+  width: 100%; height: min(62vh, 560px);
+  min-height: 420px; z-index: 1;
+}
+.youth-map-empty {
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px; color: var(--text-2); text-align: center;
+  font-size: 13px; font-weight: 700;
+}
+.youth-map-overlay {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px;
+  background: rgba(5,5,7,0.62); color: var(--text);
+  font-size: 13px; font-weight: 700;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.youth-map-loader {
+  width: 34px; height: 34px; border-radius: 50%;
+  border: 3px solid rgba(255,255,255,0.18);
+  border-top-color: var(--accent);
+  animation: spin 0.85s linear infinite;
+}
+.youth-map-alert {
+  margin-top: 12px; padding: 12px 14px; border-radius: var(--r-md);
+  border: 1px solid rgba(245,158,11,0.32);
+  background: rgba(245,158,11,0.08); color: #fcd34d;
+  font-size: 12px; line-height: 1.45;
+}
+.youth-centers-panel { padding: 18px; }
+.youth-centers-list { display: grid; gap: 10px; }
+.youth-center-item {
+  width: 100%; text-align: left; cursor: pointer; font-family: inherit;
+  padding: 13px 14px; border: 1px solid var(--border);
+  border-radius: var(--r-md); background: var(--surface-2);
+  transition: transform var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
+}
+.youth-center-item:hover {
+  transform: translateY(-2px);
+  border-color: rgba(16,185,129,0.35);
+  background: rgba(16,185,129,0.07);
+}
+.youth-center-item.active {
+  border-color: rgba(124,58,237,0.45);
+  background: rgba(124,58,237,0.1);
+}
+.youth-center-name {
+  color: var(--text); font-size: 13px; font-weight: 700; margin-bottom: 5px;
+}
+.youth-center-address { color: var(--text-2); font-size: 12px; line-height: 1.45; }
+.youth-center-distance {
+  display: inline-flex; margin-top: 10px; padding: 4px 8px;
+  border-radius: var(--r-full); background: var(--accent-light);
+  color: var(--accent); font-size: 11px; font-weight: 800;
+}
+.youth-user-marker { border: none; background: transparent; }
+.youth-user-marker span {
+  display: block; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--accent); border: 4px solid #fff;
+  box-shadow: 0 0 0 8px rgba(8,64,181,0.22), 0 10px 28px rgba(0,0,0,0.32);
+}
+.youth-map-skeleton {
+  min-height: 520px; display: flex; align-items: center; justify-content: center;
+  color: var(--text-2); font-size: 13px; font-weight: 700;
+  position: relative; overflow: hidden;
+}
+.youth-map-skeleton::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(110deg, transparent 0%, rgba(255,255,255,0.08) 45%, transparent 72%);
+  animation: shimmer 1.4s infinite;
+}
 
 /* ─── Mobile drawer chrome ─── */
 .sidebar-backdrop {
@@ -1246,6 +1380,11 @@ select option { background: var(--bg-2); color: var(--text); }
   .content { padding: 16px; }
   .stats-grid, .grid2, .grid4 { grid-template-columns: 1fr; gap: 12px; margin-bottom: 18px; }
   .grid3 { grid-template-columns: repeat(2,1fr); }
+  .youth-centers-shell { grid-template-columns: 1fr; }
+  .youth-map { height: 52vh; min-height: 360px; }
+  .youth-map-toolbar { max-width: calc(100% - 28px); }
+  .event-location-map { height: 50vh; min-height: 340px; }
+  .youth-centers-hero { align-items: flex-start; flex-direction: column; }
   .card-p { padding: 16px; }
   .card-header { padding: 14px 16px; }
   input[type=text], input[type=email], input[type=password], input[type=datetime-local], textarea, select { font-size: 16px; padding: 12px 14px; }
@@ -1275,6 +1414,16 @@ select option { background: var(--bg-2); color: var(--text); }
   .stats-grid { grid-template-columns: repeat(2,1fr); }
   .stat-card { padding: 14px; }
   .stat-value { font-size: 22px; }
+  .youth-centers-title { font-size: 24px; }
+  .youth-map { height: 48vh; min-height: 320px; }
+  .youth-map-toolbar {
+    left: 10px; right: 10px; top: 10px;
+    justify-content: stretch;
+  }
+  .youth-map-toolbar .btn { flex: 1; justify-content: center; }
+  .event-location-map { height: 46vh; min-height: 300px; }
+  .location-search-row { flex-direction: column; }
+  .location-search-row .btn { width: 100%; }
   .filters-bar { flex-direction: column; align-items: stretch; }
   .filters-bar > * { width: 100%; }
 }

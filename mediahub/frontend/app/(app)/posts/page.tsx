@@ -89,7 +89,7 @@ export default function PostsPage() {
     return true
   })
 
-  const canEdit = user?.role !== 'observer'
+  const canEdit = user?.role !== 'volunteer'
 
   async function handleDelete(p: Post) {
     if (!confirm(`Удалить «${p.title}»?`)) return

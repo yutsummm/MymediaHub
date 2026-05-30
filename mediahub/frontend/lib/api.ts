@@ -84,6 +84,8 @@ export const api = {
 
   getCalendar: (start: string, end: string) =>
     req<import('./types').Post[]>(`/api/calendar?start=${start}&end=${end}`),
+  getYouthCenters: (lat: number, lon: number) =>
+    req<import('./types').YouthCenter[]>(`/api/youth-centers?lat=${lat}&lon=${lon}`),
 
   getTemplates: () => req<import('./types').Template[]>('/api/templates'),
   generateText: (template_type: string, fields: Record<string, string>) =>
@@ -193,6 +195,22 @@ export const api = {
     req<import('./types').InvitePreview>(`/api/invites/${token}`),
   acceptInvite: (token: string) =>
     req<import('./types').Group>(`/api/invites/${token}/accept`, { method: 'POST' }),
+
+  // Volunteer media
+  getVolunteerMedia: (groupId: number, params?: Record<string, string>) => {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return req<import('./types').VolunteerMedia[]>(`/api/groups/${groupId}/volunteer-media${qs}`)
+  },
+  createVolunteerMedia: (groupId: number, data: { event_name: string; media: import('./types').MediaItem[] }) =>
+    req<import('./types').VolunteerMedia>(`/api/groups/${groupId}/volunteer-media`, {
+      method: 'POST', body: body(data),
+    }),
+  deleteVolunteerMedia: (groupId: number, id: number) =>
+    req<{ ok: boolean }>(`/api/groups/${groupId}/volunteer-media/${id}`, { method: 'DELETE' }),
+  updateVolunteerMediaStatus: (groupId: number, id: number, status: string) =>
+    req<import('./types').VolunteerMedia>(`/api/groups/${groupId}/volunteer-media/${id}/status`, {
+      method: 'PUT', body: body({ status }),
+    }),
 
   // Group-scoped posts
   getGroupPosts: (groupId: number, params?: Record<string, string>) => {

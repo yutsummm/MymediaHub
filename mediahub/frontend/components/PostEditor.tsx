@@ -1,13 +1,14 @@
 'use client'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
 import { api } from '@/lib/api'
 import { useToast } from '@/contexts/ToastContext'
 import { useGroup } from '@/contexts/GroupContext'
+import { useAuth } from '@/contexts/AuthContext'
 import { applyEmojiSuggestion, getEmojiSuggestions } from '@/lib/postUtils'
 import type { MediaItem, Post, Template } from '@/lib/types'
-import YandexLocationPickerModal from '@/components/YandexLocationPickerModal'
 
 /* ── SVG props ── */
 const S14 = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
@@ -72,6 +73,26 @@ type PostEditorProps = {
   initialLocationLng?: number | null
 }
 
+type LocationPickerPayload = {
+  address: string
+  lat: number | null
+  lng: number | null
+}
+
+type LocationPickerProps = {
+  open: boolean
+  initialAddress?: string
+  initialLat?: number | null
+  initialLng?: number | null
+  onClose: () => void
+  onSelect: (payload: LocationPickerPayload) => void
+}
+
+const EventLocationPickerModal = dynamic<LocationPickerProps>(
+  () => import('@/components/EventLocationPickerModal'),
+  { ssr: false }
+)
+
 export default function PostEditor({
   editPost,
   initialStatus,
@@ -83,6 +104,7 @@ export default function PostEditor({
   const router = useRouter()
   const { showToast } = useToast()
   const { currentGroup } = useGroup()
+  const { user } = useAuth()
   const isEdit = !!editPost
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const emojiCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -120,6 +142,8 @@ export default function PostEditor({
   const [prevContent, setPrevContent] = useState<string | null>(null)
   const splitCallIdRef = useRef(0)
   const splitDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [volModalOpen, setVolModalOpen] = useState(false)
+  const [volItems, setVolItems] = useState<import('@/lib/types').VolunteerMedia[] | null>(null)
 
   useEffect(() => { api.getTemplates().then(setTmpls).catch(console.error) }, [])
   useEffect(() => {
@@ -208,6 +232,21 @@ export default function PostEditor({
 
   function removeMedia(url: string) {
     setMedia(prev => prev.filter(m => m.url !== url))
+  }
+
+  function openVolModal() {
+    setVolModalOpen(true)
+    if (!volItems && currentGroup) {
+      api.getVolunteerMedia(currentGroup.id, { status: 'approved' })
+        .then(setVolItems)
+        .catch(() => {})
+    }
+  }
+
+  function addVolMedia(m: import('@/lib/types').MediaItem) {
+    if (!media.find(x => x.url === m.url)) {
+      setMedia(prev => [...prev, m])
+    }
   }
 
   function togglePl(pl: string) {
@@ -587,15 +626,27 @@ export default function PostEditor({
                   })}
                 </div>
               )}
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-                style={{ alignSelf: 'flex-start' }}
-              >
-                {uploading ? 'Загружаем...' : '+ Добавить фото / видео / документ'}
-              </button>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  style={{ alignSelf: 'flex-start' }}
+                >
+                  {uploading ? 'Загружаем...' : '+ Добавить фото / видео / документ'}
+                </button>
+                {(user?.role === 'editor' || user?.role === 'admin') && (
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={openVolModal}
+                    style={{ alignSelf: 'flex-start' }}
+                  >
+                    📸 Из медиа волонтёров
+                  </button>
+                )}
+              </div>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
@@ -673,7 +724,7 @@ export default function PostEditor({
                   style={{ flex: 1, minWidth: 240 }}
                 />
                 <button type="button" className="btn btn-secondary" onClick={() => setLocationPickerOpen(true)}>
-                  Выбрать на карте
+                  Отметить на карте
                 </button>
                 {locationAddress && (
                   <button type="button" className="btn btn-ghost" onClick={clearLocation}>
@@ -683,7 +734,7 @@ export default function PostEditor({
               </div>
               {(locationLat !== null && locationLng !== null) && (
                 <div className="ts tg" style={{ marginTop: 8 }}>
-                  Координаты: {locationLat.toFixed(6)}, {locationLng.toFixed(6)}
+                  Место события: {locationAddress || 'точка выбрана на карте'}
                 </div>
               )}
             </div>
@@ -703,6 +754,89 @@ export default function PostEditor({
           </div>
         )}
       </div>
+      {volModalOpen && (
+        <div className="overlay" onClick={() => setVolModalOpen(false)}>
+          <div className="modal" style={{ maxWidth: 640, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 22px', borderBottom: '1px solid var(--border)' }}>
+              <div className="card-title">Медиа волонтёров</div>
+              <button type="button" className="btn btn-ghost btn-sm" style={{ fontSize: 16, lineHeight: 1, padding: '4px 8px' }} onClick={() => setVolModalOpen(false)}>✕</button>
+            </div>
+            <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
+              {volItems === null ? (
+                <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>Загрузка...</div>
+              ) : volItems.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>
+                  Одобренных медиа от волонтёров пока нет
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {volItems.map(item => (
+                    <div key={item.id}>
+                      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, color: 'var(--text-2)' }}>{item.event_name}</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                        {item.media.filter(m => m.type === 'image').map((m, i) => {
+                          const url = m.url || ''
+                          const selected = !!media.find(x => x.url === url)
+                          return (
+                            <div
+                              key={i}
+                              onClick={() => addVolMedia(m)}
+                              style={{
+                                width: 100, height: 100, borderRadius: 'var(--r-md)',
+                                overflow: 'hidden', cursor: 'pointer',
+                                border: selected ? '2px solid var(--accent)' : '2px solid transparent',
+                                opacity: selected ? 0.6 : 1,
+                                position: 'relative',
+                              }}
+                            >
+                              <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              {selected && (
+                                <div style={{ position: 'absolute', top: 4, right: 4, width: 18, height: 18, borderRadius: '50%', background: 'var(--accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
+                                  ✓
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                        {item.media.filter(m => m.type === 'video').map((m, i) => {
+                          const url = m.url || ''
+                          const selected = !!media.find(x => x.url === url)
+                          return (
+                            <div
+                              key={`v${i}`}
+                              onClick={() => addVolMedia(m)}
+                              style={{
+                                width: 100, height: 100, borderRadius: 'var(--r-md)',
+                                background: 'var(--surface-2)', cursor: 'pointer',
+                                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4,
+                                border: selected ? '2px solid var(--accent)' : '2px solid transparent',
+                                opacity: selected ? 0.6 : 1,
+                              }}
+                            >
+                              <span style={{ fontSize: 24 }}>🎬</span>
+                              <span style={{ fontSize: 9, color: 'var(--text-3)', textAlign: 'center', padding: '0 4px', wordBreak: 'break-all' }}>{m.filename}</span>
+                              {selected && (
+                                <div style={{ position: 'absolute', top: 4, right: 4, width: 18, height: 18, borderRadius: '50%', background: 'var(--accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
+                                  ✓
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="modal-ft">
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => setVolModalOpen(false)}>
+                Готово
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {aiSplitOpen && (
         <div className="overlay" onClick={() => { if (!splitLoading) setAiSplitOpen(false) }}>
           <div className="modal ai-split-modal" onClick={e => e.stopPropagation()}>
@@ -802,7 +936,7 @@ export default function PostEditor({
           </div>
         </div>
       )}
-      <YandexLocationPickerModal
+      <EventLocationPickerModal
         open={locationPickerOpen}
         initialAddress={locationAddress}
         initialLat={locationLat}

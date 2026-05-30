@@ -2,7 +2,7 @@ export interface User {
   id: number
   name: string
   email: string
-  role: 'admin' | 'editor' | 'observer'
+  role: 'admin' | 'editor' | 'volunteer'
   avatar: string
   created_at: string
 }
@@ -81,6 +81,16 @@ export interface TimelinePoint {
   posts: number
 }
 
+export interface YouthCenter {
+  id: number
+  name: string
+  address: string
+  coordinates?: [number, number]
+  lat: number
+  lon: number
+  distance_km?: number
+}
+
 export interface Notification {
   id: number
   user_id: number
@@ -104,7 +114,7 @@ export interface TgSettings {
   connected_at?: string
 }
 
-export type GroupRole = 'admin' | 'editor' | 'observer'
+export type GroupRole = 'admin' | 'editor' | 'volunteer'
 
 export interface Group {
   id: number
@@ -141,4 +151,15 @@ export interface InvitePreview {
   group_description: string
   role: GroupRole
   expires_at: string
+}
+
+export interface VolunteerMedia {
+  id: number
+  user_id: number
+  user_name?: string
+  group_id: number
+  event_name: string
+  media: MediaItem[]
+  status: 'pending' | 'approved' | 'rejected'
+  created_at: string
 }

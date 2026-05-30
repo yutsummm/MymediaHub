@@ -17,6 +17,7 @@ from email.mime.multipart import MIMEMultipart
 from urllib.parse import quote
 import requests as http_requests
 from datetime import datetime, timedelta
+from math import asin, cos, radians, sin, sqrt
 from dotenv import load_dotenv
 from jose import jwt, JWTError
 from fastapi.responses import StreamingResponse
@@ -214,6 +215,117 @@ class InviteLinkCreate(BaseModel):
     expires_hours: int = 24
     max_uses: Optional[int] = None
 
+YOUTH_CENTERS_MOCK = [
+    {
+        "id": 1,
+        "name": "Молодёжный творческий бизнес-центр «Пилот»",
+        "address": "ул. Аэровокзальная, 10",
+        "coordinates": [56.030036, 92.906351],
+    },
+    {
+        "id": 2,
+        "name": "Молодёжный центр «Новые имена»",
+        "address": "ул. Академика Вавилова, 25А",
+        "coordinates": [55.996302, 92.927833],
+    },
+    {
+        "id": 3,
+        "name": "Красноярский волонтёрский центр «Доброе дело»",
+        "address": "ул. Ады Лебедевой, 149",
+        "coordinates": [56.014568, 92.842547],
+    },
+    {
+        "id": 4,
+        "name": "Красноярский волонтёрский центр «Доброе дело» — филиал",
+        "address": "ул. Красномосковская, 42",
+        "coordinates": [56.023163, 92.820856],
+    },
+    {
+        "id": 5,
+        "name": "Молодёжный военно-спортивный центр «Патриот»",
+        "address": "пр. им. газеты Красноярский Рабочий, 62",
+        "coordinates": [56.012343, 92.970454],
+    },
+    {
+        "id": 6,
+        "name": "Молодёжный ИТ-центр",
+        "address": "пр. им. газеты Красноярский Рабочий, 115А",
+        "coordinates": [55.998586, 92.919816],
+    },
+    {
+        "id": 7,
+        "name": "Молодёжный центр «База»",
+        "address": "ул. Глинки, 23",
+        "coordinates": [56.021373, 93.048990],
+    },
+    {
+        "id": 8,
+        "name": "Молодёжный центр «Своё дело»",
+        "address": "ул. Попова, 12",
+        "coordinates": [56.041454, 92.760624],
+    },
+    {
+        "id": 9,
+        "name": "Центр продвижения молодёжных проектов «Вектор»",
+        "address": "пр. Металлургов, 22А",
+        "coordinates": [56.052516, 92.952216],
+    },
+    {
+        "id": 10,
+        "name": "Центр технического проектирования «ПроТехно»",
+        "address": "ул. Алёши Тимошенкова, 87А",
+        "coordinates": [55.970091, 92.941041],
+    },
+    {
+        "id": 11,
+        "name": "Центр путешественников",
+        "address": "ул. Карла Маркса, 49",
+        "coordinates": [56.010637, 92.880036],
+    },
+    {
+        "id": 12,
+        "name": "Трудовой отряд Главы города Красноярска",
+        "address": "ул. Мичурина, 17",
+        "coordinates": [56.006241, 92.962945],
+    },
+    {
+        "id": 13,
+        "name": "Центр авторского самоопределения молодёжи «Зеркало»",
+        "address": "ул. Бограда, 65",
+        "coordinates": [56.007156, 92.857835],
+    },
+    {
+        "id": 14,
+        "name": "Центр молодёжных инициатив «Форум»",
+        "address": "остров Отдыха, 6",
+        "coordinates": [55.994841, 92.872365],
+    },
+    {
+        "id": 15,
+        "name": "ЦОПП Красноярского края",
+        "address": "ул. Партизана Железняка, 13",
+        "coordinates": [56.031944, 92.922629],
+    },
+    {
+        "id": 16,
+        "name": "Кванториум",
+        "address": "ул. Дубровинского, 1И",
+        "coordinates": [56.009112, 92.888053],
+    },
+    {
+        "id": 17,
+        "name": "IT-Куб",
+        "address": "ул. Железнодорожников, 22Д",
+        "coordinates": [56.025183, 92.841650],
+    },
+    {
+        "id": 18,
+        "name": "Дом науки и техники",
+        "address": "ул. Урицкого, 61",
+        "coordinates": [56.009287, 92.875364],
+    },
+]
+
 # ── DB ───────────────────────────────────────────────────────────────────────
 
 def get_db():
@@ -233,6 +345,13 @@ def row_to_dict(row):
         elif key not in d:
             d[key] = []
     return d
+
+def distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    radius = 6371.0
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    return round(2 * radius * asin(sqrt(a)), 2)
 
 def init_db():
     conn = get_db()
@@ -377,6 +496,19 @@ def init_db():
         )
     """)
 
+    # ── Volunteer media ──────────────────────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS volunteer_media (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            event_name TEXT NOT NULL,
+            media TEXT DEFAULT '[]',
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI')
+        )
+    """)
+
     # ── Add group_id to existing tables ──────────────────────────────────────
     c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id)")
     c.execute("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id)")
@@ -391,7 +523,7 @@ def init_db():
             [
                 ("Алексей Иванов",  "admin@mediahub.ru",    "admin",    "АИ"),
                 ("Мария Петрова",   "editor@mediahub.ru",   "editor",   "МП"),
-                ("Дмитрий Сидоров", "observer@mediahub.ru", "observer", "ДС"),
+                ("Екатерина Волонтёр", "volunteer@mediahub.ru", "volunteer", "ЕВ"),
             ],
         )
 
@@ -1564,6 +1696,115 @@ def accept_invite(token: str, user_id: int = Depends(get_current_user_id)):
     conn.close()
     return dict(group) if group else {"ok": True}
 
+# ── Volunteer Media ──────────────────────────────────────────────────────────
+
+@app.get("/api/groups/{gid}/volunteer-media")
+def get_volunteer_media(gid: int, event: Optional[str] = None, user_id_filter: Optional[int] = None, status: Optional[str] = None, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    q = "SELECT vm.*, u.name as user_name FROM volunteer_media vm JOIN users u ON vm.user_id=u.id WHERE vm.group_id=%s"
+    params: list = [gid]
+    # Volunteers see only their own uploads; editors/admins see all
+    if role == "volunteer":
+        q += " AND vm.user_id=%s"; params.append(user_id)
+    if event:
+        q += " AND vm.event_name ILIKE %s"; params.append(f"%{event}%")
+    if status:
+        q += " AND vm.status=%s"; params.append(status)
+    if user_id_filter and role != "volunteer":
+        q += " AND vm.user_id=%s"; params.append(user_id_filter)
+    q += " ORDER BY vm.created_at DESC"
+    c.execute(q, params)
+    rows = c.fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["media"] = json.loads(d["media"]) if isinstance(d["media"], str) else d["media"]
+        except Exception:
+            d["media"] = []
+        result.append(d)
+    return result
+
+@app.post("/api/groups/{gid}/volunteer-media")
+def create_volunteer_media(gid: int, body: dict, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role not in ("volunteer", "editor", "admin"):
+        conn.close()
+        raise HTTPException(403, "Недостаточно прав")
+    event_name = body.get("event_name", "").strip()
+    if not event_name:
+        conn.close()
+        raise HTTPException(400, "Укажите название мероприятия")
+    media = body.get("media", [])
+    if not media:
+        conn.close()
+        raise HTTPException(400, "Добавьте хотя бы один файл")
+    c.execute(
+        "INSERT INTO volunteer_media (user_id, group_id, event_name, media) VALUES (%s, %s, %s, %s) RETURNING id",
+        (user_id, gid, event_name, json.dumps(media)),
+    )
+    vid = c.fetchone()["id"]
+    conn.commit()
+    c.execute("SELECT vm.*, u.name as user_name FROM volunteer_media vm JOIN users u ON vm.user_id=u.id WHERE vm.id=%s", (vid,))
+    row = c.fetchone()
+    conn.close()
+    d = dict(row)
+    try:
+        d["media"] = json.loads(d["media"]) if isinstance(d["media"], str) else d["media"]
+    except Exception:
+        d["media"] = []
+    return d
+
+@app.delete("/api/groups/{gid}/volunteer-media/{vid}")
+def delete_volunteer_media(gid: int, vid: int, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    c.execute("SELECT user_id FROM volunteer_media WHERE id=%s AND group_id=%s", (vid, gid))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(404, "Медиа не найдено")
+    # Volunteer can delete own; admin/editor can delete any
+    if role == "volunteer" and row["user_id"] != user_id:
+        conn.close()
+        raise HTTPException(403, "Нельзя удалить чужую загрузку")
+    c.execute("DELETE FROM volunteer_media WHERE id=%s", (vid,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+@app.put("/api/groups/{gid}/volunteer-media/{vid}/status")
+def update_volunteer_media_status(gid: int, vid: int, body: dict, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role not in ("admin", "editor"):
+        conn.close()
+        raise HTTPException(403, "Только редактор или администратор может менять статус")
+    new_status = body.get("status", "")
+    if new_status not in ("approved", "rejected", "pending"):
+        conn.close()
+        raise HTTPException(400, "Некорректный статус. Допустимы: approved, rejected, pending")
+    c.execute("UPDATE volunteer_media SET status=%s WHERE id=%s AND group_id=%s", (new_status, vid, gid))
+    conn.commit()
+    c.execute("SELECT vm.*, u.name as user_name FROM volunteer_media vm JOIN users u ON vm.user_id=u.id WHERE vm.id=%s", (vid,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(404, "Медиа не найдено")
+    d = dict(row)
+    try:
+        d["media"] = json.loads(d["media"]) if isinstance(d["media"], str) else d["media"]
+    except Exception:
+        d["media"] = []
+    return d
+
 # ── Users ────────────────────────────────────────────────────────────────────
 
 @app.get("/api/users")
@@ -1659,7 +1900,7 @@ def create_group_post(gid: int, body: PostCreate, user_id: int = Depends(get_cur
     conn = get_db()
     c = conn.cursor()
     role = require_group_member(gid, user_id, conn)
-    if role == "observer":
+    if role == "volunteer":
         conn.close()
         raise HTTPException(403, "Наблюдатели не могут создавать посты")
     c.execute(
@@ -1690,7 +1931,7 @@ def update_group_post(gid: int, post_id: int, body: PostUpdate, user_id: int = D
     conn = get_db()
     c = conn.cursor()
     role = require_group_member(gid, user_id, conn)
-    if role == "observer":
+    if role == "volunteer":
         conn.close()
         raise HTTPException(403, "Наблюдатели не могут редактировать посты")
     c.execute("SELECT id FROM posts WHERE id=%s AND group_id=%s", (post_id, gid))
@@ -1722,7 +1963,7 @@ def delete_group_post(gid: int, post_id: int, user_id: int = Depends(get_current
     conn = get_db()
     c = conn.cursor()
     role = require_group_member(gid, user_id, conn)
-    if role == "observer":
+    if role == "volunteer":
         conn.close()
         raise HTTPException(403, "Наблюдатели не могут удалять посты")
     c.execute("SELECT id FROM posts WHERE id=%s AND group_id=%s", (post_id, gid))
@@ -1739,7 +1980,7 @@ def publish_group_post(gid: int, post_id: int, user_id: int = Depends(get_curren
     conn = get_db()
     c = conn.cursor()
     role = require_group_member(gid, user_id, conn)
-    if role == "observer":
+    if role == "volunteer":
         conn.close()
         raise HTTPException(403, "Наблюдатели не могут публиковать посты")
     c.execute("SELECT * FROM posts WHERE id=%s AND group_id=%s", (post_id, gid))
@@ -2358,6 +2599,21 @@ def analytics_export(start_date: str = Query(...), end_date: str = Query(...)):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{fname_encoded}"},
     )
+
+# ── Youth Centers ────────────────────────────────────────────────────────────
+
+@app.get("/api/youth-centers")
+def get_youth_centers(lat: float = Query(...), lon: float = Query(...)):
+    centers = []
+    for center in YOUTH_CENTERS_MOCK:
+        center_lat, center_lon = center["coordinates"]
+        centers.append({
+            **center,
+            "lat": center_lat,
+            "lon": center_lon,
+            "distance_km": distance_km(lat, lon, center_lat, center_lon),
+        })
+    return sorted(centers, key=lambda c: c["distance_km"])
 
 # ── Notifications ─────────────────────────────────────────────────────────────
 

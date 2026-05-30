@@ -10,6 +10,7 @@ import CreateGroupModal from '@/components/CreateGroupModal'
 const TITLES: Record<string, string> = {
   '/dashboard':     'Дашборд',
   '/calendar':      'Календарь контента',
+  '/youth-centers': 'Молодёжные центры рядом',
   '/posts':         'Посты',
   '/posts/new':     'Создать пост',
   '/analytics':     'Аналитика',
@@ -68,7 +69,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <span className="topbar-date" style={{ fontSize: 11.5, color: 'var(--text-3)', fontWeight: 500, letterSpacing: '0.02em' }}>
               {today}
             </span>
-            {groups.length > 0 && groups[0]?.role !== 'observer' && (
+            {groups.length > 0 && groups[0]?.role !== 'volunteer' && (
               <button className="btn btn-primary btn-sm" onClick={() => router.push('/posts/new')}>
                 Новый пост
                 <span className="btn-icon" style={{ width: 20, height: 20, fontSize: 12 }}>+</span>
