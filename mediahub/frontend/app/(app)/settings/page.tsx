@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { useGroup } from '@/contexts/GroupContext'
 import { useToast } from '@/contexts/ToastContext'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import type { VkSettings, TgSettings, GroupMember, InviteLink } from '@/lib/types'
 
 const S14 = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
@@ -75,6 +76,8 @@ export default function SettingsPage() {
   const [revokingId, setRevokingId]   = useState<number | null>(null)
   const [deletingId, setDeletingId]   = useState<number | null>(null)
   const [deletingGroup, setDeletingGroup] = useState(false)
+  const [confirmRemoveMember, setConfirmRemoveMember] = useState<GroupMember | null>(null)
+  const [confirmDeleteGroup, setConfirmDeleteGroup] = useState(false)
 
   useEffect(() => {
     if (!currentGroup) return
@@ -141,14 +144,18 @@ export default function SettingsPage() {
 
   async function removeMember(m: GroupMember) {
     if (!currentGroup) return
-    if (!confirm(`Удалить участника «${m.name}» из группы?`)) return
-    setDeletingId(m.id)
+    setConfirmRemoveMember(m)
+  }
+
+  async function confirmRemove() {
+    if (!currentGroup || !confirmRemoveMember) return
+    setDeletingId(confirmRemoveMember.id)
     try {
-      await api.removeGroupMember(currentGroup.id, m.id)
-      setMembers(p => p.filter(x => x.id !== m.id))
-      showToast(`«${m.name}» удалён из группы`, 'success')
+      await api.removeGroupMember(currentGroup.id, confirmRemoveMember.id)
+      setMembers(p => p.filter(x => x.id !== confirmRemoveMember.id))
+      showToast(`«${confirmRemoveMember.name}» удалён из группы`, 'success')
     } catch (e: unknown) { showToast((e as Error).message, 'error') }
-    finally { setDeletingId(null) }
+    finally { setDeletingId(null); setConfirmRemoveMember(null) }
   }
 
   async function createInvite() {
@@ -181,7 +188,11 @@ export default function SettingsPage() {
 
   async function deleteGroup() {
     if (!currentGroup) return
-    if (!confirm(`Удалить группу «${currentGroup.name}»? Все данные будут удалены безвозвратно.`)) return
+    setConfirmDeleteGroup(true)
+  }
+
+  async function confirmDeleteGroupAction() {
+    if (!currentGroup) return
     setDeletingGroup(true)
     try {
       await api.deleteGroup(currentGroup.id)
@@ -189,7 +200,7 @@ export default function SettingsPage() {
       router.push('/dashboard')
       showToast('Группа удалена', 'success')
     } catch (e: unknown) { showToast((e as Error).message, 'error') }
-    finally { setDeletingGroup(false) }
+    finally { setDeletingGroup(false); setConfirmDeleteGroup(false) }
   }
 
   const isAdmin = currentGroup?.role === 'admin'
@@ -539,6 +550,26 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmRemoveMember !== null}
+        title="Удалить участника?"
+        description={confirmRemoveMember ? `Пользователь «${confirmRemoveMember.name}» будет удалён из группы.` : ''}
+        variant="danger"
+        confirmLabel="Удалить"
+        onConfirm={confirmRemove}
+        onCancel={() => setConfirmRemoveMember(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmDeleteGroup}
+        title="Удалить группу?"
+        description={currentGroup ? `Группа «${currentGroup.name}» будет удалена безвозвратно. Все посты, настройки и участники будут удалены.` : ''}
+        variant="danger"
+        confirmLabel="Удалить группу"
+        onConfirm={confirmDeleteGroupAction}
+        onCancel={() => setConfirmDeleteGroup(false)}
+      />
     </div>
   )
 }

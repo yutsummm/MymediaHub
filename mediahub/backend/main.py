@@ -3,14 +3,14 @@ MediaHub — Медиахаб для молодёжных центров
 FastAPI + PostgreSQL backend
 """
 
-from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Header, Depends
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Header, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Optional, List
 import psycopg2
 import psycopg2.extras
-import json, os, random, uuid, shutil, hashlib, io
+import json, os, random, uuid, shutil, hashlib, io, time, bcrypt
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -52,14 +52,16 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://mediahub:mediahub123@loca
 # ── Password helpers ─────────────────────────────────────────────────────────
 
 def hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 def verify_password(password: str, hashed: str) -> bool:
-    return hash_password(password) == hashed
+    return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
 
 # ── JWT helpers ──────────────────────────────────────────────────────────────
 
-JWT_SECRET = os.getenv("JWT_SECRET", "changeme-in-production-2025")
+JWT_SECRET = os.getenv("JWT_SECRET")
+if not JWT_SECRET:
+    raise RuntimeError("JWT_SECRET environment variable is required. Set a strong random value in production.")
 JWT_ALGORITHM = "HS256"
 
 def create_token(user_id: int) -> str:
@@ -75,6 +77,20 @@ def get_current_user_id(authorization: str = Header(None)) -> int:
         return int(payload["sub"])
     except (JWTError, KeyError, ValueError, IndexError):
         raise HTTPException(401, "Недействительный токен")
+
+# ── Rate limiter ────────────────────────────────────────────────────────────
+
+RATE_LIMIT_STORE: dict[str, list[float]] = {}
+
+def check_rate_limit(key: str, max_requests: int = 10, window_seconds: int = 60):
+    now = time.time()
+    entry = RATE_LIMIT_STORE.get(key, [])
+    # Keep only entries within the window
+    entry = [t for t in entry if now - t < window_seconds]
+    if len(entry) >= max_requests:
+        raise HTTPException(429, "Слишком много запросов. Попробуйте позже.")
+    entry.append(now)
+    RATE_LIMIT_STORE[key] = entry
 
 def send_reset_email(to_email: str, code: str):
     api_key = os.getenv("BREVO_API_KEY", "")
@@ -524,11 +540,11 @@ def init_db():
     c.execute("SELECT COUNT(*) FROM users")
     if c.fetchone()["count"] == 0:
         c.executemany(
-            "INSERT INTO users (name, email, role, avatar) VALUES (%s, %s, %s, %s)",
+            "INSERT INTO users (name, email, role, avatar, password_hash) VALUES (%s, %s, %s, %s, %s)",
             [
-                ("Алексей Иванов",  "admin@mediahub.ru",    "admin",    "АИ"),
-                ("Мария Петрова",   "editor@mediahub.ru",   "editor",   "МП"),
-                ("Екатерина Волонтёр", "volunteer@mediahub.ru", "volunteer", "ЕВ"),
+                ("Алексей Иванов",  "admin@mediahub.ru",    "admin",    "АИ", hash_password("admin123!")),
+                ("Мария Петрова",   "editor@mediahub.ru",   "editor",   "МП", hash_password("editor123!")),
+                ("Екатерина Волонтёр", "volunteer@mediahub.ru", "volunteer", "ЕВ", hash_password("volunteer123!")),
             ],
         )
 
@@ -761,7 +777,9 @@ _AI_PROMPTS = {
 }
 
 @app.post("/api/ai-enhance")
-def ai_enhance(body: AIEnhanceRequest):
+def ai_enhance(body: AIEnhanceRequest, request: Request = None):
+    client_ip = request.client.host if request else "unknown"
+    check_rate_limit(f"ai:{client_ip}", 15, 60)
     if not body.text.strip():
         raise HTTPException(400, "Текст не может быть пустым")
 
@@ -1352,7 +1370,10 @@ def delete_group_tg_settings(gid: int, user_id: int = Depends(get_current_user_i
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
 @app.post("/api/auth/login")
-def login(req: LoginRequest):
+def login(req: LoginRequest, request: Request = None):
+    client_ip = request.client.host if request else "unknown"
+    check_rate_limit(f"login:{client_ip}", 5, 60)
+
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT * FROM users WHERE email=%s", (req.email,))
@@ -1361,7 +1382,7 @@ def login(req: LoginRequest):
         conn.close()
         raise HTTPException(401, "Пользователь не найден")
     ph = user.get("password_hash")
-    if ph and not verify_password(req.password, ph):
+    if not ph or not verify_password(req.password, ph):
         conn.close()
         raise HTTPException(401, "Неверный пароль")
     user_id = user["id"]
@@ -1389,7 +1410,9 @@ def smtp_test():
         return {"ok": False, "error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()}
 
 @app.post("/api/auth/register")
-def register(req: RegisterRequest):
+def register(req: RegisterRequest, request: Request = None):
+    client_ip = request.client.host if request else "unknown"
+    check_rate_limit(f"register:{client_ip}", 3, 300)
     if not req.name.strip():
         raise HTTPException(400, "Введите имя")
     if not req.email.strip():
@@ -1429,7 +1452,9 @@ def register(req: RegisterRequest):
     return {"user": row_to_dict(user), "token": token, "groups": groups}
 
 @app.post("/api/auth/forgot-password")
-def forgot_password(req: ForgotPasswordRequest):
+def forgot_password(req: ForgotPasswordRequest, request: Request = None):
+    client_ip = request.client.host if request else "unknown"
+    check_rate_limit(f"forgot:{client_ip}", 3, 300)
     email = req.email.lower().strip()
     conn = get_db()
     c = conn.cursor()
@@ -1459,7 +1484,9 @@ def forgot_password(req: ForgotPasswordRequest):
     return {"status": "code_sent"}
 
 @app.post("/api/auth/reset-password")
-def reset_password(req: ResetPasswordRequest):
+def reset_password(req: ResetPasswordRequest, request: Request = None):
+    client_ip = request.client.host if request else "unknown"
+    check_rate_limit(f"reset:{client_ip}", 5, 300)
     import re as _re
     if len(req.new_password) < 8:
         raise HTTPException(400, "Пароль должен содержать минимум 8 символов")

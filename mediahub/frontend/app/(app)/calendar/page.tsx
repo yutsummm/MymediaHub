@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import type { Post } from '@/lib/types'
 import QuickPostModal from '@/components/QuickPostModal'
+import ConfirmDialog from '@/components/ConfirmDialog'
 
 const DAYS   = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
@@ -31,6 +32,7 @@ export default function CalendarPage() {
   const [quickDate, setQuickDate] = useState<string | null>(null)
   const [dragPost, setDragPost] = useState<Post | null>(null)
   const [dragOver, setDragOver] = useState<string | null>(null)
+  const [pendingDrop, setPendingDrop] = useState<{ post: Post; date: string } | null>(null)
 
   useEffect(() => {
     const now = new Date()
@@ -76,13 +78,20 @@ export default function CalendarPage() {
 
   async function handleDrop(targetDate: string) {
     if (!dragPost) return
-    const existingDt = dragPost.scheduled_at ?? dragPost.published_at ?? ''
+    setPendingDrop({ post: dragPost, date: targetDate })
+    setDragPost(null); setDragOver(null)
+  }
+
+  async function confirmDrop() {
+    if (!pendingDrop) return
+    const { post, date: targetDate } = pendingDrop
+    const existingDt = post.scheduled_at ?? post.published_at ?? ''
     const time = existingDt ? existingDt.slice(11, 16) : '09:00'
     try {
-      await api.updatePost(dragPost.id, { scheduled_at: `${targetDate}T${time}`, status: 'scheduled' })
+      await api.updatePost(post.id, { scheduled_at: `${targetDate}T${time}`, status: 'scheduled' })
       loadPosts()
     } catch (e) { console.error(e) }
-    setDragPost(null); setDragOver(null)
+    setPendingDrop(null)
   }
 
   if (!cur) return (
@@ -235,6 +244,16 @@ export default function CalendarPage() {
           })}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingDrop !== null}
+        title="Перенести пост?"
+        description={pendingDrop ? `Изменить дату поста «${pendingDrop.post.title}» на ${new Date(pendingDrop.date + 'T12:00').toLocaleDateString('ru-RU', { day: '2-digit', month: 'long' })}?` : ''}
+        variant="warning"
+        confirmLabel="Перенести"
+        onConfirm={confirmDrop}
+        onCancel={() => { setPendingDrop(null); setDragOver(null) }}
+      />
     </div>
   )
 }
