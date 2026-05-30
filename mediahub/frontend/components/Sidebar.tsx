@@ -204,11 +204,26 @@ export default function Sidebar({
           >×</button>
         </div>
 
-        {/* Groups — at top of sidebar, always visible */}
-        {groups.length > 0 && (
-          <div style={{ padding: '4px 8px 0' }}>
-            <div className="nav-group" style={{ paddingTop: 10 }}>Группы</div>
-            {groups.map(g => (
+        {/* Groups — always visible */}
+        <div style={{ padding: '4px 8px 0' }}>
+          <div className="nav-group" style={{ paddingTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span>Группы</span>
+            <button
+              onClick={() => { router.push('/groups/new'); onClose?.() }}
+              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: '0 2px', fontWeight: 700 }}
+              title="Создать группу"
+            >+</button>
+          </div>
+          {groups.length === 0 ? (
+            <div style={{
+              padding: '14px 11px', fontSize: 12, color: 'rgba(255,255,255,0.25)',
+              textAlign: 'center', lineHeight: 1.6,
+            }}>
+              Нет групп<br/>
+              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.15)' }}>Создайте первую группу</span>
+            </div>
+          ) : (
+            groups.map(g => (
               <button
                 key={g.id}
                 onClick={() => { switchGroup(g.id); onClose?.() }}
@@ -232,9 +247,9 @@ export default function Sidebar({
                   {g.name}
                 </span>
               </button>
-            ))}
-          </div>
-        )}
+            ))
+          )}
+        </div>
 
         {/* Navigation */}
         <nav className="sidebar-nav">
