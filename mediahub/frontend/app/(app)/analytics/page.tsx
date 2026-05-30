@@ -2,9 +2,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { useGroup } from '@/contexts/GroupContext'
+import { Chart, registerables } from 'chart.js'
 import type { AnalyticsSummary, TimelinePoint } from '@/lib/types'
 
-declare const Chart: typeof import('chart.js').Chart
+Chart.register(...registerables)
 
 const fmtN = (n: number) => n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n)
 
@@ -111,12 +112,9 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     if (!tl.length || !lineRef.current) return
-    // @ts-expect-error Chart.js CDN
-    if (!window.Chart) return
     lineChart.current?.destroy()
     const { text3, border } = getChartColors()
-    // @ts-expect-error Chart.js CDN
-    lineChart.current = new window.Chart(lineRef.current.getContext('2d'), {
+    lineChart.current = new Chart(lineRef.current.getContext('2d')!, {
       type: 'line',
       data: {
         labels: tl.map(d => d.label),
@@ -140,13 +138,10 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     if (!sum?.platform_stats || !barRef.current) return
-    // @ts-expect-error Chart.js CDN
-    if (!window.Chart) return
     barChart.current?.destroy()
     const d = sum.platform_stats
     const { text3, border } = getChartColors()
-    // @ts-expect-error Chart.js CDN
-    barChart.current = new window.Chart(barRef.current.getContext('2d'), {
+    barChart.current = new Chart(barRef.current.getContext('2d')!, {
       type: 'bar',
       data: {
         labels: d.map(x => x.platform.toUpperCase()),
@@ -186,8 +181,6 @@ export default function AnalyticsPage() {
 
   return (
     <div className="content">
-      <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" async />
-
       {/* Stat cards */}
       <div className="grid4" style={{ marginBottom: 20 }}>
         {sum
