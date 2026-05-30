@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/contexts/ToastContext'
 import { useGroup } from '@/contexts/GroupContext'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import type { Post } from '@/lib/types'
 
 const fmtN = (n: number) => n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + 'M' : n >= 1000 ? Math.round(n / 1000) + 'K' : String(n)
@@ -64,9 +65,22 @@ export default function PostsPage() {
   const { currentGroup } = useGroup()
   const [posts, setPosts] = useState<Post[] | null>(null)
   const [search, setSearch] = useState('')
-  const [stFilter, setStFilter] = useState('')
+  const [stFilter, setStFilter] = useState(searchParams.get('status') ?? '')
   const [dateFilter, setDateFilter] = useState(searchParams.get('date') ?? '')
   const [pub, setPub] = useState<number | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<Post | null>(null)
+
+  // Sync status filter with URL
+  useEffect(() => {
+    const params = new URLSearchParams(searchParams.toString())
+    if (stFilter) params.set('status', stFilter)
+    else params.delete('status')
+    const newQs = params.toString()
+    const curQs = searchParams.toString()
+    if (newQs !== curQs) {
+      router.replace(`/posts${newQs ? '?' + newQs : ''}`, { scroll: false })
+    }
+  }, [stFilter])
 
   function load() {
     const params: Record<string, string> = {}
@@ -92,13 +106,18 @@ export default function PostsPage() {
   const canEdit = user?.role !== 'volunteer'
 
   async function handleDelete(p: Post) {
-    if (!confirm(`Удалить «${p.title}»?`)) return
+    setDeleteConfirm(p)
+  }
+
+  async function confirmDelete() {
+    if (!deleteConfirm) return
     try {
-      if (currentGroup) await api.deleteGroupPost(currentGroup.id, p.id)
-      else await api.deletePost(p.id)
+      if (currentGroup) await api.deleteGroupPost(currentGroup.id, deleteConfirm.id)
+      else await api.deletePost(deleteConfirm.id)
       showToast('Пост удалён', 'success'); load()
     }
     catch (e: unknown) { showToast((e as Error).message, 'error') }
+    finally { setDeleteConfirm(null) }
   }
 
   async function handlePublish(p: Post) {
@@ -308,6 +327,16 @@ export default function PostsPage() {
           </table>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={deleteConfirm !== null}
+        title="Удалить пост?"
+        description={deleteConfirm ? `«${deleteConfirm.title}» будет удалён безвозвратно.` : ''}
+        variant="danger"
+        confirmLabel="Удалить"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteConfirm(null)}
+      />
     </div>
   )
 }
