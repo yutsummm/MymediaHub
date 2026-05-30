@@ -8,14 +8,17 @@ import { api } from '@/lib/api'
 import CreateGroupModal from '@/components/CreateGroupModal'
 
 const TITLES: Record<string, string> = {
-  '/dashboard':     'Дашборд',
-  '/calendar':      'Календарь контента',
-  '/youth-centers': 'Молодёжные центры рядом',
-  '/posts':         'Посты',
-  '/posts/new':     'Создать пост',
-  '/analytics':     'Аналитика',
-  '/settings':      'Настройки',
-  '/notifications': 'Уведомления',
+  '/dashboard':                  'Дашборд',
+  '/calendar':                   'Календарь контента',
+  '/youth-centers':              'Молодёжные центры рядом',
+  '/posts':                      'Посты',
+  '/posts/new':                  'Создать пост',
+  '/analytics':                  'Аналитика',
+  '/settings':                   'Настройки',
+  '/notifications':              'Уведомления',
+  '/volunteer-media':            'Медиа волонтёров',
+  '/volunteer-media/my':         'Мои загрузки',
+  '/volunteer-media/upload':     'Загрузить медиа',
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
