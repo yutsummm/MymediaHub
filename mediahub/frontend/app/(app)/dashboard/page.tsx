@@ -76,7 +76,7 @@ function SkeletonStatCard({ index }: { index: number }) {
 export default function DashboardPage() {
   const router = useRouter()
   const { user } = useAuth()
-  const { currentGroup } = useGroup()
+  const { groups, currentGroup, switchGroup } = useGroup()
   const [sum, setSum] = useState<AnalyticsSummary | null>(null)
   const [posts, setPosts] = useState<Post[] | null>(null)
   const [quickModal, setQuickModal] = useState(false)
@@ -107,6 +107,46 @@ export default function DashboardPage() {
   return (
     <div className="content">
       {quickModal && <QuickPostModal onClose={() => setQuickModal(false)} />}
+
+      {/* Group selector — always visible at the top of the dashboard */}
+      {groups.length > 0 && (
+        <div style={{
+          marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+          padding: '10px 16px', borderRadius: 'var(--r-lg)', border: '1px solid var(--border)',
+          background: 'var(--surface-2)',
+        }}>
+          <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginRight: 4 }}>
+            Группа:
+          </span>
+          {groups.map(g => (
+            <button
+              key={g.id}
+              onClick={() => switchGroup(g.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 7,
+                padding: '6px 14px', borderRadius: 'var(--r-full)',
+                border: currentGroup?.id === g.id ? '2px solid var(--accent)' : '1px solid var(--border)',
+                background: currentGroup?.id === g.id ? 'rgba(139,92,246,0.12)' : 'var(--surface)',
+                color: currentGroup?.id === g.id ? 'var(--accent)' : 'var(--text-2)',
+                fontSize: 13, fontWeight: currentGroup?.id === g.id ? 700 : 500,
+                cursor: 'pointer', transition: 'all var(--dur-fast) var(--ease-out)',
+                boxShadow: currentGroup?.id === g.id ? '0 0 0 3px rgba(139,92,246,0.15)' : 'none',
+              }}
+            >
+              <span style={{
+                width: 20, height: 20, borderRadius: 6, flexShrink: 0,
+                background: currentGroup?.id === g.id ? 'var(--accent)' : 'var(--surface-2)',
+                color: currentGroup?.id === g.id ? 'var(--btn-primary-fg)' : 'var(--text-3)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 9, fontWeight: 700,
+              }}>
+                {g.name[0].toUpperCase()}
+              </span>
+              {g.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Stat cards */}
       <div className="stats-grid" style={{ marginBottom: 20 }}>

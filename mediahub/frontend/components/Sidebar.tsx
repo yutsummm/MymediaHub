@@ -204,6 +204,52 @@ export default function Sidebar({
           >×</button>
         </div>
 
+        {/* Groups Switcher — at top of sidebar, always visible */}
+        {groups.length > 0 && (
+          <div style={{ padding: '6px 8px 4px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 4px' }}>
+              <span>Группы</span>
+              <button
+                onClick={() => { router.push('/groups/new'); onClose?.() }}
+                style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 15, lineHeight: 1, padding: 0 }}
+                title="Создать группу"
+              >+</button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {groups.map(g => (
+                <button
+                  key={g.id}
+                  onClick={() => { switchGroup(g.id); onClose?.() }}
+                  style={{
+                    width: '100%', padding: '9px 10px', borderRadius: 'var(--r-md)',
+                    border: currentGroup?.id === g.id ? '1px solid var(--accent)' : '1px solid transparent',
+                    background: currentGroup?.id === g.id ? 'rgba(139,92,246,0.1)' : 'transparent',
+                    color: currentGroup?.id === g.id ? 'var(--accent)' : 'var(--text-2)',
+                    fontSize: 13, fontWeight: currentGroup?.id === g.id ? 600 : 400,
+                    cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
+                    transition: 'all var(--dur-fast) var(--ease-out)',
+                  }}
+                  onMouseEnter={e => { if (currentGroup?.id !== g.id) e.currentTarget.style.background = 'var(--surface-h)' }}
+                  onMouseLeave={e => { if (currentGroup?.id !== g.id) e.currentTarget.style.background = 'transparent' }}
+                >
+                  <span style={{
+                    width: 20, height: 20, borderRadius: 6, flexShrink: 0,
+                    background: currentGroup?.id === g.id ? 'var(--accent)' : 'var(--surface-2)',
+                    color: currentGroup?.id === g.id ? 'var(--btn-primary-fg)' : 'var(--text-3)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 10, fontWeight: 700,
+                  }}>
+                    {g.name[0].toUpperCase()}
+                  </span>
+                  <span style={{ minWidth: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                    {g.name}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Navigation */}
         <nav className="sidebar-nav">
           {NAV_GROUPS.map(group => {
@@ -232,59 +278,6 @@ export default function Sidebar({
           )
         })}
         </nav>
-
-        {/* Groups Switcher — under settings */}
-        {groups.length > 0 && (
-          <div style={{ padding: '8px 12px 8px', borderTop: '1px solid var(--border)' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span>Группы</span>
-              <button
-                onClick={() => { router.push('/groups/new'); onClose?.() }}
-                style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 15, lineHeight: 1, padding: 0 }}
-                title="Создать группу"
-              >+</button>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              {groups.map(g => (
-                <button
-                  key={g.id}
-                  onClick={() => { switchGroup(g.id); onClose?.() }}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: 'var(--r-md)',
-                    border: currentGroup?.id === g.id ? '1px solid var(--accent)' : '1px solid transparent',
-                    background: currentGroup?.id === g.id ? 'rgba(139,92,246,0.1)' : 'transparent',
-                    color: currentGroup?.id === g.id ? 'var(--accent)' : 'var(--text-2)',
-                    fontSize: 13,
-                    fontWeight: currentGroup?.id === g.id ? 600 : 400,
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    transition: 'all var(--dur-fast) var(--ease-out)',
-                  }}
-                  onMouseEnter={e => { if (currentGroup?.id !== g.id) e.currentTarget.style.background = 'var(--surface-h)' }}
-                  onMouseLeave={e => { if (currentGroup?.id !== g.id) e.currentTarget.style.background = 'transparent' }}
-                >
-                  <span style={{
-                    width: 20, height: 20, borderRadius: 6, flexShrink: 0,
-                    background: currentGroup?.id === g.id ? 'var(--accent)' : 'var(--surface-2)',
-                    color: currentGroup?.id === g.id ? 'var(--btn-primary-fg)' : 'var(--text-3)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 10, fontWeight: 700,
-                  }}>
-                    {g.name[0].toUpperCase()}
-                  </span>
-                  <span style={{ minWidth: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                    {g.name}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* User profile */}
         {user && (

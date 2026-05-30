@@ -76,20 +76,21 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                 <button
                   onClick={() => setShowGroupPicker(!showGroupPicker)}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    padding: '5px 10px', borderRadius: 'var(--r-full)',
-                    border: '1px solid var(--border)',
-                    background: 'var(--surface)',
-                    color: 'var(--text-2)',
-                    fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 7,
+                    padding: '6px 14px', borderRadius: 'var(--r-full)',
+                    border: currentGroup ? '1.5px solid var(--accent)' : '1px solid var(--border)',
+                    background: currentGroup ? 'rgba(139,92,246,0.08)' : 'var(--surface)',
+                    color: currentGroup ? 'var(--accent)' : 'var(--text-2)',
+                    fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
                     whiteSpace: 'nowrap',
+                    transition: 'all var(--dur-fast) var(--ease-out)',
                   }}
                 >
                   <span style={{
-                    width: 14, height: 14, borderRadius: 4, flexShrink: 0,
+                    width: 18, height: 18, borderRadius: 4, flexShrink: 0,
                     background: 'var(--accent)', color: 'var(--btn-primary-fg)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 7, fontWeight: 700,
+                    fontSize: 9, fontWeight: 700,
                   }}>
                     {currentGroup?.name?.[0]?.toUpperCase() || '?'}
                   </span>
