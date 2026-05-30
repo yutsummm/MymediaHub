@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState, memo } from 'react'
+import { useEffect, useState, useRef, memo } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { useGroup } from '@/contexts/GroupContext'
@@ -152,6 +152,8 @@ function Sidebar({
   const { user, logout } = useAuth()
   const { groups, currentGroup, switchGroup } = useGroup()
   const [theme, setTheme] = useState<Theme>('dark')
+  const [groupDropdownOpen, setGroupDropdownOpen] = useState(false)
+  const groupRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const stored = localStorage.getItem('mediahub-theme') as Theme | null
@@ -177,6 +179,18 @@ function Sidebar({
       document.documentElement.setAttribute('data-theme', t)
     }
   }
+
+  // Close group dropdown on click outside
+  useEffect(() => {
+    if (!groupDropdownOpen) return
+    const handler = (e: MouseEvent) => {
+      if (groupRef.current && !groupRef.current.contains(e.target as Node)) {
+        setGroupDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [groupDropdownOpen])
 
   function toggleTheme() {
     const order: Theme[] = ['light', 'dark', 'system']
@@ -232,12 +246,12 @@ function Sidebar({
           >×</button>
         </div>
 
-        {/* Groups — always visible */}
-        <div style={{ padding: '4px 8px 0' }}>
+        {/* Groups — compact dropdown selector */}
+        <div ref={groupRef} style={{ padding: '4px 8px 0', position: 'relative' }}>
           <div className="nav-group" style={{ paddingTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <span>Группы</span>
             <button
-              onClick={() => { router.push('/groups/new'); onClose?.() }}
+              onClick={(e) => { e.stopPropagation(); router.push('/groups/new'); onClose?.() }}
               style={{ background: 'none', border: 'none', fontFamily: 'inherit', color: 'rgba(255,255,255,0.35)', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: '0 2px', fontWeight: 700 }}
               title="Создать группу"
             >+</button>
@@ -248,18 +262,48 @@ function Sidebar({
               <span style={{ fontSize: 12, color: 'inherit' }}>Нет групп</span>
             </div>
           ) : (
-            groups.map(g => (
-              <button
-                key={g.id}
-                onClick={() => { switchGroup(g.id); onClose?.() }}
-                className={`nav-item${currentGroup?.id === g.id ? ' active' : ''}`}
+            <>
+              <div
+                className="nav-item"
+                onClick={() => setGroupDropdownOpen(v => !v)}
+                style={{ cursor: 'pointer' }}
               >
-                <span className="nav-icon" style={{ fontSize: 9, fontWeight: 700 }}>{g.name[0].toUpperCase()}</span>
-                <span style={{ flex: 1, minWidth: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                  {g.name}
+                <span className="nav-icon" style={{ fontSize: 9, fontWeight: 700 }}>
+                  {currentGroup?.name?.[0]?.toUpperCase() ?? '?'}
                 </span>
-              </button>
-            ))
+                <span style={{ flex: 1, minWidth: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                  {currentGroup?.name ?? 'Выберите группу'}
+                </span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ flexShrink: 0, opacity: 0.5, transform: groupDropdownOpen ? 'rotate(180deg)' : undefined, transition: 'transform 0.15s var(--ease-out)' }}>
+                  <polyline points="6 9 12 15 18 9" />
+                </svg>
+              </div>
+
+              {groupDropdownOpen && (
+                <div className="group-dd-popup">
+                  {groups.map(g => (
+                    <button
+                      key={g.id}
+                      className="group-dd-item"
+                      onClick={() => { switchGroup(g.id); setGroupDropdownOpen(false); onClose?.() }}
+                    >
+                      <span className="nav-icon" style={{ fontSize: 9, fontWeight: 700 }}>
+                        {g.name[0].toUpperCase()}
+                      </span>
+                      <span style={{ flex: 1, minWidth: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                        {g.name}
+                      </span>
+                      {currentGroup?.id === g.id && (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.7 }}>
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
 
