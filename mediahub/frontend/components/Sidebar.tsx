@@ -152,7 +152,6 @@ export default function Sidebar({
   const { user, logout } = useAuth()
   const { groups, currentGroup, switchGroup } = useGroup()
   const [theme, setTheme] = useState<Theme>('dark')
-  const [showGroups, setShowGroups] = useState(false)
 
   useEffect(() => {
     const initial = (document.documentElement.getAttribute('data-theme') as Theme) || 'dark'
@@ -205,102 +204,56 @@ export default function Sidebar({
           >×</button>
         </div>
 
-        {/* Groups Switcher */}
+        {/* Groups Switcher — always visible */}
         {groups.length > 0 && (
           <div style={{ padding: '0 12px 16px', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Группа
-            </div>
-            <div style={{ position: 'relative' }}>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>Группы</span>
               <button
-                onClick={() => setShowGroups(!showGroups)}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  borderRadius: 'var(--r-md)',
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  color: 'var(--text)',
-                  fontSize: 14,
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  justifyContent: 'space-between',
-                }}
-              >
-                <span style={{ minWidth: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                  {currentGroup?.name || 'Выберите группу'}
-                </span>
-                <span style={{ fontSize: 10, flexShrink: 0 }}>▼</span>
-              </button>
-              {showGroups && (
-                <div style={{
-                  position: 'absolute',
-                  top: '100%',
-                  left: 0,
-                  right: 0,
-                  marginTop: 4,
-                  borderRadius: 'var(--r-md)',
-                  border: '1px solid var(--border)',
-                  background: 'var(--surface)',
-                  zIndex: 10,
-                  maxHeight: 300,
-                  overflowY: 'auto',
-                }}>
-                  {groups.map(g => (
-                    <button
-                      key={g.id}
-                      onClick={() => {
-                        switchGroup(g.id)
-                        setShowGroups(false)
-                        onClose?.()
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '10px 12px',
-                        border: 'none',
-                        background: currentGroup?.id === g.id ? 'rgba(139,92,246,0.1)' : 'transparent',
-                        color: currentGroup?.id === g.id ? 'var(--accent)' : 'var(--text-2)',
-                        fontSize: 13,
-                        fontWeight: currentGroup?.id === g.id ? 600 : 400,
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        borderBottom: '1px solid var(--border)',
-                      }}
-                    >
-                      {g.name}
-                      {currentGroup?.id === g.id && (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 8, flexShrink: 0 }}>
-                          <polyline points="20 6 9 17 4 12"/>
-                        </svg>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
+                onClick={() => { router.push('/groups/new'); onClose?.() }}
+                style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 15, lineHeight: 1, padding: 0 }}
+                title="Создать группу"
+              >+</button>
             </div>
-            <button
-              onClick={() => {
-                router.push('/groups/new')
-                onClose?.()
-              }}
-              style={{
-                width: '100%',
-                marginTop: 8,
-                padding: '8px 12px',
-                borderRadius: 'var(--r-md)',
-                border: '1px solid var(--border)',
-                background: 'transparent',
-                color: 'var(--accent)',
-                fontSize: 13,
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
-            >
-              + Новая группа
-            </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              {groups.map(g => (
+                <button
+                  key={g.id}
+                  onClick={() => { switchGroup(g.id); onClose?.() }}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: 'var(--r-md)',
+                    border: currentGroup?.id === g.id ? '1px solid var(--accent)' : '1px solid transparent',
+                    background: currentGroup?.id === g.id ? 'rgba(139,92,246,0.1)' : 'transparent',
+                    color: currentGroup?.id === g.id ? 'var(--accent)' : 'var(--text-2)',
+                    fontSize: 13,
+                    fontWeight: currentGroup?.id === g.id ? 600 : 400,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    transition: 'all var(--dur-fast) var(--ease-out)',
+                  }}
+                  onMouseEnter={e => { if (currentGroup?.id !== g.id) e.currentTarget.style.background = 'var(--surface-h)' }}
+                  onMouseLeave={e => { if (currentGroup?.id !== g.id) e.currentTarget.style.background = 'transparent' }}
+                >
+                  <span style={{
+                    width: 20, height: 20, borderRadius: 6, flexShrink: 0,
+                    background: currentGroup?.id === g.id ? 'var(--accent)' : 'var(--surface-2)',
+                    color: currentGroup?.id === g.id ? 'var(--btn-primary-fg)' : 'var(--text-3)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 10, fontWeight: 700,
+                  }}>
+                    {g.name[0].toUpperCase()}
+                  </span>
+                  <span style={{ minWidth: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                    {g.name}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
