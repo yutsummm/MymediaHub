@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '@/lib/api'
+import { useGroup } from '@/contexts/GroupContext'
 import type { AnalyticsSummary, TimelinePoint } from '@/lib/types'
 
 declare const Chart: typeof import('chart.js').Chart
@@ -92,17 +93,21 @@ export default function AnalyticsPage() {
   const [exporting, setExporting] = useState(false)
   const monthOptions = buildMonthOptions()
   const [selectedMonth, setSelectedMonth] = useState(0)
+  const { currentGroup } = useGroup()
 
   const lineRef = useRef<HTMLCanvasElement>(null)
   const lineChart = useRef<InstanceType<typeof Chart> | null>(null)
   const barRef  = useRef<HTMLCanvasElement>(null)
   const barChart = useRef<InstanceType<typeof Chart> | null>(null)
 
+  const gid = currentGroup?.id
+
   useEffect(() => {
-    api.getAnalyticsSummary().then(setSum).catch(console.error)
-    api.syncVkStats().catch(() => {})
-  }, [])
-  useEffect(() => { api.getTimeline(period).then(setTl).catch(console.error) }, [period])
+    if (!gid) return
+    api.getGroupAnalyticsSummary(gid).then(setSum).catch(console.error)
+    api.syncGroupVkStats(gid).catch(() => {})
+  }, [gid])
+  useEffect(() => { if (gid) api.getGroupTimeline(gid, period).then(setTl).catch(console.error) }, [gid, period])
 
   useEffect(() => {
     if (!tl.length || !lineRef.current) return
@@ -164,9 +169,10 @@ export default function AnalyticsPage() {
   }, [sum])
 
   async function handleExport() {
+    if (!gid) return
     const opt = monthOptions[selectedMonth]
     setExporting(true)
-    try { await api.exportAnalytics(opt.startDate, opt.endDate) }
+    try { await api.exportGroupAnalytics(gid, opt.startDate, opt.endDate) }
     catch (e) { alert((e as Error).message) }
     finally { setExporting(false) }
   }

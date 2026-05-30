@@ -84,11 +84,12 @@ export default function DashboardPage() {
   const canEdit = (currentGroup?.role ?? user?.role) !== 'observer'
 
   useEffect(() => {
-    api.getAnalyticsSummary().then(setSum).catch(console.error)
-    api.getPosts({ limit: '5' } as never).then(d => setPosts(d.posts)).catch(console.error)
+    if (!currentGroup?.id) return
+    api.getGroupAnalyticsSummary(currentGroup.id).then(setSum).catch(console.error)
+    api.getGroupPosts(currentGroup.id, { limit: '5' } as never).then(d => setPosts(d.posts)).catch(console.error)
     // Sync real VK stats on dashboard load
-    api.syncVkStats().catch(() => {})
-  }, [])
+    api.syncGroupVkStats(currentGroup.id).catch(() => {})
+  }, [currentGroup])
 
   const cards = sum ? [
     { label: 'Всего постов',    raw: sum.total_posts,   fmt: (n: number) => String(n) },

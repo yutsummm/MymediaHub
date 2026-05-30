@@ -237,4 +237,30 @@ export const api = {
 
   syncVkStats: () =>
     req<{ synced: number; message: string }>('/api/posts/sync-vk-stats', { method: 'POST' }),
+
+  // Group-scoped analytics
+  getGroupAnalyticsSummary: (groupId: number) =>
+    req<import('./types').AnalyticsSummary>(`/api/groups/${groupId}/analytics/summary`),
+  getGroupTimeline: (groupId: number, period: string) =>
+    req<import('./types').TimelinePoint[]>(`/api/groups/${groupId}/analytics/timeline?period=${period}`),
+  exportGroupAnalytics: async (groupId: number, startDate: string, endDate: string): Promise<void> => {
+    const url = `${BASE}/api/groups/${groupId}/analytics/export?start_date=${startDate}&end_date=${endDate}`
+    const token = _getToken()
+    const headers: Record<string, string> = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const res = await fetch(url, { headers })
+    if (!res.ok) throw new Error(`Ошибка экспорта: ${res.status}`)
+    const blob = await res.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    const cd = res.headers.get('content-disposition') ?? ''
+    const match = cd.match(/filename\*=UTF-8''(.+)/)
+    a.download = match ? decodeURIComponent(match[1]) : `аналитика.xlsx`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  },
+
+  // Group-scoped sync VK stats
+  syncGroupVkStats: (groupId: number) =>
+    req<{ synced: number; message: string }>(`/api/groups/${groupId}/posts/sync-vk-stats`, { method: 'POST' }),
 }
