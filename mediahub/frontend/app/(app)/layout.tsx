@@ -23,13 +23,12 @@ const TITLES: Record<string, string> = {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
-  const { groups, currentGroup, switchGroup, loading: groupsLoading } = useGroup()
+  const { groups, loading: groupsLoading } = useGroup()
   const router = useRouter()
   const pathname = usePathname()
   const [unread, setUnread] = useState(0)
   const [navOpen, setNavOpen] = useState(false)
   const [groupModalDismissed, setGroupModalDismissed] = useState(false)
-  const [showGroupPicker, setShowGroupPicker] = useState(false)
 
   useEffect(() => { setNavOpen(false) }, [pathname])
 
@@ -70,78 +69,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <span className="topbar-title">{title}</span>
           </div>
           <div className="topbar-actions">
-            {/* Group picker — always visible */}
-            {groups.length > 0 && (
-              <div style={{ position: 'relative' }}>
-                <button
-                  onClick={() => setShowGroupPicker(!showGroupPicker)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 7,
-                    padding: '6px 14px', borderRadius: 'var(--r-full)',
-                    border: currentGroup ? '1.5px solid var(--accent)' : '1px solid var(--border)',
-                    background: currentGroup ? 'rgba(139,92,246,0.08)' : 'var(--surface)',
-                    color: currentGroup ? 'var(--accent)' : 'var(--text-2)',
-                    fontSize: 12.5, fontWeight: 600, cursor: 'pointer',
-                    whiteSpace: 'nowrap',
-                    transition: 'all var(--dur-fast) var(--ease-out)',
-                  }}
-                >
-                  <span style={{
-                    width: 18, height: 18, borderRadius: 4, flexShrink: 0,
-                    background: 'var(--accent)', color: 'var(--btn-primary-fg)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 9, fontWeight: 700,
-                  }}>
-                    {currentGroup?.name?.[0]?.toUpperCase() || '?'}
-                  </span>
-                  {currentGroup?.name || 'Группа'}
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.5 }}>
-                    <polyline points="6 9 12 15 18 9"/>
-                  </svg>
-                </button>
-                {showGroupPicker && (
-                  <>
-                    <div
-                      style={{ position: 'fixed', inset: 0, zIndex: 99 }}
-                      onClick={() => setShowGroupPicker(false)}
-                    />
-                    <div style={{
-                      position: 'absolute', top: '100%', right: 0, marginTop: 4,
-                      borderRadius: 'var(--r-md)', border: '1px solid var(--border)',
-                      background: 'var(--surface)', zIndex: 100,
-                      minWidth: 180, maxHeight: 240, overflowY: 'auto',
-                      boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-                    }}>
-                      {groups.map(g => (
-                        <button
-                          key={g.id}
-                          onClick={() => { switchGroup(g.id); setShowGroupPicker(false) }}
-                          style={{
-                            width: '100%', padding: '9px 12px', border: 'none',
-                            background: currentGroup?.id === g.id ? 'rgba(139,92,246,0.1)' : 'transparent',
-                            color: currentGroup?.id === g.id ? 'var(--accent)' : 'var(--text-2)',
-                            fontSize: 12.5, fontWeight: currentGroup?.id === g.id ? 600 : 400,
-                            cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
-                            borderBottom: '1px solid var(--border)',
-                          }}
-                        >
-                          <span style={{
-                            width: 18, height: 18, borderRadius: 4, flexShrink: 0,
-                            background: currentGroup?.id === g.id ? 'var(--accent)' : 'var(--surface-2)',
-                            color: currentGroup?.id === g.id ? 'var(--btn-primary-fg)' : 'var(--text-3)',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: 8, fontWeight: 700,
-                          }}>
-                            {g.name[0]?.toUpperCase()}
-                          </span>
-                          {g.name}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
             <span className="topbar-date" style={{ fontSize: 11.5, color: 'var(--text-3)', fontWeight: 500, letterSpacing: '0.02em' }}>
               {today}
             </span>
