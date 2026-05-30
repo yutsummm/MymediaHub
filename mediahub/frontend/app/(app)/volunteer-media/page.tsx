@@ -41,7 +41,7 @@ export default function VolunteerMediaGalleryPage() {
     if (filter) params.status = filter
     if (searchEvent.trim()) params.event = searchEvent.trim()
     api.getVolunteerMedia(currentGroup.id, params)
-      .then(d => setItems(d.items))
+      .then(setItems)
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [currentGroup, filter, searchEvent])

@@ -42,9 +42,9 @@ export default function NotificationsPage() {
   const [notifs, setNotifs] = useState<Notification[] | null>(null)
 
   function load() {
-    api.getNotifications().then(d => setNotifs(d.items)).catch(console.error)
+    api.getNotifications(user?.id).then(setNotifs).catch(console.error)
   }
-  useEffect(load, [])
+  useEffect(load, [user?.id])
 
   async function markRead(id: number) {
     try { await api.markRead(id); load() }

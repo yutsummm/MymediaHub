@@ -31,7 +31,7 @@ export default function MyUploadsPage() {
     if (!currentGroup) return
     setLoading(true)
     api.getVolunteerMedia(currentGroup.id, { user_id: String(user?.id) })
-      .then(d => setItems(d.items))
+      .then(setItems)
       .catch(console.error)
       .finally(() => setLoading(false))
   }
