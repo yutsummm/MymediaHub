@@ -40,8 +40,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (user) {
-      api.getNotifications(user.id)
-        .then(ns => setUnread(ns.filter(n => !n.is_read).length))
+      api.getNotifications()
+        .then(ns => setUnread(ns.items.filter(n => !n.is_read).length))
         .catch(() => {})
     }
   }, [user, pathname])
