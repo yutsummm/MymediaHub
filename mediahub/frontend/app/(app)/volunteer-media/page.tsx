@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState, useCallback } from 'react'
+import Image from 'next/image'
 import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { useGroup } from '@/contexts/GroupContext'
@@ -182,10 +183,12 @@ export default function VolunteerMediaGalleryPage() {
                       cursor: isImg ? 'zoom-in' : 'default',
                     }}>
                       {isImg ? (
-                        <img
+                        <Image
                           src={url}
                           alt={m.filename || ''}
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          fill
+                          sizes="(max-width: 640px) 50vw, 200px"
+                          style={{ objectFit: 'cover' }}
                           onClick={() => setPreviewUrl(url)}
                         />
                       ) : (

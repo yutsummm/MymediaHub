@@ -1,10 +1,10 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, memo } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { useGroup } from '@/contexts/GroupContext'
 
-type Theme = 'dark' | 'light'
+type Theme = 'dark' | 'light' | 'system'
 
 const S = { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 
@@ -138,7 +138,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
 const ROLE_CLASS: Record<string, string> = { admin: 'r-admin', editor: 'r-editor', volunteer: 'r-volunteer' }
 const ROLE_LABEL: Record<string, string> = { admin: 'Администратор', editor: 'Редактор', volunteer: 'Волонтёр' }
 
-export default function Sidebar({
+function Sidebar({
   unread = 0,
   open = false,
   onClose,
@@ -154,15 +154,43 @@ export default function Sidebar({
   const [theme, setTheme] = useState<Theme>('dark')
 
   useEffect(() => {
-    const initial = (document.documentElement.getAttribute('data-theme') as Theme) || 'dark'
-    setTheme(initial)
+    const stored = localStorage.getItem('mediahub-theme') as Theme | null
+    setTheme(stored || 'dark')
   }, [])
 
+  // Listen for OS theme changes when in system mode
+  useEffect(() => {
+    if (theme !== 'system') return
+    const mq = window.matchMedia('(prefers-color-scheme: light)')
+    const handler = (e: MediaQueryListEvent) => {
+      document.documentElement.setAttribute('data-theme', e.matches ? 'light' : 'dark')
+    }
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [theme])
+
+  function applyTheme(t: Theme) {
+    if (t === 'system') {
+      const mq = window.matchMedia('(prefers-color-scheme: light)')
+      document.documentElement.setAttribute('data-theme', mq.matches ? 'light' : 'dark')
+    } else {
+      document.documentElement.setAttribute('data-theme', t)
+    }
+  }
+
   function toggleTheme() {
-    const next: Theme = theme === 'light' ? 'dark' : 'light'
+    const order: Theme[] = ['light', 'dark', 'system']
+    const idx = order.indexOf(theme)
+    const next = order[(idx + 1) % 3]
     setTheme(next)
-    document.documentElement.setAttribute('data-theme', next)
+    applyTheme(next)
     try { localStorage.setItem('mediahub-theme', next) } catch {}
+  }
+
+  const THEME_THUMB: Record<Theme, { icon: string; pos: string; title: string }> = {
+    light:  { icon: '☀', pos: 'light', title: 'Светлая тема → Тёмная' },
+    dark:   { icon: '☾', pos: 'dark', title: 'Тёмная тема → Системная' },
+    system: { icon: '🖥', pos: 'system', title: 'Системная тема → Светлая' },
   }
 
   function handleLogout() {
@@ -276,14 +304,15 @@ export default function Sidebar({
             </div>
             <div
               className="theme-toggle"
+              data-theme-state={THEME_THUMB[theme].pos}
               role="switch"
-              aria-checked={theme === 'light'}
+              aria-checked={theme !== 'dark'}
               tabIndex={0}
               onClick={toggleTheme}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleTheme() } }}
-              title={theme === 'light' ? 'Светлая тема — переключить на тёмную' : 'Тёмная тема — переключить на светлую'}
+              title={THEME_THUMB[theme].title}
             >
-              <div className="theme-toggle-thumb">{theme === 'light' ? '☀' : '☾'}</div>
+              <div className="theme-toggle-thumb">{THEME_THUMB[theme].icon}</div>
             </div>
             <button
               onClick={handleLogout}
@@ -299,3 +328,5 @@ export default function Sidebar({
     </>
   )
 }
+
+export default memo(Sidebar)

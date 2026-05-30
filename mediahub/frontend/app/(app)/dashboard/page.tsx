@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, memo } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
@@ -42,12 +42,12 @@ function useCountUp(target: number, duration = 700): number {
   return val
 }
 
-function StatCard({ label, raw, fmt, icon, index }: {
+const StatCard = memo(function StatCard({ label, raw, fmt, icon, index }: {
   label: string; raw: number; fmt: (n: number) => string; icon: React.ReactNode; index: number
 }) {
   const animated = useCountUp(raw)
   return (
-    <div className="stat-card anim-in" style={{ animationDelay: `${index * 50}ms` }}>
+    <div className="stat-card anim-in" style={{ animationDelay: `${index * 60}ms` }}>
       <div className="stat-top">
         <div className="stat-label">{label}</div>
         <div className="stat-icon">{icon}</div>
@@ -58,11 +58,11 @@ function StatCard({ label, raw, fmt, icon, index }: {
       </div>
     </div>
   )
-}
+})
 
-function SkeletonStatCard({ index }: { index: number }) {
+const SkeletonStatCard = memo(function SkeletonStatCard({ index }: { index: number }) {
   return (
-    <div className="stat-card anim-in" style={{ animationDelay: `${index * 50}ms` }}>
+    <div className="stat-card anim-in" style={{ animationDelay: `${index * 60}ms` }}>
       <div className="stat-top">
         <div className="skeleton skeleton-text" style={{ width: 80 }} />
         <div className="skeleton" style={{ width: 18, height: 18, borderRadius: 4 }} />
@@ -71,7 +71,7 @@ function SkeletonStatCard({ index }: { index: number }) {
       <div className="skeleton skeleton-text" style={{ width: 100, marginTop: 10 }} />
     </div>
   )
-}
+})
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -119,7 +119,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Bento grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16 }}>
+      <div className="bento-grid">
 
         {/* Recent posts */}
         <div className="card" style={{ gridRow: '1 / 3' }}>
@@ -173,7 +173,7 @@ export default function DashboardPage() {
                 padding: '14px 22px', borderBottom: '1px solid var(--border)',
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14,
                 cursor: 'pointer', transition: 'background var(--dur-fast) var(--ease-out)',
-                animationDelay: `${i * 40}ms`,
+                animationDelay: `${240 + i * 40}ms`,
               }}
               onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-h)')}
               onMouseLeave={e => (e.currentTarget.style.background = '')}
@@ -193,7 +193,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Publication status */}
-        <div className="card card-p anim-in" style={{ animationDelay: '80ms' }}>
+        <div className="card card-p anim-in" style={{ animationDelay: '200ms' }}>
           <div className="card-title" style={{ marginBottom: 20 }}>Статус публикаций</div>
           {sum === null ? (
             [0,1,2].map(i => (
@@ -219,7 +219,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Top posts */}
-        <div className="card card-p anim-in" style={{ animationDelay: '120ms' }}>
+        <div className="card card-p anim-in" style={{ animationDelay: '260ms' }}>
           <div className="card-title" style={{ marginBottom: 16 }}>Топ постов</div>
           {sum === null ? (
             [0,1,2].map(i => (

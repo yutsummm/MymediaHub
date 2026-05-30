@@ -1,11 +1,10 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback, memo } from 'react'
 import { api } from '@/lib/api'
 import { useGroup } from '@/contexts/GroupContext'
-import { Chart, registerables } from 'chart.js'
+import StateWrapper from '@/components/StateWrapper'
+import Chart from 'chart.js/auto'
 import type { AnalyticsSummary, TimelinePoint } from '@/lib/types'
-
-Chart.register(...registerables)
 
 const fmtN = (n: number) => n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n)
 
@@ -55,7 +54,7 @@ function useCountUp(target: number, duration = 700): number {
   return val
 }
 
-function StatCard({ label, raw, icon, index }: { label: string; raw: number; icon: React.ReactNode; index: number }) {
+const StatCard = memo(function StatCard({ label, raw, icon, index }: { label: string; raw: number; icon: React.ReactNode; index: number }) {
   const animated = useCountUp(raw)
   return (
     <div className="stat-card anim-in" style={{ animationDelay: `${index * 50}ms` }}>
@@ -64,9 +63,9 @@ function StatCard({ label, raw, icon, index }: { label: string; raw: number; ico
       <div className="stat-delta">{raw > 0 ? 'Данные из VK' : 'Нет данных'}</div>
     </div>
   )
-}
+})
 
-function SkeletonStatCard({ index }: { index: number }) {
+const SkeletonStatCard = memo(function SkeletonStatCard({ index }: { index: number }) {
   return (
     <div className="stat-card anim-in" style={{ animationDelay: `${index * 50}ms` }}>
       <div className="stat-top">
@@ -77,7 +76,7 @@ function SkeletonStatCard({ index }: { index: number }) {
       <div className="skeleton skeleton-text" style={{ width: 100, marginTop: 10 }}/>
     </div>
   )
-}
+})
 
 function getChartColors() {
   const style = getComputedStyle(document.documentElement)
@@ -90,6 +89,8 @@ function getChartColors() {
 export default function AnalyticsPage() {
   const [sum, setSum] = useState<AnalyticsSummary | null>(null)
   const [tl, setTl] = useState<TimelinePoint[]>([])
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [retryKey, setRetryKey] = useState(0)
   const [period, setPeriod] = useState('month')
   const [exporting, setExporting] = useState(false)
   const monthOptions = buildMonthOptions()
@@ -103,11 +104,14 @@ export default function AnalyticsPage() {
 
   const gid = currentGroup?.id
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
     if (!gid) return
-    api.getGroupAnalyticsSummary(gid).then(setSum).catch(console.error)
+    setLoadError(null)
+    api.getGroupAnalyticsSummary(gid).then(setSum).catch(e => { console.error(e); setLoadError('Не удалось загрузить аналитику') })
     api.syncGroupVkStats(gid).catch(() => {})
   }, [gid])
+
+  useEffect(() => { fetchData() }, [fetchData, retryKey])
   useEffect(() => { if (gid) api.getGroupTimeline(gid, period).then(setTl).catch(console.error) }, [gid, period])
 
   useEffect(() => {
@@ -181,12 +185,38 @@ export default function AnalyticsPage() {
 
   return (
     <div className="content">
+      <StateWrapper
+        loading={!sum && !loadError}
+        error={loadError}
+        onRetry={() => setRetryKey(k => k + 1)}
+        skeleton={
+          <>
+            <div className="grid4" style={{ marginBottom: 20 }}>
+              {[0,1,2,3].map(i => <SkeletonStatCard key={i} index={i} />)}
+            </div>
+            <div className="card mb6" style={{ padding: 20 }}>
+              <div className="skeleton" style={{ height: 200, borderRadius: 'var(--r-lg)' }}/>
+            </div>
+            <div className="grid2" style={{ marginTop: 20 }}>
+              <div className="card"><div style={{ padding: 20 }}><div className="skeleton" style={{ height: 200, borderRadius: 'var(--r-lg)' }}/></div></div>
+              <div className="card">
+                {[0,1,2,3,4].map(i => (
+                  <div key={i} style={{ padding: '12px 20px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 12, alignItems: 'center' }}>
+                    <div className="skeleton" style={{ width: 26, height: 26, borderRadius: 6, flexShrink: 0 }}/>
+                    <div style={{ flex: 1 }}>
+                      <div className="skeleton skeleton-text" style={{ width: '75%', marginBottom: 6 }}/>
+                      <div className="skeleton skeleton-text" style={{ width: '45%' }}/>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        }
+      >
       {/* Stat cards */}
       <div className="grid4" style={{ marginBottom: 20 }}>
-        {sum
-          ? mc.map((c, i) => <StatCard key={i} index={i} label={c.label} raw={c.raw} icon={c.icon} />)
-          : [0,1,2,3].map(i => <SkeletonStatCard key={i} index={i} />)
-        }
+        {sum && mc.map((c, i) => <StatCard key={i} index={i} label={c.label} raw={c.raw} icon={c.icon} />)}
       </div>
 
       {/* Timeline chart */}
@@ -228,17 +258,7 @@ export default function AnalyticsPage() {
 
         <div className="card anim-in" style={{ animationDelay: '300ms' }}>
           <div className="card-header"><span className="card-title">Топ-5 постов</span></div>
-          {!sum ? (
-            [0,1,2,3,4].map(i => (
-              <div key={i} style={{ padding: '12px 20px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 12, alignItems: 'center' }}>
-                <div className="skeleton" style={{ width: 26, height: 26, borderRadius: 6, flexShrink: 0 }}/>
-                <div style={{ flex: 1 }}>
-                  <div className="skeleton skeleton-text" style={{ width: '75%', marginBottom: 6 }}/>
-                  <div className="skeleton skeleton-text" style={{ width: '45%' }}/>
-                </div>
-              </div>
-            ))
-          ) : sum.top_posts.length === 0 ? (
+          {!sum ? null : sum.top_posts.length === 0 ? (
             <div style={{ padding: '28px 20px', textAlign: 'center', color: 'var(--text-3)', fontSize: 12, lineHeight: 1.7 }}>
               Данные появятся после первых публикаций
             </div>
@@ -259,6 +279,7 @@ export default function AnalyticsPage() {
           ))}
         </div>
       </div>
+      </StateWrapper>
     </div>
   )
 }

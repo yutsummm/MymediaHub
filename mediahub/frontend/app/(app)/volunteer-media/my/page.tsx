@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
@@ -112,6 +113,7 @@ export default function MyUploadsPage() {
                     return (
                       <a key={i} href={url} target="_blank" rel="noopener noreferrer"
                         style={{
+                          position: 'relative',
                           aspectRatio: '1', borderRadius: 'var(--r-sm)',
                           background: 'var(--surface-2)', overflow: 'hidden',
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -119,7 +121,7 @@ export default function MyUploadsPage() {
                         }}
                       >
                         {isImg ? (
-                          <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          <Image src={url} alt="" fill sizes="200px" style={{ objectFit: 'cover' }} />
                         ) : (
                           <span>🎬</span>
                         )}

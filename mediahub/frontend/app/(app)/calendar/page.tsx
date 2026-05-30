@@ -2,9 +2,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
+import StateWrapper from '@/components/StateWrapper'
 import type { Post } from '@/lib/types'
 import QuickPostModal from '@/components/QuickPostModal'
-import ConfirmDialog from '@/components/ConfirmDialog'
+import { useToast } from '@/contexts/ToastContext'
 
 const DAYS   = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
 const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
@@ -25,14 +26,15 @@ function fmtTime(s: string) {
 
 export default function CalendarPage() {
   const router = useRouter()
+  const { showToast } = useToast()
   const [cur, setCur]           = useState<Date | null>(null)
   const [today, setToday]       = useState<string>('')
   const [posts, setPosts]       = useState<Post[]>([])
   const [loading, setLoading]   = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [quickDate, setQuickDate] = useState<string | null>(null)
   const [dragPost, setDragPost] = useState<Post | null>(null)
   const [dragOver, setDragOver] = useState<string | null>(null)
-  const [pendingDrop, setPendingDrop] = useState<{ post: Post; date: string } | null>(null)
 
   useEffect(() => {
     const now = new Date()
@@ -43,11 +45,12 @@ export default function CalendarPage() {
   function loadPosts() {
     if (!cur) return
     setLoading(true)
+    setLoadError(null)
     const start = isoDate(new Date(cur.getFullYear(), cur.getMonth(), 1)) + 'T00:00'
     const end   = isoDate(new Date(cur.getFullYear(), cur.getMonth() + 1, 0)) + 'T23:59'
     api.getCalendar(start, end)
       .then(d => setPosts(Array.isArray(d) ? d : []))
-      .catch(e => { console.error(e); setPosts([]) })
+      .catch(e => { console.error(e); setLoadError('Не удалось загрузить посты'); setPosts([]) })
       .finally(() => setLoading(false))
   }
 
@@ -78,20 +81,21 @@ export default function CalendarPage() {
 
   async function handleDrop(targetDate: string) {
     if (!dragPost) return
-    setPendingDrop({ post: dragPost, date: targetDate })
+    const post = dragPost
     setDragPost(null); setDragOver(null)
-  }
-
-  async function confirmDrop() {
-    if (!pendingDrop) return
-    const { post, date: targetDate } = pendingDrop
     const existingDt = post.scheduled_at ?? post.published_at ?? ''
+    const originalDate = existingDt ? existingDt.slice(0, 10) : null
     const time = existingDt ? existingDt.slice(11, 16) : '09:00'
     try {
       await api.updatePost(post.id, { scheduled_at: `${targetDate}T${time}`, status: 'scheduled' })
       loadPosts()
-    } catch (e) { console.error(e) }
-    setPendingDrop(null)
+      const label = new Date(targetDate + 'T12:00').toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
+      showToast(`Пост перенесён на ${label}`, 'success', undefined, originalDate ? () => {
+        api.updatePost(post.id, { scheduled_at: `${originalDate}T${time}`, status: post.status })
+          .then(() => { loadPosts(); showToast('Дата восстановлена', 'success') })
+          .catch(() => showToast('Не удалось отменить', 'error'))
+      } : undefined)
+    } catch (e) { showToast('Не удалось перенести пост', 'error') }
   }
 
   if (!cur) return (
@@ -174,6 +178,7 @@ export default function CalendarPage() {
       </div>
 
       {/* Calendar grid */}
+      <StateWrapper error={loadError} onRetry={loadPosts}>
       <div className="card">
         <div className="cal-grid">
           {DAYS.map((d, i) => (
@@ -244,16 +249,7 @@ export default function CalendarPage() {
           })}
         </div>
       </div>
-
-      <ConfirmDialog
-        open={pendingDrop !== null}
-        title="Перенести пост?"
-        description={pendingDrop ? `Изменить дату поста «${pendingDrop.post.title}» на ${new Date(pendingDrop.date + 'T12:00').toLocaleDateString('ru-RU', { day: '2-digit', month: 'long' })}?` : ''}
-        variant="warning"
-        confirmLabel="Перенести"
-        onConfirm={confirmDrop}
-        onCancel={() => { setPendingDrop(null); setDragOver(null) }}
-      />
+      </StateWrapper>
     </div>
   )
 }

@@ -1,11 +1,11 @@
 'use client'
-import { useState } from 'react'
+import { useState, memo } from 'react'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { useToast } from '@/contexts/ToastContext'
 import { useGroup } from '@/contexts/GroupContext'
 
-export default function QuickPostModal({ onClose, scheduledDate, onSaved }: {
+function QuickPostModal({ onClose, scheduledDate, onSaved }: {
   onClose: () => void
   scheduledDate?: string
   onSaved?: () => void
@@ -97,3 +97,5 @@ export default function QuickPostModal({ onClose, scheduledDate, onSaved }: {
     </div>
   )
 }
+
+export default memo(QuickPostModal)

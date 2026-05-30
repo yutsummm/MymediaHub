@@ -15,6 +15,7 @@ router = APIRouter()
 
 @router.get("/api/posts")
 def get_posts(
+    q: Optional[str] = None,
     status: Optional[str] = None,
     platform: Optional[str] = None,
     tag: Optional[str] = None,
@@ -23,20 +24,23 @@ def get_posts(
 ):
     conn = get_db()
     c = conn.cursor()
-    q = "SELECT p.*, u.name as author_name FROM posts p LEFT JOIN users u ON p.author_id=u.id WHERE 1=1"
+    query = "SELECT p.*, u.name as author_name FROM posts p LEFT JOIN users u ON p.author_id=u.id WHERE 1=1"
     params: list = []
+    if q:
+        query += " AND (LOWER(p.title) LIKE LOWER(%s) OR LOWER(p.content) LIKE LOWER(%s))"
+        params += [f'%{q}%', f'%{q}%']
     if status:
-        q += " AND p.status=%s"
+        query += " AND p.status=%s"
         params.append(status)
     if platform:
-        q += " AND p.platforms LIKE %s"
+        query += " AND p.platforms LIKE %s"
         params.append(f'%"{platform}"%')
     if tag:
-        q += " AND p.tags LIKE %s"
+        query += " AND p.tags LIKE %s"
         params.append(f'%"{tag}"%')
-    q += " ORDER BY p.created_at DESC LIMIT %s OFFSET %s"
+    query += " ORDER BY p.created_at DESC LIMIT %s OFFSET %s"
     params += [limit, offset]
-    c.execute(q, params)
+    c.execute(query, params)
     rows = c.fetchall()
     c.execute("SELECT COUNT(*) FROM posts")
     total = c.fetchone()["count"]
@@ -291,6 +295,7 @@ def publish_post(post_id: int):
 @router.get("/api/groups/{gid}/posts")
 def get_group_posts(
     gid: int,
+    q: Optional[str] = None,
     status: Optional[str] = None,
     platform: Optional[str] = None,
     tag: Optional[str] = None,
@@ -301,20 +306,23 @@ def get_group_posts(
     conn = get_db()
     c = conn.cursor()
     require_group_member(gid, user_id, conn)
-    q = "SELECT p.*, u.name as author_name FROM posts p LEFT JOIN users u ON p.author_id=u.id WHERE p.group_id=%s"
+    query = "SELECT p.*, u.name as author_name FROM posts p LEFT JOIN users u ON p.author_id=u.id WHERE p.group_id=%s"
     params: list = [gid]
+    if q:
+        query += " AND (LOWER(p.title) LIKE LOWER(%s) OR LOWER(p.content) LIKE LOWER(%s))"
+        params += [f'%{q}%', f'%{q}%']
     if status:
-        q += " AND p.status=%s"
+        query += " AND p.status=%s"
         params.append(status)
     if platform:
-        q += " AND p.platforms LIKE %s"
+        query += " AND p.platforms LIKE %s"
         params.append(f'%"{platform}"%')
     if tag:
-        q += " AND p.tags LIKE %s"
+        query += " AND p.tags LIKE %s"
         params.append(f'%"{tag}"%')
-    q += " ORDER BY p.created_at DESC LIMIT %s OFFSET %s"
+    query += " ORDER BY p.created_at DESC LIMIT %s OFFSET %s"
     params += [limit, offset]
-    c.execute(q, params)
+    c.execute(query, params)
     rows = c.fetchall()
     c.execute("SELECT COUNT(*) FROM posts WHERE group_id=%s", (gid,))
     total = c.fetchone()["count"]

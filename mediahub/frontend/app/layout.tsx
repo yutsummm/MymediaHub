@@ -28,6 +28,13 @@ const themeInitScript = `
 (function() {
   try {
     var t = localStorage.getItem('mediahub-theme');
+    if (t === 'system') {
+      var mq = window.matchMedia('(prefers-color-scheme: light)');
+      t = mq.matches ? 'light' : 'dark';
+      mq.addEventListener('change', function(e) {
+        document.documentElement.setAttribute('data-theme', e.matches ? 'light' : 'dark');
+      });
+    }
     if (t !== 'light' && t !== 'dark') t = 'dark';
     document.documentElement.setAttribute('data-theme', t);
   } catch (_) {
