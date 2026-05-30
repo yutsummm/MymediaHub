@@ -43,7 +43,7 @@ export default function NotificationsPage() {
   const [notifs, setNotifs] = useState<Notification[] | null>(null)
 
   function load() {
-    api.getNotifications().then(data => setNotifs(data.items)).catch(console.error)
+    api.getNotifications().then(data => setNotifs(data)).catch(console.error)
   }
 
   useEffect(() => {
