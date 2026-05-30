@@ -386,6 +386,16 @@ small, .text-small { font-size: var(--text-sm); color: var(--text-2); }
   border-radius: var(--r-full); min-width: 17px; text-align: center;
   animation: badgePop 0.3s var(--spring) both;
 }
+
+/* Button reset for nav-item used on <button> elements */
+button.nav-item {
+  font-family: inherit;
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+}
 @keyframes badgePop {
   from { transform: scale(0); opacity: 0; }
   to   { transform: scale(1); opacity: 1; }

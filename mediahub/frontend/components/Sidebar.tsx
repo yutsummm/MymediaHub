@@ -210,7 +210,7 @@ export default function Sidebar({
             <span>Группы</span>
             <button
               onClick={() => { router.push('/groups/new'); onClose?.() }}
-              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: '0 2px', fontWeight: 700 }}
+              style={{ background: 'none', border: 'none', fontFamily: 'inherit', color: 'rgba(255,255,255,0.35)', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: '0 2px', fontWeight: 700 }}
               title="Создать группу"
             >+</button>
           </div>
@@ -225,10 +225,6 @@ export default function Sidebar({
                 key={g.id}
                 onClick={() => { switchGroup(g.id); onClose?.() }}
                 className={`nav-item${currentGroup?.id === g.id ? ' active' : ''}`}
-                style={{
-                  width: '100%', textAlign: 'left', display: 'flex',
-                  alignItems: 'center', gap: 10, marginBottom: 1,
-                }}
               >
                 <span className="nav-icon" style={{ fontSize: 9, fontWeight: 700 }}>{g.name[0].toUpperCase()}</span>
                 <span style={{ flex: 1, minWidth: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
