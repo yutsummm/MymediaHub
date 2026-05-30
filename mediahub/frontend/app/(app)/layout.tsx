@@ -4,6 +4,7 @@ import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { useGroup } from '@/contexts/GroupContext'
 import Sidebar from '@/components/Sidebar'
+import Breadcrumbs from '@/components/Breadcrumbs'
 import { api } from '@/lib/api'
 import CreateGroupModal from '@/components/CreateGroupModal'
 
@@ -66,7 +67,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             >
               <span /><span /><span />
             </button>
-            <span className="topbar-title">{title}</span>
+            <div className="topbar-breadcrumbs">
+              <Breadcrumbs />
+              <span className="topbar-title">{title}</span>
+            </div>
           </div>
           <div className="topbar-actions">
             <span className="topbar-date" style={{ fontSize: 11.5, color: 'var(--text-3)', fontWeight: 500, letterSpacing: '0.02em' }}>
