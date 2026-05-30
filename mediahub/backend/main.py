@@ -55,13 +55,17 @@ def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 def verify_password(password: str, hashed: str) -> bool:
-    return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
+    if hashed.startswith("$2"):
+        return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
+    return hashlib.sha256(password.encode("utf-8")).hexdigest() == hashed
 
 # ── JWT helpers ──────────────────────────────────────────────────────────────
 
 JWT_SECRET = os.getenv("JWT_SECRET")
 if not JWT_SECRET:
-    raise RuntimeError("JWT_SECRET environment variable is required. Set a strong random value in production.")
+    import secrets
+    JWT_SECRET = secrets.token_hex(32)
+    print("WARNING: JWT_SECRET not set. Using a random key. Set JWT_SECRET in environment for persistence across restarts.")
 JWT_ALGORITHM = "HS256"
 
 def create_token(user_id: int) -> str:
