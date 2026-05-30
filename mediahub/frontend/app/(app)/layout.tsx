@@ -1,10 +1,11 @@
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { useGroup } from '@/contexts/GroupContext'
 import Sidebar from '@/components/Sidebar'
 import Breadcrumbs from '@/components/Breadcrumbs'
+import GlobalSearch from '@/components/GlobalSearch'
 import { api } from '@/lib/api'
 import CreateGroupModal from '@/components/CreateGroupModal'
 
@@ -53,7 +54,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', width: '100%' }}>
       <div className="top-stripe" />
-      <Sidebar unread={unread} open={navOpen} onClose={() => setNavOpen(false)} />
+      <Sidebar unread={unread} open={navOpen} onClose={useCallback(() => setNavOpen(false), [])} />
 
       <div className="main-layout">
         {/* Topbar */}
@@ -73,6 +74,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <div className="topbar-actions">
+            <GlobalSearch />
             <span className="topbar-date" style={{ fontSize: 11.5, color: 'var(--text-3)', fontWeight: 500, letterSpacing: '0.02em' }}>
               {today}
             </span>

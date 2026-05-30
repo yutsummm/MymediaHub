@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/contexts/ToastContext'
 import { api } from '@/lib/api'
+import StateWrapper from '@/components/StateWrapper'
 import type { Notification } from '@/lib/types'
 
 const S = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
@@ -44,7 +45,13 @@ export default function NotificationsPage() {
   function load() {
     api.getNotifications(user?.id).then(setNotifs).catch(console.error)
   }
-  useEffect(load, [user?.id])
+
+  useEffect(() => {
+    if (!user?.id) return
+    load()
+    const iv = setInterval(load, 30_000)
+    return () => clearInterval(iv)
+  }, [user?.id])
 
   async function markRead(id: number) {
     try { await api.markRead(id); load() }
@@ -81,8 +88,26 @@ export default function NotificationsPage() {
           )}
         </div>
 
-        {notifs === null ? (
-          [0,1,2,3].map(i => (
+        <StateWrapper
+          loading={notifs === null}
+          empty={notifs !== null && notifs.length === 0}
+          emptyText="Нет уведомлений"
+          emptyFallback={
+            <div style={{ padding: '52px 24px' }}>
+              <div className="empty-state">
+                <div className="empty-state-icon">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="12" y1="2" x2="12" y2="4"/>
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                  </svg>
+                </div>
+                <div className="empty-state-title">Нет уведомлений</div>
+                <div className="empty-state-sub">Здесь появятся уведомления о публикациях и событиях</div>
+              </div>
+            </div>
+          }
+          skeleton={[0,1,2,3].map(i => (
             <div key={i} style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 13, alignItems: 'center' }}>
               <div className="skeleton" style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0 }}/>
               <div style={{ flex: 1 }}>
@@ -90,20 +115,9 @@ export default function NotificationsPage() {
                 <div className="skeleton skeleton-text" style={{ width: '40%' }}/>
               </div>
             </div>
-          ))
-        ) : notifs.length === 0 ? (
-          <div className="empty-state" style={{ padding: '52px 24px' }}>
-            <div className="empty-state-icon">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="12" y1="2" x2="12" y2="4"/>
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-              </svg>
-            </div>
-            <div className="empty-state-title">Нет уведомлений</div>
-            <div className="empty-state-sub">Здесь появятся уведомления о публикациях и событиях</div>
-          </div>
-        ) : notifs.map((n, i) => (
+          ))}
+        >
+          {notifs?.map((n, i) => (
           <div
             key={n.id}
             className={`notif-item anim-in${!n.is_read ? ' unread' : ''}`}
@@ -141,6 +155,7 @@ export default function NotificationsPage() {
             )}
           </div>
         ))}
+        </StateWrapper>
       </div>
     </div>
   )

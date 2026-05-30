@@ -7,10 +7,11 @@ interface Toast {
   message: string
   detail?: string
   type: 'info' | 'success' | 'error' | 'warning'
+  onUndo?: () => void
 }
 
 interface ToastCtx {
-  showToast: (msg: string, type?: Toast['type'], detail?: string) => void
+  showToast: (msg: string, type?: Toast['type'], detail?: string, onUndo?: () => void) => void
 }
 
 const ToastContext = createContext<ToastCtx>({ showToast: () => {} })
@@ -31,10 +32,10 @@ const ICONS = {
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
 
-  const showToast = useCallback((message: string, type: Toast['type'] = 'info', detail?: string) => {
+  const showToast = useCallback((message: string, type: Toast['type'] = 'info', detail?: string, onUndo?: () => void) => {
     const id = Date.now()
-    setToasts(p => [...p, { id, message, type, detail }])
-    const dur = detail ? 5000 : 3200
+    setToasts(p => [...p, { id, message, type, detail, onUndo }])
+    const dur = onUndo ? 12000 : detail ? 5000 : 3200
     setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), dur)
   }, [])
 
@@ -56,7 +57,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               <div className="toast-msg">{t.message}</div>
               {t.detail && <div className="toast-detail">{t.detail}</div>}
             </div>
-            <button className="toast-close" onClick={() => dismiss(t.id)}>×</button>
+            {t.onUndo ? (
+              <button className="toast-undo" onClick={() => { t.onUndo!(); dismiss(t.id) }}>Отменить</button>
+            ) : (
+              <button className="toast-close" onClick={() => dismiss(t.id)}>×</button>
+            )}
           </div>
         ))}
       </div>

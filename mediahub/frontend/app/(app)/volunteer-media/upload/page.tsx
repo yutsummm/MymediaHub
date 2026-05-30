@@ -1,5 +1,6 @@
 'use client'
 import { useState, useRef } from 'react'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
@@ -153,7 +154,7 @@ export default function VolunteerMediaUploadPage() {
                         overflow: 'hidden', fontSize: 20,
                       }}>
                         {item.uploaded && isImage && item.uploaded.url
-                          ? <img src={item.uploaded.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          ? <Image src={item.uploaded.url} alt="" width={40} height={40} style={{ objectFit: 'cover' }} />
                           : isImage ? '📷' : '🎬'}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>

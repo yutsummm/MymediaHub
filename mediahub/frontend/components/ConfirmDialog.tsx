@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, memo } from 'react'
 
 type Variant = 'danger' | 'warning' | 'info'
 
@@ -22,7 +22,7 @@ const ICONS: Record<Variant, React.ReactNode> = {
   ),
 }
 
-export default function ConfirmDialog({
+const ConfirmDialog = memo(function ConfirmDialog({
   open,
   title,
   description,
@@ -88,4 +88,6 @@ export default function ConfirmDialog({
       </div>
     </div>
   )
-}
+})
+
+export default ConfirmDialog

@@ -1,4 +1,5 @@
 'use client'
+import { memo } from 'react'
 
 function DefaultLoading() {
   return (
@@ -54,7 +55,7 @@ type WrapperProps = {
   children: React.ReactNode
 }
 
-export default function StateWrapper({
+const StateWrapper = memo(function StateWrapper({
   loading,
   error,
   empty,
@@ -79,4 +80,6 @@ export default function StateWrapper({
   }
 
   return <>{children}</>
-}
+})
+
+export default StateWrapper

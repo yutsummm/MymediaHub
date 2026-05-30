@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import dynamic from 'next/dynamic'
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
 import { api } from '@/lib/api'
@@ -238,7 +239,7 @@ export default function PostEditor({
     setVolModalOpen(true)
     if (!volItems && currentGroup) {
       api.getVolunteerMedia(currentGroup.id, { status: 'approved' })
-        .then(setVolItems)
+        .then(data => setVolItems(data.items))
         .catch(() => {})
     }
   }
@@ -604,7 +605,7 @@ export default function PostEditor({
                     return (
                     <div key={item.url} style={{ position: 'relative', borderRadius: 'var(--r-md)', overflow: 'hidden', border: '1px solid var(--border)' }}>
                       {item.type === 'image' ? (
-                        <img src={item.url} alt={item.filename} style={{ width: 96, height: 96, objectFit: 'cover', display: 'block' }} />
+                        <Image src={item.url} alt={item.filename} width={96} height={96} style={{ objectFit: 'cover' }} />
                       ) : item.type === 'video' ? (
                         <div style={{ width: 96, height: 96, background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                           <span style={{ fontSize: 28 }}>▶</span>
@@ -789,7 +790,7 @@ export default function PostEditor({
                                 position: 'relative',
                               }}
                             >
-                              <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              <Image src={url} alt="" width={100} height={100} style={{ objectFit: 'cover' }} />
                               {selected && (
                                 <div style={{ position: 'absolute', top: 4, right: 4, width: 18, height: 18, borderRadius: '50%', background: 'var(--accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
                                   ✓

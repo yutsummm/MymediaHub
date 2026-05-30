@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useGroup } from '@/contexts/GroupContext'
 import { useToast } from '@/contexts/ToastContext'
 import ConfirmDialog from '@/components/ConfirmDialog'
+import StateWrapper from '@/components/StateWrapper'
 import type { VkSettings, TgSettings, GroupMember, InviteLink } from '@/lib/types'
 
 const S14 = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
@@ -78,18 +79,23 @@ export default function SettingsPage() {
   const [deletingGroup, setDeletingGroup] = useState(false)
   const [confirmRemoveMember, setConfirmRemoveMember] = useState<GroupMember | null>(null)
   const [confirmDeleteGroup, setConfirmDeleteGroup] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
     if (!currentGroup) return
     const gid = currentGroup.id
-    setVk(null); setTg(null)
-    api.getGroupVkSettings(gid).then(s => { setVk(s); if (s.connected) setShowVkForm(false) }).catch(console.error)
-    api.getGroupTgSettings(gid).then(s => { setTg(s); if (s.connected) setShowTgForm(false) }).catch(console.error)
-    api.getGroupMembers(gid).then(setMembers).catch(console.error)
-    if (currentGroup.role === 'admin') {
-      api.getInviteLinks(gid).then(setInviteLinks).catch(console.error)
-    }
-  }, [currentGroup?.id])
+    setLoading(true); setLoadError(null)
+    setVk(null); setTg(null); setMembers([]); setInviteLinks([])
+    Promise.all([
+      api.getGroupVkSettings(gid).then(s => { setVk(s); if (s.connected) setShowVkForm(false) }),
+      api.getGroupTgSettings(gid).then(s => { setTg(s); if (s.connected) setShowTgForm(false) }),
+      api.getGroupMembers(gid).then(setMembers),
+      currentGroup.role === 'admin' ? api.getInviteLinks(gid).then(setInviteLinks) : Promise.resolve(),
+    ]).catch(e => { console.error(e); setLoadError('Не удалось загрузить настройки') })
+      .finally(() => setLoading(false))
+  }, [currentGroup?.id, retryKey])
 
   async function connectTg() {
     if (!currentGroup) return
@@ -246,7 +252,22 @@ export default function SettingsPage() {
 
   return (
     <div className="content">
-
+      <StateWrapper
+        loading={loading}
+        error={loadError}
+        onRetry={() => setRetryKey(k => k + 1)}
+        skeleton={[0,1,2,3].map(i => (
+          <div key={i} className="card card-p" style={{ marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
+              <div className="skeleton" style={{ width: 38, height: 38, borderRadius: 10, flexShrink: 0 }}/>
+              <div style={{ flex: 1 }}>
+                <div className="skeleton skeleton-text" style={{ width: '45%', marginBottom: 8 }}/>
+                <div className="skeleton skeleton-text" style={{ width: '60%' }}/>
+              </div>
+            </div>
+          </div>
+        ))}
+      >
       {/* VK */}
       <IntegCard
         platform="vk" color="#0077FF"
@@ -570,6 +591,7 @@ export default function SettingsPage() {
         onConfirm={confirmDeleteGroupAction}
         onCancel={() => setConfirmDeleteGroup(false)}
       />
+      </StateWrapper>
     </div>
   )
 }
