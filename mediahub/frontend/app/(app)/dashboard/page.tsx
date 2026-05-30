@@ -81,7 +81,7 @@ export default function DashboardPage() {
   const [posts, setPosts] = useState<Post[] | null>(null)
   const [quickModal, setQuickModal] = useState(false)
 
-  const canEdit = (currentGroup?.role ?? user?.role) !== 'observer'
+  const canEdit = (currentGroup?.role ?? user?.role) !== 'volunteer'
 
   useEffect(() => {
     api.getAnalyticsSummary().then(setSum).catch(console.error)

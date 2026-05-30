@@ -498,6 +498,19 @@ def init_db():
         )
     """)
 
+    # ── Volunteer media ──────────────────────────────────────────────────────
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS volunteer_media (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+            event_name TEXT NOT NULL,
+            media TEXT DEFAULT '[]',
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI')
+        )
+    """)
+
     # ── Add group_id to existing tables ──────────────────────────────────────
     c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id)")
     c.execute("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id)")
@@ -515,7 +528,7 @@ def init_db():
             [
                 ("Алексей Иванов",  "admin@mediahub.ru",    "admin",    "АИ"),
                 ("Мария Петрова",   "editor@mediahub.ru",   "editor",   "МП"),
-                ("Дмитрий Сидоров", "observer@mediahub.ru", "observer", "ДС"),
+                ("Екатерина Волонтёр", "volunteer@mediahub.ru", "volunteer", "ЕВ"),
             ],
         )
 
@@ -1688,6 +1701,115 @@ def accept_invite(token: str, user_id: int = Depends(get_current_user_id)):
     conn.close()
     return dict(group) if group else {"ok": True}
 
+# ── Volunteer Media ──────────────────────────────────────────────────────────
+
+@app.get("/api/groups/{gid}/volunteer-media")
+def get_volunteer_media(gid: int, event: Optional[str] = None, user_id_filter: Optional[int] = None, status: Optional[str] = None, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    q = "SELECT vm.*, u.name as user_name FROM volunteer_media vm JOIN users u ON vm.user_id=u.id WHERE vm.group_id=%s"
+    params: list = [gid]
+    # Volunteers see only their own uploads; editors/admins see all
+    if role == "volunteer":
+        q += " AND vm.user_id=%s"; params.append(user_id)
+    if event:
+        q += " AND vm.event_name ILIKE %s"; params.append(f"%{event}%")
+    if status:
+        q += " AND vm.status=%s"; params.append(status)
+    if user_id_filter and role != "volunteer":
+        q += " AND vm.user_id=%s"; params.append(user_id_filter)
+    q += " ORDER BY vm.created_at DESC"
+    c.execute(q, params)
+    rows = c.fetchall()
+    conn.close()
+    result = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["media"] = json.loads(d["media"]) if isinstance(d["media"], str) else d["media"]
+        except Exception:
+            d["media"] = []
+        result.append(d)
+    return result
+
+@app.post("/api/groups/{gid}/volunteer-media")
+def create_volunteer_media(gid: int, body: dict, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role not in ("volunteer", "editor", "admin"):
+        conn.close()
+        raise HTTPException(403, "Недостаточно прав")
+    event_name = body.get("event_name", "").strip()
+    if not event_name:
+        conn.close()
+        raise HTTPException(400, "Укажите название мероприятия")
+    media = body.get("media", [])
+    if not media:
+        conn.close()
+        raise HTTPException(400, "Добавьте хотя бы один файл")
+    c.execute(
+        "INSERT INTO volunteer_media (user_id, group_id, event_name, media) VALUES (%s, %s, %s, %s) RETURNING id",
+        (user_id, gid, event_name, json.dumps(media)),
+    )
+    vid = c.fetchone()["id"]
+    conn.commit()
+    c.execute("SELECT vm.*, u.name as user_name FROM volunteer_media vm JOIN users u ON vm.user_id=u.id WHERE vm.id=%s", (vid,))
+    row = c.fetchone()
+    conn.close()
+    d = dict(row)
+    try:
+        d["media"] = json.loads(d["media"]) if isinstance(d["media"], str) else d["media"]
+    except Exception:
+        d["media"] = []
+    return d
+
+@app.delete("/api/groups/{gid}/volunteer-media/{vid}")
+def delete_volunteer_media(gid: int, vid: int, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    c.execute("SELECT user_id FROM volunteer_media WHERE id=%s AND group_id=%s", (vid, gid))
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(404, "Медиа не найдено")
+    # Volunteer can delete own; admin/editor can delete any
+    if role == "volunteer" and row["user_id"] != user_id:
+        conn.close()
+        raise HTTPException(403, "Нельзя удалить чужую загрузку")
+    c.execute("DELETE FROM volunteer_media WHERE id=%s", (vid,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+@app.put("/api/groups/{gid}/volunteer-media/{vid}/status")
+def update_volunteer_media_status(gid: int, vid: int, body: dict, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    c = conn.cursor()
+    role = require_group_member(gid, user_id, conn)
+    if role not in ("admin", "editor"):
+        conn.close()
+        raise HTTPException(403, "Только редактор или администратор может менять статус")
+    new_status = body.get("status", "")
+    if new_status not in ("approved", "rejected", "pending"):
+        conn.close()
+        raise HTTPException(400, "Некорректный статус. Допустимы: approved, rejected, pending")
+    c.execute("UPDATE volunteer_media SET status=%s WHERE id=%s AND group_id=%s", (new_status, vid, gid))
+    conn.commit()
+    c.execute("SELECT vm.*, u.name as user_name FROM volunteer_media vm JOIN users u ON vm.user_id=u.id WHERE vm.id=%s", (vid,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        raise HTTPException(404, "Медиа не найдено")
+    d = dict(row)
+    try:
+        d["media"] = json.loads(d["media"]) if isinstance(d["media"], str) else d["media"]
+    except Exception:
+        d["media"] = []
+    return d
+
 # ── Users ────────────────────────────────────────────────────────────────────
 
 @app.get("/api/users")
@@ -1783,7 +1905,7 @@ def create_group_post(gid: int, body: PostCreate, user_id: int = Depends(get_cur
     conn = get_db()
     c = conn.cursor()
     role = require_group_member(gid, user_id, conn)
-    if role == "observer":
+    if role == "volunteer":
         conn.close()
         raise HTTPException(403, "Наблюдатели не могут создавать посты")
     c.execute(
@@ -1814,7 +1936,7 @@ def update_group_post(gid: int, post_id: int, body: PostUpdate, user_id: int = D
     conn = get_db()
     c = conn.cursor()
     role = require_group_member(gid, user_id, conn)
-    if role == "observer":
+    if role == "volunteer":
         conn.close()
         raise HTTPException(403, "Наблюдатели не могут редактировать посты")
     c.execute("SELECT id FROM posts WHERE id=%s AND group_id=%s", (post_id, gid))
@@ -1846,7 +1968,7 @@ def delete_group_post(gid: int, post_id: int, user_id: int = Depends(get_current
     conn = get_db()
     c = conn.cursor()
     role = require_group_member(gid, user_id, conn)
-    if role == "observer":
+    if role == "volunteer":
         conn.close()
         raise HTTPException(403, "Наблюдатели не могут удалять посты")
     c.execute("SELECT id FROM posts WHERE id=%s AND group_id=%s", (post_id, gid))
@@ -1863,7 +1985,7 @@ def publish_group_post(gid: int, post_id: int, user_id: int = Depends(get_curren
     conn = get_db()
     c = conn.cursor()
     role = require_group_member(gid, user_id, conn)
-    if role == "observer":
+    if role == "volunteer":
         conn.close()
         raise HTTPException(403, "Наблюдатели не могут публиковать посты")
     c.execute("SELECT * FROM posts WHERE id=%s AND group_id=%s", (post_id, gid))

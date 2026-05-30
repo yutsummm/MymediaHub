@@ -17,9 +17,9 @@ const IcoCopy     = <svg {...S12}><rect x="9" y="9" width="13" height="13" rx="2
 const ROLES = [
   { v: 'admin',    l: 'Администратор', d: 'Полный доступ ко всем функциям' },
   { v: 'editor',   l: 'Редактор',      d: 'Создание и редактирование постов' },
-  { v: 'observer', l: 'Наблюдатель',   d: 'Только просмотр аналитики' },
+  { v: 'volunteer', l: 'Волонтёр', d: 'Загрузка фото/видео с мероприятий' },
 ]
-const RC: Record<string, string> = { admin: 'r-admin', editor: 'r-editor', observer: 'r-observer' }
+const RC: Record<string, string> = { admin: 'r-admin', editor: 'r-editor', volunteer: 'r-volunteer' }
 
 function SectionHead({ title, subtitle }: { title: string; subtitle?: string }) {
   return (

@@ -6,8 +6,8 @@ import { useGroup } from '@/contexts/GroupContext'
 import { api } from '@/lib/api'
 import type { InvitePreview } from '@/lib/types'
 
-const RC: Record<string, string> = { admin: 'r-admin', editor: 'r-editor', observer: 'r-observer' }
-const RL: Record<string, string> = { admin: 'Администратор', editor: 'Редактор', observer: 'Наблюдатель' }
+const RC: Record<string, string> = { admin: 'r-admin', editor: 'r-editor', volunteer: 'r-volunteer' }
+const RL: Record<string, string> = { admin: 'Администратор', editor: 'Редактор', volunteer: 'Волонтёр' }
 
 export default function InvitePage() {
   const router  = useRouter()
