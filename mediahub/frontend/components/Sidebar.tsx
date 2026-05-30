@@ -215,12 +215,9 @@ export default function Sidebar({
             >+</button>
           </div>
           {groups.length === 0 ? (
-            <div style={{
-              padding: '14px 11px', fontSize: 12, color: 'rgba(255,255,255,0.25)',
-              textAlign: 'center', lineHeight: 1.6,
-            }}>
-              Нет групп<br/>
-              <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.15)' }}>Создайте первую группу</span>
+            <div className="nav-item" style={{ cursor: 'default', opacity: 0.5, pointerEvents: 'none' }}>
+              <span className="nav-icon" style={{ fontSize: 9, fontWeight: 700 }}>—</span>
+              <span style={{ fontSize: 12, color: 'inherit' }}>Нет групп</span>
             </div>
           ) : (
             groups.map(g => (
@@ -233,16 +230,7 @@ export default function Sidebar({
                   alignItems: 'center', gap: 10, marginBottom: 1,
                 }}
               >
-                <span className="nav-icon" style={{
-                  background: currentGroup?.id === g.id ? 'var(--sidebar-indicator)' : 'rgba(255,255,255,0.1)',
-                  color: currentGroup?.id === g.id ? 'var(--sidebar-bg)' : 'rgba(255,255,255,0.35)',
-                  borderRadius: 4, width: 16, height: 16,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 7, fontWeight: 800,
-                  flexShrink: 0, transition: 'all var(--dur-fast) var(--ease-out)',
-                }}>
-                  {g.name[0].toUpperCase()}
-                </span>
+                <span className="nav-icon" style={{ fontSize: 9, fontWeight: 700 }}>{g.name[0].toUpperCase()}</span>
                 <span style={{ flex: 1, minWidth: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                   {g.name}
                 </span>

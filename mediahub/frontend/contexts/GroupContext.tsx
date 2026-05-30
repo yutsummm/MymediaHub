@@ -32,11 +32,11 @@ function restoreCache(): { groups: Group[]; currentGroup: Group | null } {
   const raw = lsSafe.get('mediahub_groups_cache')
   if (!raw) return { groups: [], currentGroup: null }
   try {
-    const groups = JSON.parse(raw) as Group[]
+    const g = JSON.parse(raw) as Group[]
     const sid = lsSafe.get('mediahub_current_group')
     const sidNum = sid ? parseInt(sid) : null
-    const cur = sidNum ? groups.find(x => x.id === sidNum) || groups[0] || null : groups[0] || null
-    return { groups, currentGroup: cur }
+    const cur = sidNum ? g.find(x => x.id === sidNum) || g[0] || null : g[0] || null
+    return { groups: g, currentGroup: cur }
   } catch {
     return { groups: [], currentGroup: null }
   }
@@ -47,16 +47,13 @@ export function GroupProvider({ children }: { children: React.ReactNode }) {
   const [groups, setGroups] = useState<Group[]>([])
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null)
   const [loading, setLoading] = useState(true)
-  const [restored, setRestored] = useState(false)
 
-  // Step 1: restore cached groups immediately after hydration
+  // Single effect: restore cache on mount and unblock layout immediately
   useEffect(() => {
-    const { groups: cg, currentGroup: cc } = restoreCache()
-    if (cg.length > 0) {
-      setGroups(cg)
-      if (cc) setCurrentGroup(cc)
-    }
-    setRestored(true)
+    const c = restoreCache()
+    setGroups(c.groups)
+    if (c.currentGroup) setCurrentGroup(c.currentGroup)
+    setLoading(false)
   }, [])
 
   const refreshGroups = useCallback(async () => {
@@ -66,13 +63,10 @@ export function GroupProvider({ children }: { children: React.ReactNode }) {
       setGroups(data)
       lsSafe.set('mediahub_groups_cache', JSON.stringify(data))
       const stored = lsSafe.get('mediahub_current_group')
-      const storedGroupId = stored ? parseInt(stored) : data[0]?.id
-      if (storedGroupId) {
-        const group = data.find(g => g.id === storedGroupId) || data[0]
-        if (group) {
-          setCurrentGroup(group)
-          lsSafe.set('mediahub_current_group', group.id.toString())
-        }
+      const gid = stored ? parseInt(stored) : data[0]?.id
+      if (gid) {
+        const g = data.find(x => x.id === gid) || data[0]
+        if (g) { setCurrentGroup(g); lsSafe.set('mediahub_current_group', g.id.toString()) }
       } else if (data.length > 0) {
         setCurrentGroup(data[0])
         lsSafe.set('mediahub_current_group', data[0].id.toString())
@@ -82,37 +76,18 @@ export function GroupProvider({ children }: { children: React.ReactNode }) {
     }
   }, [token])
 
-  // Step 2: show cached data immediately, refresh from API in background
+  // Refresh from API when token becomes available (after auth restores session)
   useEffect(() => {
-    if (!restored) return
-    if (!token) {
-      setLoading(false)
-      return
-    }
-    // Refresh in background — don't block rendering
-    refreshGroups()
-    setLoading(false)
-  }, [restored, token, refreshGroups])
+    if (token) refreshGroups()
+  }, [token, refreshGroups])
 
   const switchGroup = (groupId: number) => {
-    const group = groups.find(g => g.id === groupId)
-    if (group) {
-      setCurrentGroup(group)
-      lsSafe.set('mediahub_current_group', groupId.toString())
-    }
+    const g = groups.find(g => g.id === groupId)
+    if (g) { setCurrentGroup(g); lsSafe.set('mediahub_current_group', groupId.toString()) }
   }
 
   return (
-    <GroupContext.Provider
-      value={{
-        groups,
-        currentGroup,
-        myRole: currentGroup?.role || null,
-        loading,
-        switchGroup,
-        refreshGroups,
-      }}
-    >
+    <GroupContext.Provider value={{ groups, currentGroup, myRole: currentGroup?.role || null, loading, switchGroup, refreshGroups }}>
       {children}
     </GroupContext.Provider>
   )
