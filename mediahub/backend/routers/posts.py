@@ -6,7 +6,8 @@ from utils import (
     vk_wall_post, tg_send_post, UPLOAD_DIR, _AI_PROMPTS, check_rate_limit,
 )
 from models import PostCreate, PostUpdate, AIEnhanceRequest, GenerateRequest
-import json, os, datetime, http_requests
+import json, os, datetime
+import requests as http_requests
 
 router = APIRouter()
 
