@@ -4,7 +4,13 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 
 from models import GroupCreate, GroupMemberRoleUpdate, GroupUpdate, InviteLinkCreate
-from utils import get_current_user_id, get_db, redeem_invite, require_group_member
+from utils import (
+    GROUP_ROLES,
+    get_current_user_id,
+    get_db,
+    redeem_invite,
+    require_group_member,
+)
 
 router = APIRouter()
 
@@ -124,6 +130,19 @@ def update_member_role(gid: int, uid: int, req: GroupMemberRoleUpdate, user_id: 
     if role != "admin":
         conn.close()
         raise HTTPException(403, "Только администратор может изменять роли")
+    # Роль внутри группы и глобальная роль — разные наборы значений. Без этой
+    # проверки в group_members попадало бы что угодно, включая глобальное
+    # «member», от которого не работает ни одна проверка прав.
+    if req.role not in GROUP_ROLES:
+        conn.close()
+        raise HTTPException(400, f"Недопустимая роль в группе. Допустимы: {', '.join(GROUP_ROLES)}")
+    if req.role != "admin" and uid == user_id:
+        c.execute(
+            "SELECT COUNT(*) n FROM group_members WHERE group_id=%s AND role='admin'", (gid,)
+        )
+        if c.fetchone()["n"] <= 1:
+            conn.close()
+            raise HTTPException(400, "Вы единственный администратор группы")
     c.execute("UPDATE group_members SET role=%s WHERE group_id=%s AND user_id=%s", (req.role, gid, uid))
     conn.commit()
     c.execute(
@@ -158,6 +177,9 @@ def create_invite_link(gid: int, req: InviteLinkCreate, user_id: int = Depends(g
     if role != "admin":
         conn.close()
         raise HTTPException(403, "Только администратор может создавать ссылки приглашения")
+    if req.role not in GROUP_ROLES:
+        conn.close()
+        raise HTTPException(400, f"Недопустимая роль в группе. Допустимы: {', '.join(GROUP_ROLES)}")
     token = uuid.uuid4().hex
     expires_at = (datetime.utcnow() + timedelta(hours=req.expires_hours)).isoformat() + "Z"
     c.execute(

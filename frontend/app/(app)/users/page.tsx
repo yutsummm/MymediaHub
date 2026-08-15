@@ -5,17 +5,20 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/contexts/ToastContext'
 import { api } from '@/lib/api'
 import StateWrapper from '@/components/StateWrapper'
+import Pagination from '@/components/Pagination'
 import type { User } from '@/lib/types'
 
 const S = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 
+// Это роли в СИСТЕМЕ, а не в группе. Права на контент (редактор, волонтёр)
+// задаются отдельно, в составе участников каждой группы.
 const ROLES = [
-  { value: 'admin',     label: 'Администратор', hint: 'Управляет пользователями и глобальными настройками' },
-  { value: 'editor',    label: 'Редактор',      hint: 'Создаёт и публикует посты' },
-  { value: 'volunteer', label: 'Волонтёр',      hint: 'Только загружает медиа' },
+  { value: 'admin',  label: 'Администратор системы', hint: 'Управляет пользователями и глобальными настройками сервиса' },
+  { value: 'member', label: 'Участник',              hint: 'Обычный пользователь. Что он может делать с контентом, решает его роль в группе' },
 ]
-const ROLE_CLASS: Record<string, string> = { admin: 'r-admin', editor: 'r-editor', volunteer: 'r-volunteer' }
+const ROLE_CLASS: Record<string, string> = { admin: 'r-admin', member: 'r-editor' }
 const ROLE_LABEL: Record<string, string> = Object.fromEntries(ROLES.map(r => [r.value, r.label]))
+const PAGE_SIZE = 20
 
 export default function UsersPage() {
   const { user } = useAuth()
@@ -26,14 +29,19 @@ export default function UsersPage() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
-  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'editor' })
+  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'member' })
+  const [offset, setOffset] = useState(0)
+  const [meta, setMeta] = useState({ total: 0, limit: PAGE_SIZE, offset: 0 })
 
   const load = useCallback(() => {
     setError('')
-    api.getUsers()
-      .then(d => setUsers(d.users))
+    api.getUsers({ limit: String(PAGE_SIZE), offset: String(offset) })
+      .then(d => {
+        setUsers(d.users)
+        setMeta({ total: d.total, limit: d.limit, offset: d.offset })
+      })
       .catch(e => setError((e as Error).message))
-  }, [])
+  }, [offset])
 
   useEffect(() => {
     if (!user) return
@@ -86,7 +94,7 @@ export default function UsersPage() {
     try {
       await api.createUser(form.name.trim(), form.email.trim(), form.role, form.password)
       showToast('Пользователь создан', 'success')
-      setForm({ name: '', email: '', password: '', role: 'editor' })
+      setForm({ name: '', email: '', password: '', role: 'member' })
       setCreating(false)
       load()
     } catch (e: unknown) {
@@ -104,7 +112,7 @@ export default function UsersPage() {
             <span className="card-title">Пользователи</span>
             {users && (
               <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 4 }}>
-                Всего {users.length}, администраторов {admins.length}
+                Всего {meta.total}, администраторов на этой странице {admins.length}
               </div>
             )}
           </div>
@@ -222,6 +230,14 @@ export default function UsersPage() {
           </div>
         </StateWrapper>
 
+        <Pagination
+          total={meta.total}
+          limit={meta.limit}
+          offset={meta.offset}
+          onChange={setOffset}
+          unit="пользователей"
+        />
+
         <div style={{
           padding: '12px 16px', borderTop: '1px solid var(--border)',
           fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.7,
@@ -232,8 +248,9 @@ export default function UsersPage() {
             </div>
           ))}
           <div style={{ marginTop: 6 }}>
-            Роль здесь — глобальная. Права внутри конкретной группы задаются отдельно,
-            в составе участников группы.
+            Это роли в системе. Права на посты и медиа задаются отдельно — ролью
+            участника внутри каждой группы (администратор, редактор, волонтёр).
+            Одно другое не заменяет.
           </div>
         </div>
       </div>

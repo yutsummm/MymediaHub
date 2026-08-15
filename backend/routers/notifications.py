@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from utils import get_current_user_id, get_db
+from utils import get_current_user_id, get_db, page_meta, paging
 
 router = APIRouter()
 
@@ -13,6 +13,7 @@ def get_notifications(
 ):
     conn = get_db()
     c = conn.cursor()
+    limit, offset = paging(limit, offset)
     c.execute(
         "SELECT * FROM notifications WHERE user_id=%s ORDER BY created_at DESC LIMIT %s OFFSET %s",
         (user_id, limit, offset),
@@ -21,7 +22,7 @@ def get_notifications(
     c.execute("SELECT COUNT(*) FROM notifications WHERE user_id=%s", (user_id,))
     total = c.fetchone()["count"]
     conn.close()
-    return {"items": [dict(r) for r in rows], "total": total}
+    return {"items": [dict(r) for r in rows], **page_meta(total, limit, offset)}
 
 
 @router.put("/api/notifications/{notif_id}/read")

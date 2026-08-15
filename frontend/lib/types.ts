@@ -196,3 +196,11 @@ export interface VolunteerMedia {
   status: 'pending' | 'approved' | 'rejected'
   created_at: string
 }
+
+/** Сведения о странице списка: по ним рисуется навигация */
+export interface PageMeta {
+  total: number
+  limit: number
+  offset: number
+  has_more: boolean
+}

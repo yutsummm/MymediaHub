@@ -15,6 +15,8 @@ from utils import (
     get_current_user_id,
     get_db,
     media_for_storage,
+    page_meta,
+    paging,
     posts_scope,
     require_admin,
     require_group_member,
@@ -32,6 +34,7 @@ def get_posts(
     status: str | None = None,
     platform: str | None = None,
     tag: str | None = None,
+    date: str | None = None,
     limit: int = 100,
     offset: int = 0,
     user_id: int = Depends(get_current_user_id),
@@ -56,15 +59,29 @@ def get_posts(
     if tag:
         query += " AND p.tags LIKE %s"
         params.append(f'%"{tag}"%')
+    if date:
+        # Раньше по дате фильтровал фронт, у себя, по уже загруженной странице.
+        # С постраничной выдачей так нельзя: фильтр применялся бы к сотне
+        # записей вместо всех, и «ничего не найдено» означало бы «нет на этой
+        # странице». Условие то же, что рисовал фронт: первая заполненная из трёх дат.
+        query += " AND COALESCE(NULLIF(p.scheduled_at,''), NULLIF(p.published_at,''), p.created_at) LIKE %s"
+        params.append(f"{date}%")
+
+    # Считаем по тем же фильтрам, что и выбираем, — иначе «показаны 1–20 из 250»
+    # врёт при любом фильтре.
+    count_query = query.replace("SELECT p.*, u.name as author_name", "SELECT COUNT(*)", 1)
+    count_params = list(params)
+
+    limit, offset = paging(limit, offset)
     query += " ORDER BY p.created_at DESC LIMIT %s OFFSET %s"
     params += [limit, offset]
     c.execute(query, params)
     rows = c.fetchall()
-    c.execute(f"SELECT COUNT(*) FROM posts p WHERE {scope_sql}", scope_params)
+    c.execute(count_query, count_params)
     total = c.fetchone()["count"]
     result = serialize_posts(conn, rows)
     conn.close()
-    return {"posts": result, "total": total}
+    return {"posts": result, **page_meta(total, limit, offset)}
 
 
 @router.post("/api/posts")
@@ -183,6 +200,7 @@ def get_group_posts(
     status: str | None = None,
     platform: str | None = None,
     tag: str | None = None,
+    date: str | None = None,
     limit: int = 100,
     offset: int = 0,
     user_id: int = Depends(get_current_user_id),
@@ -204,15 +222,23 @@ def get_group_posts(
     if tag:
         query += " AND p.tags LIKE %s"
         params.append(f'%"{tag}"%')
+    if date:
+        query += " AND COALESCE(NULLIF(p.scheduled_at,''), NULLIF(p.published_at,''), p.created_at) LIKE %s"
+        params.append(f"{date}%")
+
+    count_query = query.replace("SELECT p.*, u.name as author_name", "SELECT COUNT(*)", 1)
+    count_params = list(params)
+
+    limit, offset = paging(limit, offset)
     query += " ORDER BY p.created_at DESC LIMIT %s OFFSET %s"
     params += [limit, offset]
     c.execute(query, params)
     rows = c.fetchall()
-    c.execute("SELECT COUNT(*) FROM posts WHERE group_id=%s", (gid,))
+    c.execute(count_query, count_params)
     total = c.fetchone()["count"]
     result = serialize_posts(conn, rows)
     conn.close()
-    return {"posts": result, "total": total}
+    return {"posts": result, **page_meta(total, limit, offset)}
 
 
 @router.post("/api/groups/{gid}/posts")

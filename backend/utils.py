@@ -284,6 +284,30 @@ def decrypt_row_secret(row, field: str) -> dict | None:
     return d
 
 
+# ── Постраничная выдача ──────────────────────────────────────────────────────
+# Списки всегда были ограничены limit'ом, но наружу отдавали только текущую
+# страницу — а интерфейс её не листал, так что на 101-м посте список молча
+# обрывался. Плюс limit ничем не ограничивался сверху: запросом limit=1000000
+# можно было заставить сервер вытащить всю таблицу разом.
+
+MAX_PAGE_SIZE = 200
+
+
+def paging(limit: int, offset: int) -> tuple[int, int]:
+    """Приводит limit/offset к разумным границам."""
+    return max(1, min(limit, MAX_PAGE_SIZE)), max(0, offset)
+
+
+def page_meta(total: int, limit: int, offset: int) -> dict:
+    """Сведения о странице — по ним интерфейс рисует навигацию."""
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": offset + limit < total,
+    }
+
+
 # ── Rate limiter ────────────────────────────────────────────────────────────
 
 RATE_LIMIT_STORE: dict[str, list[float]] = {}
@@ -426,6 +450,17 @@ def redeem_invite(token: str, user_id: int, conn) -> dict:
         (link["group_id"], user_id, link["role"]),
     )
     return {"group_id": link["group_id"], "role": link["role"]}
+
+
+# Две системы ролей, и путать их нельзя:
+#   GLOBAL_ROLES  — про администрирование системы (users.role). Решает доступ к
+#                   спискам пользователей и глобальным настройкам, и только.
+#   GROUP_ROLES   — про работу с контентом внутри группы (group_members.role).
+#                   Именно они определяют, кто может писать и публиковать.
+# Раньше значения совпадали по названиям и означали разное; теперь пересечение
+# только в слове «admin», и то в разных таблицах.
+GLOBAL_ROLES = ("admin", "member")
+GROUP_ROLES = ("admin", "editor", "volunteer")
 
 
 def require_admin(user_id: int, conn) -> None:

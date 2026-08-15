@@ -121,7 +121,7 @@ def test_bootstrap_env_promotes_existing_user(client, make_user, monkeypatch, ca
     email = c.fetchone()["email"]
     conn.close()
 
-    assert role_of(email) == "editor"
+    assert role_of(email) == "member", "регистрация даёт обычную глобальную роль"
     monkeypatch.setenv("BOOTSTRAP_ADMIN_EMAIL", email.upper())  # регистр не должен мешать
     main.ensure_admin_exists()
     assert role_of(email) == "admin"

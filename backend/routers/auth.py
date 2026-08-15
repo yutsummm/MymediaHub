@@ -206,7 +206,7 @@ def verify_email(req: VerifyEmailRequest, request: Request = None):
     c.execute(
         "INSERT INTO users (name, email, role, avatar, password_hash) "
         "VALUES (%s,%s,%s,%s,%s) RETURNING id",
-        (name, email, "editor", avatar, pending["password_hash"]),
+        (name, email, "member", avatar, pending["password_hash"]),
     )
     uid = c.fetchone()["id"]
 

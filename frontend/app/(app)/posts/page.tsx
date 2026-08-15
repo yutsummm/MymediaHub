@@ -1,8 +1,10 @@
 'use client'
 import { useEffect, useState } from 'react'
+import Pagination from '@/components/Pagination'
+
+const PAGE_SIZE = 20
 import { useRouter, useSearchParams } from 'next/navigation'
 import { api } from '@/lib/api'
-import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/contexts/ToastContext'
 import { useGroup } from '@/contexts/GroupContext'
 import ConfirmDialog from '@/components/ConfirmDialog'
@@ -60,14 +62,17 @@ const iconBtn: React.CSSProperties = {
 export default function PostsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { user } = useAuth()
-  const { showToast } = useToast()
+    const { showToast } = useToast()
   const { currentGroup } = useGroup()
   const [posts, setPosts] = useState<Post[] | null>(null)
   const [search, setSearch] = useState('')
   const [stFilter, setStFilter] = useState(searchParams.get('status') ?? '')
   const [dateFilter, setDateFilter] = useState(searchParams.get('date') ?? '')
   const [pub, setPub] = useState<number | null>(null)
+  // Список листается на сервере: фильтровать и считать на клиенте нельзя —
+  // получилось бы «ничего не найдено» вместо «нет на этой странице».
+  const [offset, setOffset] = useState(0)
+  const [meta, setMeta] = useState({ total: 0, limit: PAGE_SIZE, offset: 0 })
   const [deleteConfirm, setDeleteConfirm] = useState<Post | null>(null)
 
   // Sync status filter with URL
@@ -83,27 +88,44 @@ export default function PostsPage() {
   }, [stFilter])
 
   function load() {
-    const params: Record<string, string> = {}
+    const params: Record<string, string> = {
+      limit: String(PAGE_SIZE),
+      offset: String(offset),
+    }
     if (stFilter) params.status = stFilter
+    if (search.trim()) params.q = search.trim()
+    if (dateFilter) params.date = dateFilter
     setPosts(null)
-    if (currentGroup) {
-      api.getGroupPosts(currentGroup.id, params).then(d => setPosts(d.posts)).catch(console.error)
-    } else {
-      api.getPosts(params).then(d => setPosts(d.posts)).catch(console.error)
-    }
+    const request = currentGroup
+      ? api.getGroupPosts(currentGroup.id, params)
+      : api.getPosts(params)
+    request
+      .then(d => {
+        setPosts(d.posts)
+        setMeta({ total: d.total, limit: d.limit, offset: d.offset })
+      })
+      .catch(console.error)
   }
-  useEffect(load, [stFilter, currentGroup])
 
-  const filtered = (posts ?? []).filter(p => {
-    if (search && !p.title.toLowerCase().includes(search.toLowerCase())) return false
-    if (dateFilter) {
-      const dt = (p.scheduled_at ?? p.published_at ?? p.created_at ?? '').slice(0, 10)
-      if (dt !== dateFilter) return false
-    }
-    return true
-  })
+  // Поиск набирают по букве — ждём паузы, иначе запрос на каждое нажатие
+  useEffect(() => {
+    const t = setTimeout(load, search ? 350 : 0)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stFilter, currentGroup, offset, search, dateFilter])
 
-  const canEdit = user?.role !== 'volunteer'
+  // Сменили фильтр — возвращаемся на первую страницу, иначе можно остаться
+  // на пятой там, где теперь одна
+  useEffect(() => { setOffset(0) }, [stFilter, currentGroup, search, dateFilter])
+
+  const filtered = posts ?? []
+
+  // Право на правку даёт роль в ГРУППЕ, а не глобальная: раньше здесь стояла
+  // users.role, которая про администрирование системы и ничего не знает о контенте.
+  const canEdit = (currentGroup?.role ?? 'editor') !== 'volunteer'
+  // Удаление — тоже про группу. Раньше здесь стояла глобальная роль, из-за чего
+  // администратор группы не мог удалить пост в своей же группе.
+  const canDelete = (currentGroup?.role ?? 'admin') === 'admin'
 
   async function handleDelete(p: Post) {
     setDeleteConfirm(p)
@@ -191,7 +213,7 @@ export default function PostsPage() {
         )}
 
         <span style={{ fontSize: 12, color: 'var(--text-3)', marginLeft: 'auto', fontWeight: 500 }}>
-          {posts === null ? '...' : `${filtered.length} из ${posts.length}`}
+          {posts === null ? '...' : `${filtered.length} из ${meta.total}`}
         </span>
 
         {canEdit && (
@@ -314,7 +336,7 @@ export default function PostsPage() {
                           {pub === p.id ? IcoSpin : IcoSend}
                         </button>
                       )}
-                      {user?.role === 'admin' && (
+                      {canDelete && (
                         <button
                           style={{ ...iconBtn }}
                           onClick={() => handleDelete(p)}
@@ -332,6 +354,14 @@ export default function PostsPage() {
             </tbody>
           </table>
         </div>
+
+        <Pagination
+          total={meta.total}
+          limit={meta.limit}
+          offset={meta.offset}
+          onChange={setOffset}
+          unit="постов"
+        />
       </div>
 
       <ConfirmDialog

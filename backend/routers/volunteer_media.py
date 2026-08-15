@@ -6,6 +6,8 @@ from utils import (
     get_current_user_id,
     get_db,
     media_for_storage,
+    page_meta,
+    paging,
     require_group_member,
     sign_media_list,
 )
@@ -40,6 +42,7 @@ def get_volunteer_media(
     if user_id_filter and role != "volunteer":
         q += " AND vm.user_id=%s"
         params.append(user_id_filter)
+    limit, offset = paging(limit, offset)
     q += " ORDER BY vm.created_at DESC LIMIT %s OFFSET %s"
     params += [limit, offset]
     c.execute(q, params)
@@ -57,7 +60,7 @@ def get_volunteer_media(
         # Ссылки наружу — только подписанные: /uploads без подписи не отдаёт
         d["media"] = sign_media_list(d["media"])
         result.append(d)
-    return {"items": result, "total": total}
+    return {"items": result, **page_meta(total, limit, offset)}
 
 
 @router.post("/api/groups/{gid}/volunteer-media")

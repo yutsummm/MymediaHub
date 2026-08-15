@@ -103,7 +103,8 @@ class ResetPasswordRequest(BaseModel):
 class UserCreate(BaseModel):
     name: str
     email: str
-    role: str = "editor"
+    # Глобальная роль: admin | member. Права на контент задаются внутри группы.
+    role: str = "member"
     password: str
 
 

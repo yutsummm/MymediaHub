@@ -75,7 +75,10 @@ export const api = {
       method: 'POST', body: body({ email, code, new_password }),
     }),
 
-  getUsers: () => req<{ users: import('./types').User[]; total: number }>('/api/users'),
+  getUsers: (params?: Record<string, string>) => {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return req<{ users: import('./types').User[] } & import('./types').PageMeta>(`/api/users${qs}`)
+  },
   updateUserRole: (id: number, role: string) =>
     req<import('./types').User>(`/api/users/${id}/role`, { method: 'PUT', body: body({ role }) }),
   createUser: (name: string, email: string, role: string, password: string) =>
@@ -84,7 +87,7 @@ export const api = {
 
   getPosts: (params?: Record<string, string>) => {
     const qs = params ? '?' + new URLSearchParams(params).toString() : ''
-    return req<{ posts: import('./types').Post[]; total: number }>(`/api/posts${qs}`)
+    return req<{ posts: import('./types').Post[] } & import('./types').PageMeta>(`/api/posts${qs}`)
   },
   getPost: (id: number) => req<import('./types').Post>(`/api/posts/${id}`),
   createPost: (data: unknown) =>
@@ -232,7 +235,7 @@ export const api = {
   // Group-scoped posts
   getGroupPosts: (groupId: number, params?: Record<string, string>) => {
     const qs = params ? '?' + new URLSearchParams(params).toString() : ''
-    return req<{ posts: import('./types').Post[]; total: number }>(`/api/groups/${groupId}/posts${qs}`)
+    return req<{ posts: import('./types').Post[] } & import('./types').PageMeta>(`/api/groups/${groupId}/posts${qs}`)
   },
   getGroupPost: (groupId: number, postId: number) =>
     req<import('./types').Post>(`/api/groups/${groupId}/posts/${postId}`),

@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from models import TgSettingsSave, VkOAuthExchange, VkSettingsSave
 from utils import (
-    VK_API_VERSION,
     app_now_str,
     encrypt_secret,
     get_current_user_id,
@@ -18,308 +17,265 @@ from utils import (
 router = APIRouter()
 
 
-# ── VK Settings ───────────────────────────────────────────────────────────────
+# ── Ядро: одно на глобальные и групповые настройки ──────────────────────────
+# Глобальные и групповые ручки были почти дословными копиями, и копии уже
+# разъехались: глобальное подключение Telegram отвергало неверный токен, а
+# групповое молча проглатывало любую ошибку и сохраняло настройку. Теперь
+# логика одна, а «где хранить» сведено к паре (условие, workspace_id).
+#
+# Строка с id=1 — легаси одиночного воркспейса: на неё работают пользователи
+# без группы. Удалять её нельзя, но и дублировать код ради неё незачем.
+
+
+def _scope(gid: int | None) -> tuple[str, list]:
+    return ("id=1", []) if gid is None else ("workspace_id=%s", [gid])
+
+
+def _require_rights(conn, user_id: int, gid: int | None) -> None:
+    """Глобальные настройки — админ системы, групповые — админ группы."""
+    if gid is None:
+        require_admin(user_id, conn)
+        return
+    if require_group_member(gid, user_id, conn) != "admin":
+        conn.close()
+        raise HTTPException(403, "Только администратор может изменять настройки")
+
+
+def _read_settings(conn, table: str, columns: str, gid: int | None) -> dict:
+    where, params = _scope(gid)
+    c = conn.cursor()
+    c.execute(f"SELECT {columns} FROM {table} WHERE {where}", params)  # noqa: S608 — имена свои
+    row = c.fetchone()
+    if not row:
+        return {"connected": False}
+    return {**dict(row), "connected": True}
+
+
+def _upsert(conn, table: str, gid: int | None, values: dict) -> None:
+    where, params = _scope(gid)
+    c = conn.cursor()
+    c.execute(f"SELECT 1 FROM {table} WHERE {where}", params)  # noqa: S608
+    if c.fetchone():
+        assignments = ", ".join(f"{k}=%s" for k in values)
+        c.execute(f"UPDATE {table} SET {assignments} WHERE {where}",  # noqa: S608
+                  list(values.values()) + params)
+    else:
+        keyed = dict(values)
+        keyed["id" if gid is None else "workspace_id"] = 1 if gid is None else gid
+        cols = ", ".join(keyed)
+        marks = ", ".join(["%s"] * len(keyed))
+        c.execute(f"INSERT INTO {table} ({cols}) VALUES ({marks})", list(keyed.values()))  # noqa: S608
+    conn.commit()
+
+
+def _delete_settings(conn, table: str, gid: int | None) -> dict:
+    where, params = _scope(gid)
+    c = conn.cursor()
+    c.execute(f"DELETE FROM {table} WHERE {where}", params)  # noqa: S608
+    conn.commit()
+    return {"connected": False}
+
+
+def _vk_group_name(access_token: str, group_id: str) -> str:
+    """Название паблика. Недоступное имя — не повод отказывать в подключении."""
+    try:
+        return vk_get_group_name(access_token, group_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception:
+        return f"Группа {group_id.lstrip('-')}"
+
+
+def _tg_chat_title(bot_token: str, chat_id: str) -> str:
+    """
+    Название чата. Токен проверяем всерьёз: сохранить неверный — значит потом
+    молча не публиковать. А вот недоступное название не повод отказывать —
+    у закрытых каналов getChat может не отвечать по другим причинам.
+    """
+    try:
+        return tg_get_chat_title(bot_token, chat_id)
+    except ValueError as e:
+        raise HTTPException(400, f"Telegram отклонил подключение: {e}")
+    except Exception:
+        return chat_id
+
+
+def _save_vk(conn, gid: int | None, group_id: str, access_token: str) -> dict:
+    clean_id = group_id.lstrip("-")
+    group_name = _vk_group_name(access_token, group_id)
+    now = app_now_str()
+    _upsert(conn, "vk_settings", gid, {
+        "group_id": clean_id,
+        "access_token": encrypt_secret(access_token),
+        "group_name": group_name,
+        "connected_at": now,
+    })
+    return {"connected": True, "group_id": clean_id, "group_name": group_name, "connected_at": now}
+
+
+def _save_tg(conn, gid: int | None, bot_token: str, chat_id: str) -> dict:
+    chat_title = _tg_chat_title(bot_token, chat_id)
+    now = app_now_str()
+    _upsert(conn, "tg_settings", gid, {
+        "bot_token": encrypt_secret(bot_token),
+        "chat_id": chat_id,
+        "chat_title": chat_title,
+        "connected_at": now,
+    })
+    return {"connected": True, "chat_id": chat_id, "chat_title": chat_title, "connected_at": now}
+
+
+VK_COLUMNS = "group_id, group_name, connected_at"
+TG_COLUMNS = "chat_id, chat_title, connected_at"
+
+
+# ── VK ───────────────────────────────────────────────────────────────────────
 
 @router.get("/api/settings/vk")
 def get_vk_settings(user_id: int = Depends(get_current_user_id)):
     conn = get_db()
-    c = conn.cursor()
-    require_admin(user_id, conn)
-    c.execute("SELECT id, group_id, group_name, connected_at FROM vk_settings WHERE id=1")
-    row = c.fetchone()
-    conn.close()
-    if not row:
-        return {"connected": False}
-    d = dict(row)
-    d["connected"] = True
-    return d
+    try:
+        _require_rights(conn, user_id, None)
+        return _read_settings(conn, "vk_settings", VK_COLUMNS, None)
+    finally:
+        conn.close()
 
 
 @router.post("/api/settings/vk")
 def save_vk_settings(body: VkSettingsSave, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
-    require_admin(user_id, conn)
     try:
-        group_name = vk_get_group_name(body.access_token, body.group_id)
-    except ValueError as e:
-        conn.close()
-        raise HTTPException(400, str(e))
-    c = conn.cursor()
-    c.execute("SELECT id FROM vk_settings WHERE id=1")
-    exists = c.fetchone()
-    now = app_now_str()
-    if exists:
-        c.execute(
-            "UPDATE vk_settings SET group_id=%s, access_token=%s, group_name=%s, connected_at=%s WHERE id=1",
-            (body.group_id.lstrip("-"), encrypt_secret(body.access_token), group_name, now),
-        )
-    else:
-        c.execute(
-            "INSERT INTO vk_settings (id, group_id, access_token, group_name, connected_at) VALUES (1, %s, %s, %s, %s)",
-            (body.group_id.lstrip("-"), encrypt_secret(body.access_token), group_name, now),
-        )
-    conn.commit()
-    conn.close()
-    return {"connected": True, "group_id": body.group_id.lstrip("-"), "group_name": group_name, "connected_at": now}
-
-
-@router.post("/api/vk/oauth-exchange")
-def vk_oauth_exchange(body: VkOAuthExchange, user_id: int = Depends(get_current_user_id)):
-    conn_check = get_db()
-    try:
-        require_admin(user_id, conn_check)
+        _require_rights(conn, user_id, None)
+        return _save_vk(conn, None, body.group_id, body.access_token)
     finally:
-        conn_check.close()
-    r = http_requests.get(
-        "https://oauth.vk.com/access_token",
-        params={
-            "client_id": body.app_id,
-            "client_secret": body.app_secret,
-            "redirect_uri": "https://oauth.vk.com/blank.html",
-            "code": body.code,
-        },
-        timeout=10,
-    )
-    data = r.json()
-    if "error" in data:
-        raise HTTPException(400, data.get("error_description") or data.get("error", "OAuth ошибка"))
-    access_token = data.get("access_token")
-    if not access_token:
-        raise HTTPException(400, "Токен не получен от VK")
-    try:
-        group_name = vk_get_group_name(access_token, body.group_id)
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT id FROM vk_settings WHERE id=1")
-    exists = c.fetchone()
-    now = app_now_str()
-    clean_id = body.group_id.lstrip("-")
-    if exists:
-        c.execute(
-            "UPDATE vk_settings SET group_id=%s, access_token=%s, group_name=%s, connected_at=%s WHERE id=1",
-            (clean_id, encrypt_secret(access_token), group_name, now),
-        )
-    else:
-        c.execute(
-            "INSERT INTO vk_settings (id, group_id, access_token, group_name, connected_at) VALUES (1, %s, %s, %s, %s)",
-            (clean_id, encrypt_secret(access_token), group_name, now),
-        )
-    conn.commit()
-    conn.close()
-    return {"connected": True, "group_id": clean_id, "group_name": group_name, "connected_at": now}
+        conn.close()
 
 
 @router.delete("/api/settings/vk")
 def delete_vk_settings(user_id: int = Depends(get_current_user_id)):
     conn = get_db()
-    c = conn.cursor()
-    require_admin(user_id, conn)
-    c.execute("DELETE FROM vk_settings WHERE id=1")
-    conn.commit()
-    conn.close()
-    return {"connected": False}
+    try:
+        _require_rights(conn, user_id, None)
+        return _delete_settings(conn, "vk_settings", None)
+    finally:
+        conn.close()
 
-
-# ── Group-scoped VK Settings ────────────────────────────────────────────────
 
 @router.get("/api/groups/{gid}/settings/vk")
 def get_group_vk_settings(gid: int, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
-    c = conn.cursor()
-    require_group_member(gid, user_id, conn)
-    c.execute("SELECT group_id, group_name, connected_at FROM vk_settings WHERE workspace_id=%s", (gid,))
-    row = c.fetchone()
-    conn.close()
-    if not row:
-        return {"connected": False}
-    d = dict(row)
-    d["connected"] = True
-    return d
+    try:
+        require_group_member(gid, user_id, conn)
+        return _read_settings(conn, "vk_settings", VK_COLUMNS, gid)
+    finally:
+        conn.close()
 
 
 @router.post("/api/groups/{gid}/settings/vk")
 def save_group_vk_settings(gid: int, body: VkSettingsSave, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
-    c = conn.cursor()
-    role = require_group_member(gid, user_id, conn)
-    if role != "admin":
-        conn.close()
-        raise HTTPException(403, "Только администратор может изменять настройки")
     try:
-        val_r = http_requests.get(
-            "https://api.vk.com/method/users.get",
-            params={"access_token": body.access_token, "v": VK_API_VERSION},
-            timeout=10,
-        )
-        val_data = val_r.json()
-        if "error" in val_data:
-            conn.close()
-            err_msg = val_data["error"].get("error_msg", "Ошибка VK")
-            raise HTTPException(400, f"Недействительный токен ВК: {err_msg}")
-    except HTTPException:
-        raise
-    except Exception as e:
+        _require_rights(conn, user_id, gid)
+        return _save_vk(conn, gid, body.group_id, body.access_token)
+    finally:
         conn.close()
-        raise HTTPException(400, f"Не удалось связаться с VK: {e}")
-    clean_id = body.group_id.lstrip("-")
-    group_name = f"Группа {clean_id}"
-    try:
-        group_name = vk_get_group_name(body.access_token, body.group_id)
-    except Exception:
-        pass
-    now = app_now_str()
-    c.execute("SELECT workspace_id FROM vk_settings WHERE workspace_id=%s", (gid,))
-    exists = c.fetchone()
-    if exists:
-        c.execute(
-            "UPDATE vk_settings SET group_id=%s, access_token=%s, group_name=%s, connected_at=%s WHERE workspace_id=%s",
-            (clean_id, encrypt_secret(body.access_token), group_name, now, gid),
-        )
-    else:
-        c.execute(
-            "INSERT INTO vk_settings (workspace_id, group_id, access_token, group_name, connected_at) VALUES (%s, %s, %s, %s, %s)",
-            (gid, clean_id, encrypt_secret(body.access_token), group_name, now),
-        )
-    conn.commit()
-    conn.close()
-    return {"connected": True, "group_id": clean_id, "group_name": group_name, "connected_at": now}
 
 
 @router.delete("/api/groups/{gid}/settings/vk")
 def delete_group_vk_settings(gid: int, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
-    c = conn.cursor()
-    role = require_group_member(gid, user_id, conn)
-    if role != "admin":
+    try:
+        _require_rights(conn, user_id, gid)
+        return _delete_settings(conn, "vk_settings", gid)
+    finally:
         conn.close()
-        raise HTTPException(403, "Только администратор может удалять настройки")
-    c.execute("DELETE FROM vk_settings WHERE workspace_id=%s", (gid,))
-    conn.commit()
-    conn.close()
-    return {"connected": False}
 
 
-# ── Telegram Settings ────────────────────────────────────────────────────────
+@router.post("/api/vk/oauth-exchange")
+def vk_oauth_exchange(body: VkOAuthExchange, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    try:
+        _require_rights(conn, user_id, None)
+        r = http_requests.get(
+            "https://oauth.vk.com/access_token",
+            params={
+                "client_id": body.app_id,
+                "client_secret": body.app_secret,
+                "redirect_uri": "https://oauth.vk.com/blank.html",
+                "code": body.code,
+            },
+            timeout=10,
+        )
+        data = r.json()
+        if "error" in data:
+            raise HTTPException(
+                400, data.get("error_description") or data.get("error", "OAuth ошибка")
+            )
+        access_token = data.get("access_token")
+        if not access_token:
+            raise HTTPException(400, "Токен не получен от VK")
+        return _save_vk(conn, None, body.group_id, access_token)
+    finally:
+        conn.close()
+
+
+# ── Telegram ─────────────────────────────────────────────────────────────────
 
 @router.get("/api/settings/telegram")
 def get_tg_settings(user_id: int = Depends(get_current_user_id)):
     conn = get_db()
-    c = conn.cursor()
-    require_admin(user_id, conn)
-    c.execute("SELECT id, chat_id, chat_title, connected_at FROM tg_settings WHERE id=1")
-    row = c.fetchone()
-    conn.close()
-    if not row:
-        return {"connected": False}
-    d = dict(row)
-    d["connected"] = True
-    return d
+    try:
+        _require_rights(conn, user_id, None)
+        return _read_settings(conn, "tg_settings", TG_COLUMNS, None)
+    finally:
+        conn.close()
 
 
 @router.post("/api/settings/telegram")
 def save_tg_settings(body: TgSettingsSave, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
-    require_admin(user_id, conn)
     try:
-        chat_title = tg_get_chat_title(body.bot_token, body.chat_id)
-    except ValueError as e:
+        _require_rights(conn, user_id, None)
+        return _save_tg(conn, None, body.bot_token, body.chat_id)
+    finally:
         conn.close()
-        raise HTTPException(400, str(e))
-    c = conn.cursor()
-    c.execute("SELECT id FROM tg_settings WHERE id=1")
-    exists = c.fetchone()
-    now = app_now_str()
-    if exists:
-        c.execute(
-            "UPDATE tg_settings SET bot_token=%s, chat_id=%s, chat_title=%s, connected_at=%s WHERE id=1",
-            (encrypt_secret(body.bot_token), body.chat_id, chat_title, now),
-        )
-    else:
-        c.execute(
-            "INSERT INTO tg_settings (id, bot_token, chat_id, chat_title, connected_at) VALUES (1, %s, %s, %s, %s)",
-            (encrypt_secret(body.bot_token), body.chat_id, chat_title, now),
-        )
-    conn.commit()
-    conn.close()
-    return {"connected": True, "chat_id": body.chat_id, "chat_title": chat_title, "connected_at": now}
 
 
 @router.delete("/api/settings/telegram")
 def delete_tg_settings(user_id: int = Depends(get_current_user_id)):
     conn = get_db()
-    c = conn.cursor()
-    require_admin(user_id, conn)
-    c.execute("DELETE FROM tg_settings WHERE id=1")
-    conn.commit()
-    conn.close()
-    return {"connected": False}
+    try:
+        _require_rights(conn, user_id, None)
+        return _delete_settings(conn, "tg_settings", None)
+    finally:
+        conn.close()
 
-
-# ── Group-scoped Telegram Settings ──────────────────────────────────────────
 
 @router.get("/api/groups/{gid}/settings/telegram")
 def get_group_tg_settings(gid: int, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
-    c = conn.cursor()
-    require_group_member(gid, user_id, conn)
-    c.execute("SELECT chat_id, chat_title, connected_at FROM tg_settings WHERE workspace_id=%s", (gid,))
-    row = c.fetchone()
-    conn.close()
-    if not row:
-        return {"connected": False}
-    d = dict(row)
-    d["connected"] = True
-    return d
+    try:
+        require_group_member(gid, user_id, conn)
+        return _read_settings(conn, "tg_settings", TG_COLUMNS, gid)
+    finally:
+        conn.close()
 
 
 @router.post("/api/groups/{gid}/settings/telegram")
 def save_group_tg_settings(gid: int, body: TgSettingsSave, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
-    c = conn.cursor()
-    role = require_group_member(gid, user_id, conn)
-    if role != "admin":
-        conn.close()
-        raise HTTPException(403, "Только администратор может изменять настройки")
-    now = app_now_str()
-    chat_title = body.chat_id
     try:
-        r = http_requests.get(
-            f"https://api.telegram.org/bot{body.bot_token}/getChat",
-            params={"chat_id": body.chat_id}, timeout=5,
-        )
-        data = r.json()
-        if data.get("ok"):
-            chat_title = data["result"].get("title") or data["result"].get("username") or body.chat_id
-    except Exception:
-        pass
-    c.execute("SELECT workspace_id FROM tg_settings WHERE workspace_id=%s", (gid,))
-    exists = c.fetchone()
-    if exists:
-        c.execute(
-            "UPDATE tg_settings SET bot_token=%s, chat_id=%s, chat_title=%s, connected_at=%s WHERE workspace_id=%s",
-            (encrypt_secret(body.bot_token), body.chat_id, chat_title, now, gid),
-        )
-    else:
-        c.execute(
-            "INSERT INTO tg_settings (workspace_id, bot_token, chat_id, chat_title, connected_at) VALUES (%s, %s, %s, %s, %s)",
-            (gid, encrypt_secret(body.bot_token), body.chat_id, chat_title, now),
-        )
-    conn.commit()
-    conn.close()
-    return {"connected": True, "chat_id": body.chat_id, "chat_title": chat_title, "connected_at": now}
+        _require_rights(conn, user_id, gid)
+        return _save_tg(conn, gid, body.bot_token, body.chat_id)
+    finally:
+        conn.close()
 
 
 @router.delete("/api/groups/{gid}/settings/telegram")
 def delete_group_tg_settings(gid: int, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
-    c = conn.cursor()
-    role = require_group_member(gid, user_id, conn)
-    if role != "admin":
+    try:
+        _require_rights(conn, user_id, gid)
+        return _delete_settings(conn, "tg_settings", gid)
+    finally:
         conn.close()
-        raise HTTPException(403, "Только администратор может удалять настройки")
-    c.execute("DELETE FROM tg_settings WHERE workspace_id=%s", (gid,))
-    conn.commit()
-    conn.close()
-    return {"connected": False}

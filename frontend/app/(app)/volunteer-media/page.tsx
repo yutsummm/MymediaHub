@@ -2,7 +2,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import Image from 'next/image'
 import { api } from '@/lib/api'
-import { useAuth } from '@/contexts/AuthContext'
 import { useGroup } from '@/contexts/GroupContext'
 import { useToast } from '@/contexts/ToastContext'
 import type { VolunteerMedia, MediaItem } from '@/lib/types'
@@ -25,8 +24,7 @@ const STATUSES = [
 const MODAL_IMG = { position: 'fixed' as const, inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out', padding: 24 }
 
 export default function VolunteerMediaGalleryPage() {
-  const { user } = useAuth()
-  const { currentGroup } = useGroup()
+    const { currentGroup } = useGroup()
   const { showToast } = useToast()
   const [items, setItems] = useState<VolunteerMedia[] | null>(null)
   const [loading, setLoading] = useState(true)
@@ -84,7 +82,10 @@ export default function VolunteerMediaGalleryPage() {
     }
   }
 
-  const isSmm = user?.role === 'editor' || user?.role === 'admin'
+  // Страница целиком про группу, поэтому и право смотрим групповое: глобальная
+  // роль отвечает за администрирование системы и о медиа ничего не знает.
+  const groupRole = currentGroup?.role ?? ''
+  const isSmm = groupRole === 'editor' || groupRole === 'admin'
 
   return (
     <div className="content">

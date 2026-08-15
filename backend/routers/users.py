@@ -3,9 +3,40 @@ import re
 from fastapi import APIRouter, Depends, HTTPException
 
 from models import UserCreate, UserUpdate
-from utils import get_current_user_id, get_db, hash_password, require_admin, row_to_dict
+from utils import (
+    GLOBAL_ROLES,
+    get_current_user_id,
+    get_db,
+    hash_password,
+    page_meta,
+    paging,
+    require_admin,
+    row_to_dict,
+)
 
 router = APIRouter()
+
+
+def _guard_last_admin(c, conn, target_id: int, becoming: str | None) -> None:
+    """
+    Не даёт остаться без администраторов.
+
+    Проверка обязана быть здесь, а не в интерфейсе: список пользователей теперь
+    постраничный, и «последний админ» по загруженной странице — это неправда.
+    becoming=None означает удаление пользователя.
+    """
+    c.execute("SELECT role FROM users WHERE id=%s", (target_id,))
+    row = c.fetchone()
+    if not row or row["role"] != "admin" or becoming == "admin":
+        return
+    c.execute("SELECT COUNT(*) AS n FROM users WHERE role='admin'")
+    if c.fetchone()["n"] <= 1:
+        conn.close()
+        raise HTTPException(
+            400,
+            "Это единственный администратор. Сначала назначьте другого — иначе "
+            "управлять пользователями станет некому.",
+        )
 
 
 @router.get("/api/users")
@@ -13,24 +44,26 @@ def get_users(limit: int = 100, offset: int = 0, user_id: int = Depends(get_curr
     conn = get_db()
     c = conn.cursor()
     require_admin(user_id, conn)
+    limit, offset = paging(limit, offset)
     c.execute("SELECT * FROM users ORDER BY id LIMIT %s OFFSET %s", (limit, offset))
     rows = c.fetchall()
     c.execute("SELECT COUNT(*) FROM users")
     total = c.fetchone()["count"]
     conn.close()
-    return {"users": [row_to_dict(r) for r in rows], "total": total}
+    return {"users": [row_to_dict(r) for r in rows], **page_meta(total, limit, offset)}
 
 
 @router.put("/api/users/{user_id}/role")
 def update_role(user_id: int, body: UserUpdate, actor_id: int = Depends(get_current_user_id)):
-    if body.role not in ("admin", "editor", "volunteer"):
-        raise HTTPException(400, "Недопустимая роль")
+    if body.role not in GLOBAL_ROLES:
+        raise HTTPException(400, f"Недопустимая роль. Допустимы: {', '.join(GLOBAL_ROLES)}")
     conn = get_db()
     c = conn.cursor()
     require_admin(actor_id, conn)
     if actor_id == user_id and body.role != "admin":
         conn.close()
         raise HTTPException(400, "Нельзя снять с себя права администратора")
+    _guard_last_admin(c, conn, user_id, becoming=body.role)
     c.execute("UPDATE users SET role=%s WHERE id=%s", (body.role, user_id))
     conn.commit()
     c.execute("SELECT * FROM users WHERE id=%s", (user_id,))
@@ -41,8 +74,8 @@ def update_role(user_id: int, body: UserUpdate, actor_id: int = Depends(get_curr
 
 @router.post("/api/users")
 def create_user(body: UserCreate, actor_id: int = Depends(get_current_user_id)):
-    if body.role not in ("admin", "editor", "volunteer"):
-        raise HTTPException(400, "Недопустимая роль")
+    if body.role not in GLOBAL_ROLES:
+        raise HTTPException(400, f"Недопустимая роль. Допустимы: {', '.join(GLOBAL_ROLES)}")
     if not body.name.strip():
         raise HTTPException(400, "Введите имя")
     if not body.email.strip():
@@ -81,6 +114,7 @@ def delete_user(user_id: int, actor_id: int = Depends(get_current_user_id)):
     if actor_id == user_id:
         conn.close()
         raise HTTPException(400, "Нельзя удалить самого себя")
+    _guard_last_admin(c, conn, user_id, becoming=None)
     c.execute("SELECT id FROM users WHERE id=%s", (user_id,))
     if not c.fetchone():
         conn.close()

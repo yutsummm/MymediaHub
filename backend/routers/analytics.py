@@ -165,42 +165,44 @@ def _build_workbook(dt_start, dt_end, summary: dict, timeline, pl_stats, top_pos
     return wb
 
 
-# ── Global Analytics ──────────────────────────────────────────────────────────
+# ── Ядро: одно на глобальные и групповые ручки ──────────────────────────────
+# Раньше это была пара почти дословных копий на каждый отчёт: глобальную и
+# групповую отличало только условие выборки. Копии неизбежно разъезжаются —
+# правку вносят в одну и забывают про вторую. Теперь различие сведено к паре
+# (where, params), а логика одна.
 
-@router.get("/api/analytics/summary")
-def analytics_summary(user_id: int = Depends(get_current_user_id)):
-    conn = get_db()
-    c = conn.cursor()
-    scope, sp = posts_scope(user_id, conn, alias="")
-    c.execute(f"SELECT COUNT(*) FROM posts WHERE {scope}", sp)
-    total = c.fetchone()["count"]
-    c.execute(f"SELECT COUNT(*) FROM posts WHERE {scope} AND status='published'", sp)
-    published = c.fetchone()["count"]
-    c.execute(f"SELECT COUNT(*) FROM posts WHERE {scope} AND status='scheduled'", sp)
-    scheduled = c.fetchone()["count"]
-    c.execute(f"SELECT COUNT(*) FROM posts WHERE {scope} AND status='draft'", sp)
-    drafts = c.fetchone()["count"]
+
+def _summary(c, where: str, params: list) -> dict:
+    def count(extra: str, extra_params: list | None = None) -> int:
+        c.execute(f"SELECT COUNT(*) FROM posts WHERE {where}{extra}", params + (extra_params or []))
+        return c.fetchone()["count"]
+
+    total = count("")
+    published = count(" AND status='published'")
+    scheduled = count(" AND status='scheduled'")
+    drafts = count(" AND status='draft'")
+
     c.execute(
-        "SELECT SUM(t.views) v,SUM(t.reactions) r,SUM(t.comments) c,SUM(t.shares) sh FROM " + TOTALS + " "
-        f"WHERE {scope} AND status='published'",
-        sp,
+        f"SELECT SUM(t.views) v,SUM(t.reactions) r,SUM(t.comments) cm,SUM(t.shares) sh "
+        f"FROM {TOTALS} WHERE {where} AND status='published'",
+        params,
     )
     s = c.fetchone()
     c.execute(
-        "SELECT id,title,t.views,t.reactions,t.comments,t.shares,published_at,vk_post_id FROM " + TOTALS + " "
-        f"WHERE {scope} AND status='published' "
+        f"SELECT id,title,t.views,t.reactions,t.comments,t.shares,published_at,vk_post_id "
+        f"FROM {TOTALS} WHERE {where} AND status='published' "
         "ORDER BY (t.views+t.reactions*3+t.comments*2+t.shares*4) DESC LIMIT 5",
-        sp,
+        params,
     )
     top = c.fetchall()
-    pl_stats = _platform_stats(c, f"{scope} AND status='published'", sp)
-    conn.close()
+    pl_stats = _platform_stats(c, f"{where} AND status='published'", params)
+
     total_views = s["v"] or 0
-    eng = round(((s["r"] or 0) + (s["c"] or 0)) / max(total_views, 1) * 100, 1)
+    eng = round(((s["r"] or 0) + (s["cm"] or 0)) / max(total_views, 1) * 100, 1)
     return {
         "total_posts": total, "published": published, "scheduled": scheduled, "drafts": drafts,
         "total_views": total_views, "total_reactions": s["r"] or 0,
-        "total_comments": s["c"] or 0, "total_shares": s["sh"] or 0,
+        "total_comments": s["cm"] or 0, "total_shares": s["sh"] or 0,
         "avg_views": round(total_views / max(published, 1)),
         "engagement_rate": eng,
         "top_posts": [dict(r) for r in top],
@@ -208,29 +210,113 @@ def analytics_summary(user_id: int = Depends(get_current_user_id)):
     }
 
 
-@router.get("/api/analytics/timeline")
-def analytics_timeline(period: str = "month", user_id: int = Depends(get_current_user_id)):
-    days = {"week": 7, "month": 30, "quarter": 90}.get(period, 30)
-    now = app_now()
+def _timeline(c, where: str, params: list, days: list) -> list[dict]:
     result = []
-    conn = get_db()
-    c = conn.cursor()
-    scope, sp = posts_scope(user_id, conn, alias="")
-    for i in range(days - 1, -1, -1):
-        day = now - timedelta(days=i)
+    for day in days:
         ds = day.strftime("%Y-%m-%d")
         c.execute(
-            "SELECT SUM(t.views) v, SUM(t.reactions) r, COUNT(*) p FROM " + TOTALS + " "
-            f"WHERE {scope} AND published_at LIKE %s",
-            sp + [ds + "%"],
+            f"SELECT SUM(t.views) v, SUM(t.reactions) r, COUNT(*) p "
+            f"FROM {TOTALS} WHERE {where} AND published_at LIKE %s",
+            params + [ds + "%"],
         )
         row = c.fetchone()
         result.append({
             "date": ds, "label": day.strftime("%d.%m"),
             "views": row["v"] or 0, "reactions": row["r"] or 0, "posts": row["p"] or 0,
         })
-    conn.close()
     return result
+
+
+def _period_days(period: str) -> list:
+    days = {"week": 7, "month": 30, "quarter": 90}.get(period, 30)
+    now = app_now()
+    return [now - timedelta(days=i) for i in range(days - 1, -1, -1)]
+
+
+def _export(c, where: str, params: list, start_date: str, end_date: str):
+    try:
+        dt_start = datetime.strptime(start_date, "%Y-%m-%d")
+        dt_end = datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Формат дат: YYYY-MM-DD")
+
+    end_next = (dt_end + timedelta(days=1)).strftime("%Y-%m-%d")
+    start_str = dt_start.strftime("%Y-%m-%d")
+    period = f"{where} AND published_at >= %s AND published_at < %s AND status='published'"
+    period_params = params + [start_str, end_next]
+
+    def count(sql: str, sql_params: list) -> int:
+        c.execute(f"SELECT COUNT(*) FROM posts WHERE {sql}", sql_params)
+        return c.fetchone()["count"]
+
+    published = count(period, period_params)
+    scheduled = count(f"{where} AND status='scheduled'", params)
+    drafts = count(f"{where} AND status='draft'", params)
+    total = count(f"{where} AND published_at >= %s AND published_at < %s",
+                  params + [start_str, end_next])
+
+    c.execute(
+        f"SELECT SUM(t.views) v,SUM(t.reactions) r,SUM(t.comments) cm,SUM(t.shares) sh "
+        f"FROM {TOTALS} WHERE {period}",
+        period_params,
+    )
+    s = c.fetchone()
+    total_views = s["v"] or 0
+    eng = round(((s["r"] or 0) + (s["cm"] or 0)) / max(total_views, 1) * 100, 1)
+
+    span = [dt_start + timedelta(days=i) for i in range((dt_end - dt_start).days + 1)]
+    timeline = _timeline(c, where, params, span)
+    pl_stats = _platform_stats(c, period, period_params, label_upper=True)
+
+    c.execute(
+        f"SELECT title,t.views,t.reactions,t.comments,t.shares,published_at "
+        f"FROM {TOTALS} WHERE {period} "
+        "ORDER BY (t.views+t.reactions*3+t.comments*2+t.shares*4) DESC LIMIT 10",
+        period_params,
+    )
+    top_posts = c.fetchall()
+
+    summary = {
+        "total": total, "published": published, "scheduled": scheduled, "drafts": drafts,
+        "total_views": total_views, "total_reactions": s["r"] or 0,
+        "total_comments": s["cm"] or 0, "total_shares": s["sh"] or 0,
+        "avg_views": round(total_views / max(published, 1)), "eng": eng,
+    }
+    wb = _build_workbook(dt_start, dt_end, summary, timeline, pl_stats, top_posts)
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    month_ru = ["январь", "февраль", "март", "апрель", "май", "июнь",
+                "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"]
+    fname = f"аналитика_{month_ru[dt_start.month - 1]}_{dt_start.year}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8\'\'{quote(fname, safe='')}"},
+    )
+
+
+# ── Ручки: только выбор области, вся работа в ядре ──────────────────────────
+
+@router.get("/api/analytics/summary")
+def analytics_summary(user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    try:
+        scope, sp = posts_scope(user_id, conn, alias="")
+        return _summary(conn.cursor(), scope, list(sp))
+    finally:
+        conn.close()
+
+
+@router.get("/api/analytics/timeline")
+def analytics_timeline(period: str = "month", user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    try:
+        scope, sp = posts_scope(user_id, conn, alias="")
+        return _timeline(conn.cursor(), scope, list(sp), _period_days(period))
+    finally:
+        conn.close()
 
 
 @router.get("/api/analytics/export")
@@ -239,146 +325,34 @@ def analytics_export(
     end_date: str = Query(...),
     user_id: int = Depends(get_current_user_id),
 ):
-    try:
-        dt_start = datetime.strptime(start_date, "%Y-%m-%d")
-        dt_end = datetime.strptime(end_date, "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Формат дат: YYYY-MM-DD")
-
     conn = get_db()
-    c = conn.cursor()
-
-    scope, sp = posts_scope(user_id, conn, alias="")
-    end_next = (dt_end + timedelta(days=1)).strftime("%Y-%m-%d")
-    start_str = dt_start.strftime("%Y-%m-%d")
-
-    date_filter = f"{scope} AND published_at >= %s AND published_at < %s AND status='published'"
-    df_params = sp + [start_str, end_next]
-
-    c.execute(f"SELECT COUNT(*) FROM posts WHERE {date_filter}", df_params)
-    published = c.fetchone()["count"]
-    c.execute(f"SELECT COUNT(*) FROM posts WHERE {scope} AND status='scheduled'", sp)
-    scheduled = c.fetchone()["count"]
-    c.execute(f"SELECT COUNT(*) FROM posts WHERE {scope} AND status='draft'", sp)
-    drafts = c.fetchone()["count"]
-    c.execute(
-        f"SELECT COUNT(*) FROM posts WHERE {scope} AND published_at >= %s AND published_at < %s",
-        sp + [start_str, end_next],
-    )
-    total = c.fetchone()["count"]
-    c.execute(
-        f"SELECT SUM(t.views) v,SUM(t.reactions) r,SUM(t.comments) cm,SUM(t.shares) sh FROM {TOTALS} WHERE {date_filter}",
-        df_params,
-    )
-    s = c.fetchone()
-    total_views = s["v"] or 0
-    eng = round(((s["r"] or 0) + (s["cm"] or 0)) / max(total_views, 1) * 100, 1)
-
-    timeline = []
-    delta = (dt_end - dt_start).days + 1
-    for i in range(delta):
-        day = dt_start + timedelta(days=i)
-        ds = day.strftime("%Y-%m-%d")
-        c.execute(
-            "SELECT SUM(t.views) v, SUM(t.reactions) r, COUNT(*) p FROM " + TOTALS + " "
-            f"WHERE {scope} AND published_at LIKE %s",
-            sp + [ds + "%"],
-        )
-        row = c.fetchone()
-        timeline.append({"date": ds, "label": day.strftime("%d.%m"), "views": row["v"] or 0, "reactions": row["r"] or 0, "posts": row["p"] or 0})
-
-    pl_stats = _platform_stats(c, date_filter, df_params, label_upper=True)
-
-    c.execute(
-        f"SELECT title,t.views,t.reactions,t.comments,t.shares,published_at FROM {TOTALS} WHERE {date_filter} "
-        "ORDER BY (t.views+t.reactions*3+t.comments*2+t.shares*4) DESC LIMIT 10",
-        df_params,
-    )
-    top_posts = c.fetchall()
-    conn.close()
-
-    summary = {
-        "total": total, "published": published, "scheduled": scheduled, "drafts": drafts,
-        "total_views": total_views, "total_reactions": s["r"] or 0,
-        "total_comments": s["cm"] or 0, "total_shares": s["sh"] or 0,
-        "avg_views": round(total_views / max(published, 1)), "eng": eng,
-    }
-
-    wb = _build_workbook(dt_start, dt_end, summary, timeline, pl_stats, top_posts)
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-
-    month_ru = ["январь", "февраль", "март", "апрель", "май", "июнь",
-                 "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"]
-    fname = f"аналитика_{month_ru[dt_start.month - 1]}_{dt_start.year}.xlsx"
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname, safe='')}"},
-    )
+    try:
+        scope, sp = posts_scope(user_id, conn, alias="")
+        return _export(conn.cursor(), scope, list(sp), start_date, end_date)
+    finally:
+        conn.close()
 
 
-# ── Group-scoped Analytics ──────────────────────────────────────────────────────
+# ── Group-scoped Analytics ──────────────────────────────────────────────────
 
 @router.get("/api/groups/{gid}/analytics/summary")
 def group_analytics_summary(gid: int, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
-    c = conn.cursor()
-    require_group_member(gid, user_id, conn)
-    c.execute("SELECT COUNT(*) FROM posts WHERE group_id=%s", (gid,))
-    total = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) FROM posts WHERE group_id=%s AND status='published'", (gid,))
-    published = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) FROM posts WHERE group_id=%s AND status='scheduled'", (gid,))
-    scheduled = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) FROM posts WHERE group_id=%s AND status='draft'", (gid,))
-    drafts = c.fetchone()["count"]
-    c.execute(f"SELECT SUM(t.views) v,SUM(t.reactions) r,SUM(t.comments) c,SUM(t.shares) sh FROM {TOTALS} WHERE group_id=%s AND status='published'", (gid,))
-    s = c.fetchone()
-    c.execute(
-        "SELECT id,title,t.views,t.reactions,t.comments,t.shares,published_at,vk_post_id FROM " + TOTALS + " "
-        "WHERE group_id=%s AND status='published' ORDER BY (t.views+t.reactions*3+t.comments*2+t.shares*4) DESC LIMIT 5",
-        (gid,),
-    )
-    top = c.fetchall()
-    pl_stats = _platform_stats(c, "group_id=%s AND status='published'", [gid])
-    conn.close()
-    total_views = s["v"] or 0
-    eng = round(((s["r"] or 0) + (s["c"] or 0)) / max(total_views, 1) * 100, 1)
-    return {
-        "total_posts": total, "published": published, "scheduled": scheduled, "drafts": drafts,
-        "total_views": total_views, "total_reactions": s["r"] or 0,
-        "total_comments": s["c"] or 0, "total_shares": s["sh"] or 0,
-        "avg_views": round(total_views / max(published, 1)),
-        "engagement_rate": eng,
-        "top_posts": [dict(r) for r in top],
-        "platform_stats": pl_stats,
-    }
+    try:
+        require_group_member(gid, user_id, conn)
+        return _summary(conn.cursor(), "group_id=%s", [gid])
+    finally:
+        conn.close()
 
 
 @router.get("/api/groups/{gid}/analytics/timeline")
 def group_analytics_timeline(gid: int, period: str = "month", user_id: int = Depends(get_current_user_id)):
-    days = {"week": 7, "month": 30, "quarter": 90}.get(period, 30)
-    now = app_now()
-    result = []
     conn = get_db()
-    c = conn.cursor()
-    require_group_member(gid, user_id, conn)
-    for i in range(days - 1, -1, -1):
-        day = now - timedelta(days=i)
-        ds = day.strftime("%Y-%m-%d")
-        c.execute(
-            f"SELECT SUM(t.views) v, SUM(t.reactions) r, COUNT(*) p FROM {TOTALS} WHERE group_id=%s AND published_at LIKE %s",
-            (gid, ds + "%"),
-        )
-        row = c.fetchone()
-        result.append({
-            "date": ds, "label": day.strftime("%d.%m"),
-            "views": row["v"] or 0, "reactions": row["r"] or 0, "posts": row["p"] or 0,
-        })
-    conn.close()
-    return result
+    try:
+        require_group_member(gid, user_id, conn)
+        return _timeline(conn.cursor(), "group_id=%s", [gid], _period_days(period))
+    finally:
+        conn.close()
 
 
 @router.get("/api/groups/{gid}/analytics/export")
@@ -388,76 +362,9 @@ def group_analytics_export(
     end_date: str = Query(...),
     user_id: int = Depends(get_current_user_id),
 ):
-    try:
-        dt_start = datetime.strptime(start_date, "%Y-%m-%d")
-        dt_end = datetime.strptime(end_date, "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Формат дат: YYYY-MM-DD")
-
     conn = get_db()
-    c = conn.cursor()
-    require_group_member(gid, user_id, conn)
-
-    date_filter = "group_id=%s AND published_at >= %s AND published_at < %s AND status='published'"
-    end_next = (dt_end + timedelta(days=1)).strftime("%Y-%m-%d")
-    start_str = dt_start.strftime("%Y-%m-%d")
-
-    c.execute(f"SELECT COUNT(*) FROM posts WHERE {date_filter}", (gid, start_str, end_next))
-    published = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) FROM posts WHERE group_id=%s AND status='scheduled'", (gid,))
-    scheduled = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) FROM posts WHERE group_id=%s AND status='draft'", (gid,))
-    drafts = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) FROM posts WHERE group_id=%s AND published_at >= %s AND published_at < %s", (gid, start_str, end_next))
-    total = c.fetchone()["count"]
-    c.execute(
-        f"SELECT SUM(t.views) v,SUM(t.reactions) r,SUM(t.comments) cm,SUM(t.shares) sh FROM {TOTALS} WHERE {date_filter}",
-        (gid, start_str, end_next),
-    )
-    s = c.fetchone()
-    total_views = s["v"] or 0
-    eng = round(((s["r"] or 0) + (s["cm"] or 0)) / max(total_views, 1) * 100, 1)
-
-    timeline = []
-    delta = (dt_end - dt_start).days + 1
-    for i in range(delta):
-        day = dt_start + timedelta(days=i)
-        ds = day.strftime("%Y-%m-%d")
-        c.execute(
-            f"SELECT SUM(t.views) v, SUM(t.reactions) r, COUNT(*) p FROM {TOTALS} WHERE group_id=%s AND published_at LIKE %s",
-            (gid, ds + "%"),
-        )
-        row = c.fetchone()
-        timeline.append({"date": ds, "label": day.strftime("%d.%m"), "views": row["v"] or 0, "reactions": row["r"] or 0, "posts": row["p"] or 0})
-
-    pl_stats = _platform_stats(c, f"group_id=%s AND {date_filter}", [gid, start_str, end_next],
-                               label_upper=True)
-
-    c.execute(
-        f"SELECT title,t.views,t.reactions,t.comments,t.shares,published_at FROM {TOTALS} WHERE {date_filter} "
-        "ORDER BY (t.views+t.reactions*3+t.comments*2+t.shares*4) DESC LIMIT 10",
-        (gid, start_str, end_next),
-    )
-    top_posts = c.fetchall()
-    conn.close()
-
-    summary = {
-        "total": total, "published": published, "scheduled": scheduled, "drafts": drafts,
-        "total_views": total_views, "total_reactions": s["r"] or 0,
-        "total_comments": s["cm"] or 0, "total_shares": s["sh"] or 0,
-        "avg_views": round(total_views / max(published, 1)), "eng": eng,
-    }
-
-    wb = _build_workbook(dt_start, dt_end, summary, timeline, pl_stats, top_posts)
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-
-    month_ru = ["январь", "февраль", "март", "апрель", "май", "июнь",
-                 "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь"]
-    fname = f"аналитика_{month_ru[dt_start.month - 1]}_{dt_start.year}.xlsx"
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname, safe='')}"},
-    )
+    try:
+        require_group_member(gid, user_id, conn)
+        return _export(conn.cursor(), "group_id=%s", [gid], start_date, end_date)
+    finally:
+        conn.close()

@@ -107,7 +107,17 @@ const NAV_ICONS: Record<string, React.ReactNode> = {
   ),
 }
 
-type NavItem = { href: string; icon: string; label: string; roles?: string[] }
+// Роли в проекте двух видов, и раньше меню их путало: пункт про волонтёрские
+// загрузки показывался по ГЛОБАЛЬНОЙ роли, хотя загрузки живут внутри группы.
+//   groupRoles  — роль в текущей группе (group_members.role): что можно делать с контентом
+//   globalRoles — роль в системе (users.role): администрирование, и только оно
+type NavItem = {
+  href: string
+  icon: string
+  label: string
+  groupRoles?: string[]
+  globalRoles?: string[]
+}
 
 const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   {
@@ -117,15 +127,15 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { href: '/calendar',  icon: 'calendar',      label: 'Календарь' },
       { href: '/youth-centers', icon: 'centers',   label: 'Центры рядом' },
       { href: '/posts',     icon: 'posts',         label: 'Посты' },
-      { href: '/posts/new', icon: 'newPost',       label: 'Создать пост', roles: ['admin', 'editor'] },
+      { href: '/posts/new', icon: 'newPost',       label: 'Создать пост', groupRoles: ['admin', 'editor'] },
     ],
   },
   {
     label: 'Медиа',
     items: [
-      { href: '/volunteer-media',   icon: 'volunteerMedia', label: 'Медиа волонтёров', roles: ['admin', 'editor'] },
-      { href: '/volunteer-media/upload', icon: 'myUploads', label: 'Загрузить медиа',  roles: ['volunteer'] },
-      { href: '/volunteer-media/my',     icon: 'myUploads', label: 'Мои загрузки',     roles: ['volunteer'] },
+      { href: '/volunteer-media',   icon: 'volunteerMedia', label: 'Медиа волонтёров', groupRoles: ['admin', 'editor'] },
+      { href: '/volunteer-media/upload', icon: 'myUploads', label: 'Загрузить медиа',  groupRoles: ['volunteer'] },
+      { href: '/volunteer-media/my',     icon: 'myUploads', label: 'Мои загрузки',     groupRoles: ['volunteer'] },
     ],
   },
   {
@@ -138,7 +148,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   {
     label: 'Управление',
     items: [
-      { href: '/users',    icon: 'users',    label: 'Пользователи', roles: ['admin'] },
+      { href: '/users',    icon: 'users',    label: 'Пользователи', globalRoles: ['admin'] },
       { href: '/settings', icon: 'settings', label: 'Настройки' },
     ],
   },
@@ -146,6 +156,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
 
 const ROLE_CLASS: Record<string, string> = { admin: 'r-admin', editor: 'r-editor', volunteer: 'r-volunteer' }
 const ROLE_LABEL: Record<string, string> = { admin: 'Администратор', editor: 'Редактор', volunteer: 'Волонтёр' }
+const GLOBAL_ROLE_LABEL: Record<string, string> = { admin: 'Администратор системы', member: 'Участник' }
 
 function Sidebar({
   unread = 0,
@@ -275,8 +286,15 @@ function Sidebar({
         {/* Navigation */}
         <nav className="sidebar-nav">
           {NAV_GROUPS.map(group => {
-            const role = currentGroup?.role || user?.role || ''
-            const visible = group.items.filter(i => !i.roles || i.roles.includes(role))
+            // Без выбранной группы человек работает в своём личном пространстве
+            // (глобальные ручки) — там он сам себе редактор. Групповые пункты,
+            // которым нужна настоящая группа, при этом остаются скрытыми.
+            const groupRole = currentGroup?.role || (groups.length === 0 ? 'editor' : '')
+            const globalRole = user?.role || ''
+            const visible = group.items.filter(i =>
+              (!i.groupRoles || i.groupRoles.includes(groupRole)) &&
+              (!i.globalRoles || i.globalRoles.includes(globalRole))
+            )
             if (visible.length === 0) return null
             return (
             <div key={group.label}>
@@ -307,9 +325,25 @@ function Sidebar({
             <div className="avatar">{user.name[0].toUpperCase()}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="user-name">{user.name}</div>
-              <span className={`user-role-lbl ${ROLE_CLASS[currentGroup?.role || user.role] ?? ''}`}>
-                {ROLE_LABEL[currentGroup?.role || user.role]}
-              </span>
+              {/* Показываем обе роли: они означают разное, и скрывать это вредно */}
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {currentGroup && (
+                  <span className={`user-role-lbl ${ROLE_CLASS[currentGroup.role] ?? ''}`}
+                    title={`Роль в группе «${currentGroup.name}»`}>
+                    {ROLE_LABEL[currentGroup.role] ?? currentGroup.role}
+                  </span>
+                )}
+                {user.role === 'admin' && (
+                  <span className="user-role-lbl r-admin" title="Роль в системе">
+                    {GLOBAL_ROLE_LABEL.admin}
+                  </span>
+                )}
+                {!currentGroup && user.role !== 'admin' && (
+                  <span className="user-role-lbl" title="Роль в системе">
+                    {GLOBAL_ROLE_LABEL[user.role] ?? user.role}
+                  </span>
+                )}
+              </div>
             </div>
             <div
               className="theme-toggle"

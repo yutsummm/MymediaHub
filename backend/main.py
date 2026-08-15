@@ -178,8 +178,8 @@ def seed_db():
             "INSERT INTO users (name, email, role, avatar, password_hash) VALUES (%s, %s, %s, %s, %s)",
             [
                 ("Алексей Иванов", "admin@mediahub.ru", "admin", "АИ", hash_password("admin123!")),
-                ("Мария Петрова", "editor@mediahub.ru", "editor", "МП", hash_password("editor123!")),
-                ("Екатерина Волонтёр", "volunteer@mediahub.ru", "volunteer", "ЕВ", hash_password("volunteer123!")),
+                ("Мария Петрова", "editor@mediahub.ru", "member", "МП", hash_password("editor123!")),
+                ("Екатерина Волонтёр", "volunteer@mediahub.ru", "member", "ЕВ", hash_password("volunteer123!")),
             ],
         )
 
