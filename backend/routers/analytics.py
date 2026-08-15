@@ -11,6 +11,24 @@ from utils import get_current_user_id, get_db, posts_scope, require_group_member
 
 router = APIRouter()
 
+# Колонки views/reactions/comments/shares у поста одни на все платформы, и заполняет
+# их только синхронизация ВКонтакте (sync-vk-stats). Для остальных платформ цифр нет:
+# Telegram Bot API не отдаёт просмотры сообщений вообще, а счётчики реакций доступны
+# лишь как входящие апдейты в момент изменения — запросить их для старого поста нельзя.
+# Поэтому по не-VK платформам отдаём None («нет данных»), а не 0 и не чужие числа.
+PLATFORMS_WITH_STATS = {"vk"}
+
+
+def _platform_row(platform: str, count: int, views, reactions, label: str | None = None) -> dict:
+    known = platform in PLATFORMS_WITH_STATS
+    return {
+        "platform": label or platform,
+        "count": count or 0,
+        "views": (views or 0) if known else None,
+        "reactions": (reactions or 0) if known else None,
+        "stats_available": known,
+    }
+
 
 def _build_workbook(dt_start, dt_end, summary: dict, timeline, pl_stats, top_posts):
     BLUE = "1D4ED8"
@@ -97,7 +115,10 @@ def _build_workbook(dt_start, dt_end, summary: dict, timeline, pl_stats, top_pos
     style_header_row(ws3, 1, 4)
     ws3.row_dimensions[1].height = 24
     for i, pl in enumerate(pl_stats, start=2):
-        ws3.append([pl["platform"], pl["count"], pl["views"], pl["reactions"]])
+        # None → пустая ячейка выглядит как ноль; пишем словами, что данных нет
+        views = pl["views"] if pl["views"] is not None else "нет данных"
+        reactions = pl["reactions"] if pl["reactions"] is not None else "нет данных"
+        ws3.append([pl["platform"], pl["count"], views, reactions])
         ws3.row_dimensions[i].height = 20
         style_data_row(ws3, i, 4, shade=(i % 2 == 0))
     for col, w in zip("ABCD", [16, 14, 14, 12], strict=False):
@@ -142,7 +163,7 @@ def analytics_summary(user_id: int = Depends(get_current_user_id)):
     )
     s = c.fetchone()
     c.execute(
-        "SELECT id,title,views,reactions,comments,shares,published_at FROM posts "
+        "SELECT id,title,views,reactions,comments,shares,published_at,vk_post_id FROM posts "
         f"WHERE {scope} AND status='published' "
         "ORDER BY (views+reactions*3+comments*2+shares*4) DESC LIMIT 5",
         sp,
@@ -156,7 +177,7 @@ def analytics_summary(user_id: int = Depends(get_current_user_id)):
             sp + [f'%"{pl}"%'],
         )
         ps = c.fetchone()
-        pl_stats.append({"platform": pl, "count": ps["cnt"] or 0, "views": ps["v"] or 0, "reactions": ps["r"] or 0})
+        pl_stats.append(_platform_row(pl, ps["cnt"], ps["v"], ps["r"]))
     conn.close()
     total_views = s["v"] or 0
     eng = round(((s["r"] or 0) + (s["c"] or 0)) / max(total_views, 1) * 100, 1)
@@ -257,7 +278,7 @@ def analytics_export(
             [f'%"{pl}"%'] + df_params,
         )
         ps = c.fetchone()
-        pl_stats.append({"platform": pl.upper(), "count": ps["cnt"] or 0, "views": ps["v"] or 0, "reactions": ps["r"] or 0})
+        pl_stats.append(_platform_row(pl, ps["cnt"], ps["v"], ps["r"], label=pl.upper()))
 
     c.execute(
         f"SELECT title,views,reactions,comments,shares,published_at FROM posts WHERE {date_filter} "
@@ -307,7 +328,7 @@ def group_analytics_summary(gid: int, user_id: int = Depends(get_current_user_id
     c.execute("SELECT SUM(views) v,SUM(reactions) r,SUM(comments) c,SUM(shares) sh FROM posts WHERE group_id=%s AND status='published'", (gid,))
     s = c.fetchone()
     c.execute(
-        "SELECT id,title,views,reactions,comments,shares,published_at FROM posts "
+        "SELECT id,title,views,reactions,comments,shares,published_at,vk_post_id FROM posts "
         "WHERE group_id=%s AND status='published' ORDER BY (views+reactions*3+comments*2+shares*4) DESC LIMIT 5",
         (gid,),
     )
@@ -320,7 +341,7 @@ def group_analytics_summary(gid: int, user_id: int = Depends(get_current_user_id
             (gid, f'%"{pl}"%'),
         )
         ps = c.fetchone()
-        pl_stats.append({"platform": pl, "count": ps["cnt"] or 0, "views": ps["v"] or 0, "reactions": ps["r"] or 0})
+        pl_stats.append(_platform_row(pl, ps["cnt"], ps["v"], ps["r"]))
     conn.close()
     total_views = s["v"] or 0
     eng = round(((s["r"] or 0) + (s["c"] or 0)) / max(total_views, 1) * 100, 1)
@@ -415,7 +436,7 @@ def group_analytics_export(
             (gid, f'%"{pl}"%', start_str, end_next),
         )
         ps = c.fetchone()
-        pl_stats.append({"platform": pl.upper(), "count": ps["cnt"] or 0, "views": ps["v"] or 0, "reactions": ps["r"] or 0})
+        pl_stats.append(_platform_row(pl, ps["cnt"], ps["v"], ps["r"], label=pl.upper()))
 
     c.execute(
         f"SELECT title,views,reactions,comments,shares,published_at FROM posts WHERE {date_filter} "

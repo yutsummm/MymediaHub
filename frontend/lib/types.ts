@@ -82,8 +82,10 @@ export interface AnalyticsSummary {
 export interface PlatformStat {
   platform: string
   count: number
-  views: number
-  reactions: number
+  /** null — статистика по этой площадке не собирается (см. stats_available) */
+  views: number | null
+  reactions: number | null
+  stats_available: boolean
 }
 
 export interface TimelinePoint {

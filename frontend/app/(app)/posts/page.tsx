@@ -281,7 +281,13 @@ export default function PostsPage() {
                     {p.status === 'published' ? fmtDt(p.published_at) : p.status === 'scheduled' ? fmtDt(p.scheduled_at) : fmtDate(p.created_at)}
                   </td>
                   <td style={{ fontSize: 12, color: 'var(--text-3)', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
-                    {p.status === 'published' ? `${fmtN(p.views)} · ${p.reactions}` : '—'}
+                    {p.status !== 'published'
+                      ? '—'
+                      : p.vk_post_id
+                        ? `${fmtN(p.views)} · ${p.reactions}`
+                        // Счётчики заполняет только синхронизация ВК. Без vk_post_id
+                        // (например, пост ушёл лишь в Telegram) цифр нет — нули соврали бы.
+                        : <span title="Статистика собирается только по ВКонтакте">нет данных</span>}
                   </td>
                   <td onClick={e => e.stopPropagation()}>
                     <div style={{ display: 'flex', gap: 5 }}>

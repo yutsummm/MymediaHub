@@ -151,7 +151,9 @@ export default function AnalyticsPage() {
         labels: d.map(x => x.platform.toUpperCase()),
         datasets: [
           { label: 'Постов',           data: d.map(x => x.count),                    backgroundColor: 'rgba(124,58,237,0.7)', borderRadius: 5 },
-          { label: 'Просмотры (÷100)', data: d.map(x => Math.round(x.views / 100)), backgroundColor: 'rgba(167,139,250,0.7)', borderRadius: 5 },
+          // null вместо 0 — площадка без статистики не должна рисовать нулевой столбик,
+          // это читалось бы как «охват ноль», хотя данных просто нет
+          { label: 'Просмотры (÷100)', data: d.map(x => x.views === null ? null : Math.round(x.views / 100)), backgroundColor: 'rgba(167,139,250,0.7)', borderRadius: 5 },
           { label: 'Реакции',          data: d.map(x => x.reactions),                backgroundColor: 'rgba(52,211,153,0.7)', borderRadius: 5 },
         ],
       },
@@ -253,6 +255,13 @@ export default function AnalyticsPage() {
           <div className="card-header"><span className="card-title">Сравнение площадок</span></div>
           <div style={{ padding: 20 }}>
             <div className="chart-box" style={{ height: 200 }}><canvas ref={barRef} /></div>
+            {sum?.platform_stats?.some(p => !p.stats_available) && (
+              <div style={{ marginTop: 12, fontSize: 11, lineHeight: 1.5, color: 'var(--text-2)' }}>
+                Просмотры и реакции собираются только по ВКонтакте. По площадкам{' '}
+                {sum.platform_stats.filter(p => !p.stats_available).map(p => p.platform.toUpperCase()).join(', ')}{' '}
+                данных нет: Telegram не отдаёт счётчики просмотров ботам. Число публикаций при этом точное.
+              </div>
+            )}
           </div>
         </div>
 

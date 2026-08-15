@@ -93,9 +93,11 @@ export default function DashboardPage() {
 
   const cards = sum ? [
     { label: 'Всего постов',    raw: sum.total_posts,   fmt: (n: number) => String(n) },
-    { label: 'Суммарный охват', raw: sum.total_views,   fmt: fmtN },
-    { label: 'Реакции',         raw: sum.total_reactions, fmt: fmtN },
-    { label: 'Вовлечённость',   raw: Math.round(sum.engagement_rate * 10), fmt: (n: number) => (n / 10).toFixed(1) + '%' },
+    // Счётчики приходят только из синхронизации ВК — подписываем честно,
+    // иначе цифры читаются как охват по всем площадкам сразу
+    { label: 'Охват ВКонтакте', raw: sum.total_views,   fmt: fmtN },
+    { label: 'Реакции ВКонтакте', raw: sum.total_reactions, fmt: fmtN },
+    { label: 'Вовлечённость ВК', raw: Math.round(sum.engagement_rate * 10), fmt: (n: number) => (n / 10).toFixed(1) + '%' },
   ] : []
 
   const statusRows = sum ? [
@@ -250,7 +252,11 @@ export default function DashboardPage() {
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="trunc" style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 2 }}>{p.title}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{fmtN(p.views)} просм · {p.reactions} реакций</div>
+                <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                  {p.vk_post_id
+                    ? `${fmtN(p.views)} просм · ${p.reactions} реакций`
+                    : 'нет данных о просмотрах'}
+                </div>
               </div>
             </div>
           ))}
