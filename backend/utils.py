@@ -142,6 +142,47 @@ def require_group_member(group_id: int, user_id: int, conn) -> str:
     return row["role"]
 
 
+def redeem_invite(token: str, user_id: int, conn) -> dict:
+    """
+    Единственный способ попасть в чужую группу — принять действующее приглашение.
+    Используется и при регистрации по ссылке, и при приёме уже залогиненным
+    пользователем: логика проверок должна быть одна, иначе разъедется.
+
+    Возвращает {"group_id": int, "role": str}.
+    """
+    c = conn.cursor()
+    c.execute(
+        "SELECT group_id, role, expires_at, max_uses, used_count FROM invite_links WHERE token=%s",
+        (token,),
+    )
+    link = c.fetchone()
+    if not link:
+        raise HTTPException(404, "Ссылка приглашения не найдена")
+    if datetime.fromisoformat(link["expires_at"].rstrip("Z")) < datetime.utcnow():
+        raise HTTPException(410, "Ссылка приглашения истекла")
+
+    c.execute("SELECT 1 FROM group_members WHERE group_id=%s AND user_id=%s", (link["group_id"], user_id))
+    if c.fetchone():
+        raise HTTPException(409, "Вы уже участник этой группы")
+
+    # Счётчик увеличиваем одним запросом с проверкой лимита: раздельные
+    # «прочитать и сравнить» позволяли превысить max_uses при одновременных
+    # переходах по одной ссылке.
+    c.execute(
+        "UPDATE invite_links SET used_count = used_count + 1 "
+        "WHERE token=%s AND (max_uses IS NULL OR used_count < max_uses) RETURNING id",
+        (token,),
+    )
+    if not c.fetchone():
+        raise HTTPException(410, "Лимит использований ссылки исчерпан")
+
+    c.execute(
+        "INSERT INTO group_members (group_id, user_id, role) VALUES (%s, %s, %s)",
+        (link["group_id"], user_id, link["role"]),
+    )
+    return {"group_id": link["group_id"], "role": link["role"]}
+
+
 def require_admin(user_id: int, conn) -> None:
     """Глобальная роль admin — для операций вне контекста группы."""
     c = conn.cursor()

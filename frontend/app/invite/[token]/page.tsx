@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
+import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
 import { useGroup } from '@/contexts/GroupContext'
 import { api } from '@/lib/api'
@@ -158,11 +159,23 @@ export default function InvitePage() {
                   </>
                 ) : (
                   <>
-                    Войти чтобы присоединиться
+                    Войти и присоединиться
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
                   </>
                 )}
               </button>
+
+              {/* Нового человека нужно вести в регистрацию вместе с токеном:
+                  без него он зарегистрируется в пустоту и приглашение потеряется. */}
+              {!user && (
+                <div style={{ marginTop: 12, textAlign: 'center', fontSize: 12.5, color: 'var(--text-3)' }}>
+                  Ещё нет аккаунта?{' '}
+                  <Link href={`/register?invite=${encodeURIComponent(token)}`}
+                    style={{ color: 'var(--text)', fontWeight: 600 }}>
+                    Зарегистрироваться по приглашению
+                  </Link>
+                </div>
+              )}
             </>
           )}
         </div>

@@ -76,6 +76,9 @@ class RegisterRequest(BaseModel):
     name: str
     email: str
     password: str
+    # Регистрация по ссылке-приглашению: сразу вводит в нужную группу с нужной
+    # ролью. Без токена пользователь не попадает ни в одну чужую группу.
+    invite_token: str | None = None
 
 
 class ForgotPasswordRequest(BaseModel):

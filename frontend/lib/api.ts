@@ -49,9 +49,12 @@ export const api = {
     req<{ user: import('./types').User; token: string }>('/api/auth/login', {
       method: 'POST', body: body({ email, password }),
     }),
-  register: (name: string, email: string, password: string) =>
-    req<{ user: import('./types').User; token: string; groups: unknown[] }>('/api/auth/register', {
-      method: 'POST', body: body({ name, email, password }),
+  // inviteToken — регистрация по ссылке-приглашению. Без него новый пользователь
+  // не попадает ни в одну существующую группу.
+  register: (name: string, email: string, password: string, inviteToken?: string | null) =>
+    req<{ user: import('./types').User; token: string; groups: import('./types').Group[] }>('/api/auth/register', {
+      method: 'POST',
+      body: body(inviteToken ? { name, email, password, invite_token: inviteToken } : { name, email, password }),
     }),
   forgotPassword: (email: string) =>
     req<{ status: string }>('/api/auth/forgot-password', {

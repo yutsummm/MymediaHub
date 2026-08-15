@@ -14,6 +14,7 @@ from utils import (
     create_token,
     get_db,
     hash_password,
+    redeem_invite,
     row_to_dict,
     send_reset_email,
     verify_password,
@@ -95,13 +96,19 @@ def register(req: RegisterRequest, request: Request = None):
         (name, email, "editor", avatar, hash_password(req.password)),
     )
     uid = c.fetchone()["id"]
-    c.execute("SELECT id FROM groups ORDER BY id ASC LIMIT 1")
-    default_group = c.fetchone()
-    if default_group:
-        c.execute(
-            "INSERT INTO group_members (group_id, user_id, role) VALUES (%s, %s, 'editor') ON CONFLICT DO NOTHING",
-            (default_group["id"], uid),
-        )
+
+    # Никакого автоматического вступления в группу. Раньше новый пользователь
+    # молча попадал в первую группу (ORDER BY id ASC LIMIT 1) с ролью editor —
+    # то есть любой посторонний после регистрации мог публиковать в реальные
+    # VK-паблик и Telegram-канал организации. Попасть в чужую группу теперь
+    # можно только по действующему приглашению.
+    if req.invite_token:
+        try:
+            redeem_invite(req.invite_token.strip(), uid, conn)
+        except HTTPException:
+            conn.rollback()
+            conn.close()
+            raise
     conn.commit()
     c.execute("SELECT * FROM users WHERE id=%s", (uid,))
     user = c.fetchone()

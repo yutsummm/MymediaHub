@@ -1,6 +1,6 @@
 'use client'
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useAuth } from '@/contexts/AuthContext'
 import { api } from '@/lib/api'
@@ -33,9 +33,22 @@ function PwStrength({ pw }: { pw: string }) {
   )
 }
 
+// useSearchParams требует Suspense-границы, иначе страница не соберётся статически
 export default function RegisterPage() {
+  return (
+    <Suspense fallback={null}>
+      <RegisterForm />
+    </Suspense>
+  )
+}
+
+function RegisterForm() {
   const { user, loading, login } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  // Пришли по ссылке-приглашению — токен несём в регистрацию, иначе человек
+  // зарегистрируется «в пустоту» и приглашение потеряется.
+  const inviteToken = searchParams.get('invite')
 
   useEffect(() => {
     if (!loading && user) router.replace('/dashboard')
@@ -59,7 +72,7 @@ export default function RegisterPage() {
     if (password !== confirm)           { setErr('Пароли не совпадают'); return }
     setIsSubmitting(true)
     try {
-      const { user, token } = await api.register(name.trim(), email.trim(), password)
+      const { user, token } = await api.register(name.trim(), email.trim(), password, inviteToken)
       login(user, token)
       router.push('/dashboard')
     } catch (ex: unknown) {

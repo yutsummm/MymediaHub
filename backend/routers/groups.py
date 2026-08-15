@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 
 from models import GroupCreate, GroupMemberRoleUpdate, GroupUpdate, InviteLinkCreate
-from utils import get_current_user_id, get_db, require_group_member
+from utils import get_current_user_id, get_db, redeem_invite, require_group_member
 
 router = APIRouter()
 
@@ -220,27 +220,12 @@ def get_invite_preview(token: str):
 def accept_invite(token: str, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT group_id, role, expires_at, max_uses, used_count FROM invite_links WHERE token=%s", (token,))
-    link = c.fetchone()
-    conn.close()
-    if not link:
-        raise HTTPException(404, "Ссылка приглашения не найдена")
-    if datetime.fromisoformat(link["expires_at"].rstrip("Z")) < datetime.utcnow():
-        raise HTTPException(410, "Ссылка приглашения истекла")
-    if link["max_uses"] and link["used_count"] >= link["max_uses"]:
-        raise HTTPException(410, "Лимит использований ссылки исчерпан")
-    gid = link["group_id"]
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s", (gid, user_id))
-    if c.fetchone():
+    try:
+        gid = redeem_invite(token, user_id, conn)["group_id"]
+    except HTTPException:
+        conn.rollback()
         conn.close()
-        raise HTTPException(409, "Вы уже участник этой группы")
-    c.execute(
-        "INSERT INTO group_members (group_id, user_id, role) VALUES (%s, %s, %s)",
-        (gid, user_id, link["role"]),
-    )
-    c.execute("UPDATE invite_links SET used_count=used_count+1 WHERE token=%s", (token,))
+        raise
     conn.commit()
     c.execute(
         "SELECT g.id, g.name, g.description, g.avatar, gm.role, g.created_at "

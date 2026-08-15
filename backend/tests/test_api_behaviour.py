@@ -33,10 +33,13 @@ def test_register_rejects_duplicate_email(client, make_user):
     assert r.status_code == 409
 
 
-def test_new_user_joins_default_group(client, make_user):
+def test_new_user_starts_without_groups(client, make_user):
+    """
+    Раньше новичок автоматически попадал в первую группу и мог там публиковать.
+    Теперь он начинает с пустого списка — подробности в test_registration_isolation.
+    """
     token, _ = make_user("joiner")
-    groups = client.get("/api/groups", headers=auth(token)).json()
-    assert len(groups) >= 1
+    assert client.get("/api/groups", headers=auth(token)).json() == []
 
 
 # ── Посты ────────────────────────────────────────────────────────────────────
