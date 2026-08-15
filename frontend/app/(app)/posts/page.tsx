@@ -4,7 +4,7 @@ import Pagination from '@/components/Pagination'
 
 const PAGE_SIZE = 20
 import { useRouter, useSearchParams } from 'next/navigation'
-import { api } from '@/lib/api'
+import { api, publishOutcome, waitForPublish } from '@/lib/api'
 import { useToast } from '@/contexts/ToastContext'
 import { useGroup } from '@/contexts/GroupContext'
 import ConfirmDialog from '@/components/ConfirmDialog'
@@ -145,10 +145,25 @@ export default function PostsPage() {
   async function handlePublish(p: Post) {
     setPub(p.id)
     try {
-      const result = currentGroup
+      // Публикация асинхронная: ручка ставит в очередь и сразу отвечает,
+      // отправкой занимается воркер. Раньше загрузка видео в ВК шла прямо
+      // внутри запроса и упиралась в таймаут прокси.
+      const job = currentGroup
         ? await api.publishGroupPost(currentGroup.id, p.id)
         : await api.publishPost(p.id)
-      const r = result
+      showToast('Пост отправляется...', 'info', 'Публикация идёт в фоне, можно не ждать')
+      const finished = await waitForPublish(job.id)
+      if (finished.state === 'failed') {
+        showToast('Не удалось опубликовать', 'error', finished.error ?? undefined)
+        load()
+        return
+      }
+      if (finished.state === 'queued' || finished.state === 'running') {
+        showToast('Публикация ещё идёт', 'info', 'Тяжёлые видео загружаются долго. Результат появится в списке')
+        load()
+        return
+      }
+      const r = publishOutcome(finished)
       const errs: string[] = []
       const okParts: string[] = []
       if (r.vk_error) errs.push(`VK: ${r.vk_error}`)

@@ -146,7 +146,54 @@ def _assert_matches_baseline(conn):
         )
 
 
+# Ключ консультативной блокировки: любое число, лишь бы одно и то же во всех
+# процессах. Postgres сериализует их между собой сам.
+MIGRATION_LOCK_ID = 8_150_2026
+
+
+def schema_is_current() -> tuple[bool, str]:
+    """Доехала ли база до последней ревизии. Ничего не меняет."""
+    from alembic.script import ScriptDirectory
+
+    head = ScriptDirectory.from_config(_alembic_config()).get_current_head()
+    conn = get_db()
+    try:
+        c = conn.cursor()
+        c.execute("SELECT to_regclass('public.alembic_version') IS NOT NULL AS versioned")
+        if not c.fetchone()["versioned"]:
+            return False, "база не размечена alembic — выполните `python manage.py migrate`"
+        c.execute("SELECT version_num FROM alembic_version")
+        row = c.fetchone()
+        current = row["version_num"] if row else None
+    finally:
+        conn.close()
+    if current == head:
+        return True, f"схема на последней ревизии ({head})"
+    return False, (
+        f"схема отстала: в базе {current}, ожидается {head}. "
+        "Выполните `python manage.py migrate` (на Railway это preDeployCommand)."
+    )
+
+
 def run_migrations():
+    """
+    Накатывает миграции под консультативной блокировкой.
+
+    Блокировка нужна, даже когда команда одна: на Railway новый контейнер
+    поднимается раньше, чем снят старый, а при масштабировании инстансов будет
+    несколько. Двое одновременно накатывающих alembic — это гонка за
+    alembic_version и наполовину применённая схема.
+    """
+    lock = get_db()
+    lock.cursor().execute("SELECT pg_advisory_lock(%s)", (MIGRATION_LOCK_ID,))
+    try:
+        _run_migrations_locked()
+    finally:
+        lock.cursor().execute("SELECT pg_advisory_unlock(%s)", (MIGRATION_LOCK_ID,))
+        lock.close()
+
+
+def _run_migrations_locked():
     conn = get_db()
     c = conn.cursor()
     c.execute(
@@ -462,18 +509,33 @@ def check_upload_storage():
         print(f"📁  загрузки: {UPLOAD_DIR} (файлов: {len(files)})")
 
 
+# Локально миграции удобно катить при старте; на Railway их двигает
+# preDeployCommand, и приложение обязано только проверить, что схема доехала.
+MIGRATE_ON_STARTUP = os.getenv("MIGRATE_ON_STARTUP", "1").strip().lower() not in (
+    "0", "false", "no",
+)
+
+
 @app.on_event("startup")
 def startup():
-    try:
-        run_migrations()
-    except Exception as e:
-        print(f"❌  миграции не применились: {e}")
-        raise
-    try:
-        seed_db()
-    except Exception as e:
-        print(f"❌  seed_db() FAILED: {e}")
-        raise
+    if MIGRATE_ON_STARTUP:
+        try:
+            run_migrations()
+        except Exception as e:
+            print(f"❌  миграции не применились: {e}")
+            raise
+        try:
+            seed_db()
+        except Exception as e:
+            print(f"❌  seed_db() FAILED: {e}")
+            raise
+    else:
+        ok, message = schema_is_current()
+        print(("🗄️   " if ok else "❌  ") + message)
+        if not ok:
+            # Обслуживать запросы на отставшей схеме — это 500-е в рантайме
+            # у пользователей вместо честного отказа подняться.
+            raise RuntimeError(message)
     try:
         encrypt_existing_secrets()
     except Exception as e:

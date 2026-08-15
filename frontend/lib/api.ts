@@ -44,6 +44,33 @@ async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 const body = (data: unknown) => JSON.stringify(data)
 
+/**
+ * Ждёт, пока воркер разберёт задачу публикации.
+ *
+ * Отправка в соцсети идёт вне HTTP-запроса, поэтому результат забираем
+ * опросом. Загрузка видео в ВК может занять минуты — отсюда щедрый предел
+ * ожидания; по его истечении задача не отменяется, а продолжает выполняться,
+ * и её состояние всегда можно посмотреть заново.
+ */
+export async function waitForPublish(
+  jobId: number,
+  { intervalMs = 1200, timeoutMs = 5 * 60_000 }: { intervalMs?: number; timeoutMs?: number } = {},
+): Promise<import('./types').PublishJob> {
+  const until = Date.now() + timeoutMs
+  let job = await api.getPublishJob(jobId)
+  while ((job.state === 'queued' || job.state === 'running') && Date.now() < until) {
+    await new Promise(r => setTimeout(r, intervalMs))
+    job = await api.getPublishJob(jobId)
+  }
+  return job
+}
+
+/** Разбирает результат задачи в привычный вид «что ушло, что нет» */
+export function publishOutcome(job: import('./types').PublishJob): import('./types').PublishOutcome {
+  if (!job.result) return {}
+  try { return JSON.parse(job.result) } catch { return {} }
+}
+
 export const api = {
   login: (email: string, password: string) =>
     req<{ user: import('./types').User; token: string }>('/api/auth/login', {
@@ -95,8 +122,13 @@ export const api = {
   updatePost: (id: number, data: unknown) =>
     req<import('./types').Post>(`/api/posts/${id}`, { method: 'PUT', body: body(data) }),
   deletePost: (id: number) => req<{ ok: boolean }>(`/api/posts/${id}`, { method: 'DELETE' }),
+  // Ставит пост в очередь и сразу отвечает. Дождаться результата — waitForPublish.
   publishPost: (id: number) =>
-    req<import('./types').PublishResult>(`/api/posts/${id}/publish`, { method: 'POST' }),
+    req<import('./types').PublishJob>(`/api/posts/${id}/publish`, { method: 'POST' }),
+  getPublishJob: (jobId: number) =>
+    req<import('./types').PublishJob>(`/api/publish-jobs/${jobId}`),
+  getPostPublishJob: (postId: number) =>
+    req<import('./types').PublishJob>(`/api/posts/${postId}/publish-job`),
 
   getCalendar: (start: string, end: string) =>
     req<import('./types').Post[]>(`/api/calendar?start=${start}&end=${end}`),
@@ -250,7 +282,7 @@ export const api = {
   deleteGroupPost: (groupId: number, postId: number) =>
     req<{ ok: boolean }>(`/api/groups/${groupId}/posts/${postId}`, { method: 'DELETE' }),
   publishGroupPost: (groupId: number, postId: number) =>
-    req<import('./types').PublishResult>(`/api/groups/${groupId}/posts/${postId}/publish`, { method: 'POST' }),
+    req<import('./types').PublishJob>(`/api/groups/${groupId}/posts/${postId}/publish`, { method: 'POST' }),
 
   // Group-scoped settings
   getGroupVkSettings: (groupId: number) =>

@@ -53,6 +53,32 @@ export interface PublishResult extends Post {
   tg_error?: string
 }
 
+/**
+ * Задача публикации. Публикация асинхронная: ручка ставит пост в очередь и
+ * сразу отвечает, отправкой занимается фоновый воркер. Раньше загрузка видео
+ * в ВК шла прямо внутри запроса и упиралась в таймаут прокси.
+ */
+export interface PublishJob {
+  id: number
+  post_id: number
+  state: 'queued' | 'running' | 'done' | 'failed' | 'none'
+  error: string | null
+  /** JSON с результатом по площадкам, заполняется по завершении */
+  result: string | null
+  attempts: number
+  created_at: string | null
+  finished_at: string | null
+}
+
+/** Разобранный результат задачи — то, что раньше приходило прямо из ручки */
+export interface PublishOutcome {
+  vk_post_id?: number | null
+  vk_error?: string | null
+  vk_photo_errors?: string[] | null
+  tg_message_ids?: number[] | null
+  tg_error?: string | null
+}
+
 export interface TemplateField {
   key: string
   label: string

@@ -12,8 +12,9 @@
 from datetime import timedelta
 
 import pytest
-from conftest import auth
+from conftest import auth, drain_publish_queue
 
+import publish_queue
 import scheduler
 from utils import app_now, get_db
 
@@ -52,6 +53,17 @@ def make_scheduled(client, group, when: str, title="Отложенный"):
     return r.json()["id"]
 
 
+def last_job(pid: int) -> dict:
+    """Последняя задача публикации по посту."""
+    from publish_queue import job_for_post
+
+    conn = get_db()
+    try:
+        return job_for_post(conn, pid) or {}
+    finally:
+        conn.close()
+
+
 def post_row(pid: int) -> dict:
     conn = get_db()
     c = conn.cursor()
@@ -69,6 +81,7 @@ def test_overdue_post_gets_published(client, group_with_post):
     assert post_row(pid)["status"] == "scheduled"
 
     assert scheduler.publish_due_posts() >= 1
+    drain_publish_queue()
 
     row = post_row(pid)
     assert row["status"] == "published"
@@ -132,6 +145,7 @@ def test_post_is_claimed_only_once(client, group_with_post):
 def test_second_run_does_not_republish(client, group_with_post):
     pid = make_scheduled(client, group_with_post, at(timedelta(minutes=-5)))
     scheduler.publish_due_posts()
+    drain_publish_queue()
     published_at = post_row(pid)["published_at"]
     assert scheduler.publish_due_posts() == 0
     assert post_row(pid)["published_at"] == published_at
@@ -164,32 +178,33 @@ def test_failure_is_recorded_and_not_retried(client, group_with_post, monkeypatc
     def explode(*a, **kw):
         raise RuntimeError("ВК недоступен")
 
-    monkeypatch.setattr(scheduler, "perform_publish", explode)
+    monkeypatch.setattr(publish_queue, "perform_publish", explode)
     scheduler.publish_due_posts()
+    drain_publish_queue()
 
-    row = post_row(pid)
-    assert "ВК недоступен" in (row["publish_error"] or "")
-    assert row["publish_attempts"] == 1
+    assert post_row(pid)["publish_attempts"] == 1
+    job = last_job(pid)
+    assert job["state"] == "failed"
+    assert "ВК недоступен" in (job["error"] or "")
 
     monkeypatch.undo()
     assert scheduler.publish_due_posts() == 0, "повторять автоматически нельзя"
+    assert drain_publish_queue() == 0
 
 
-def test_failure_creates_notification(client, group_with_post, monkeypatch):
+def test_failure_is_visible_on_the_job(client, group_with_post, monkeypatch):
+    """
+    Причина неудачи должна сохраняться: раньше она жила только в уведомлении,
+    которое можно смахнуть и не найти.
+    """
     pid = make_scheduled(client, group_with_post, at(timedelta(minutes=-5)), "Упавший")
-    monkeypatch.setattr(scheduler, "perform_publish", lambda *a, **kw: 1 / 0)
+    monkeypatch.setattr(publish_queue, "perform_publish", lambda *a, **kw: 1 / 0)
     scheduler.publish_due_posts()
+    drain_publish_queue()
 
-    conn = get_db()
-    c = conn.cursor()
-    c.execute(
-        "SELECT message FROM notifications WHERE message LIKE %s ORDER BY id DESC LIMIT 1",
-        ("%Упавший%",),
-    )
-    row = c.fetchone()
-    conn.close()
-    assert row, "про несостоявшуюся публикацию надо сказать автору"
-    assert str(pid) or True
+    job = last_job(pid)
+    assert job["state"] == "failed"
+    assert job["error"]
 
 
 def test_long_overdue_post_is_not_published(client, group_with_post):
@@ -211,6 +226,7 @@ def test_recently_overdue_post_still_goes_out(client, group_with_post):
     """Отставание в пределах окна — это норма: выкатка, рестарт, пара минут."""
     pid = make_scheduled(client, group_with_post, at(timedelta(minutes=-30)))
     scheduler.publish_due_posts()
+    drain_publish_queue()
     assert post_row(pid)["status"] == "published"
 
 
@@ -236,6 +252,7 @@ def test_missed_window_is_configurable(client, group_with_post, monkeypatch):
 
     monkeypatch.setattr(scheduler, "MAX_DELAY_MINUTES", 600)
     scheduler.publish_due_posts()
+    drain_publish_queue()
     assert post_row(pid)["status"] == "published"
 
 
@@ -271,8 +288,9 @@ def test_group_context_is_passed_to_publisher(client, group_with_post, monkeypat
         seen["group_id"] = group_id
         return {}
 
-    monkeypatch.setattr(scheduler, "perform_publish", spy)
+    monkeypatch.setattr(publish_queue, "perform_publish", spy)
     scheduler.publish_due_posts()
+    drain_publish_queue()
     assert seen["group_id"] == gid
 
 
@@ -298,6 +316,7 @@ def test_due_check_uses_app_timezone(client, group_with_post, monkeypatch):
 
     monkeypatch.setattr(utils, "APP_TZ", "Asia/Krasnoyarsk")
     scheduler.publish_due_posts()
+    drain_publish_queue()
     assert post_row(pid)["status"] == "published"
 
 

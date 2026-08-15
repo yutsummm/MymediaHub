@@ -310,17 +310,67 @@ def page_meta(total: int, limit: int, offset: int) -> dict:
 
 # ── Rate limiter ────────────────────────────────────────────────────────────
 
-RATE_LIMIT_STORE: dict[str, list[float]] = {}
+# Лимиты хранятся в базе, а не в памяти процесса: словарь обнулялся при каждой
+# выкатке и ничего не знал о втором инстансе — при двух процессах лимит на
+# подбор пароля фактически удваивался. База — единственное, что у сервисов общее.
+#
+# Окно фиксированное, а не скользящее: при том же смысле («не больше N за
+# период») это один запрос вместо чтения и записи списка отметок.
+
+RATE_LIMIT_FALLBACK: dict[str, list[float]] = {}
 
 
 def check_rate_limit(key: str, max_requests: int = 10, window_seconds: int = 60):
+    try:
+        conn = get_db()
+    except Exception:
+        # База недоступна — не отказываем в обслуживании из-за счётчика.
+        # Считаем в памяти: хуже, чем в базе, но лучше, чем ничего.
+        return _check_rate_limit_memory(key, max_requests, window_seconds)
+    try:
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO rate_limits (key, window_start, hits) VALUES (%s, NOW(), 1) "
+            "ON CONFLICT (key) DO UPDATE SET "
+            "  hits = CASE WHEN rate_limits.window_start < NOW() - make_interval(secs => %s) "
+            "              THEN 1 ELSE rate_limits.hits + 1 END, "
+            "  window_start = CASE WHEN rate_limits.window_start < NOW() - make_interval(secs => %s) "
+            "                      THEN NOW() ELSE rate_limits.window_start END "
+            "RETURNING hits",
+            (key, window_seconds, window_seconds),
+        )
+        hits = c.fetchone()["hits"]
+        conn.commit()
+    finally:
+        conn.close()
+    if hits > max_requests:
+        raise HTTPException(429, "Слишком много запросов. Попробуйте позже.")
+
+
+def _check_rate_limit_memory(key: str, max_requests: int, window_seconds: int) -> None:
     now = time.time()
-    entry = RATE_LIMIT_STORE.get(key, [])
-    entry = [t for t in entry if now - t < window_seconds]
+    entry = [t for t in RATE_LIMIT_FALLBACK.get(key, []) if now - t < window_seconds]
     if len(entry) >= max_requests:
         raise HTTPException(429, "Слишком много запросов. Попробуйте позже.")
     entry.append(now)
-    RATE_LIMIT_STORE[key] = entry
+    RATE_LIMIT_FALLBACK[key] = entry
+
+
+def purge_rate_limits(older_than_seconds: int = 3600) -> int:
+    """Чистка отработавших окон: строки копятся по одной на каждый IP."""
+    conn = get_db()
+    try:
+        c = conn.cursor()
+        c.execute(
+            "DELETE FROM rate_limits WHERE window_start < NOW() - make_interval(secs => %s) "
+            "RETURNING key",
+            (older_than_seconds,),
+        )
+        removed = len(c.fetchall())
+        conn.commit()
+    finally:
+        conn.close()
+    return removed
 
 
 # ── Email ────────────────────────────────────────────────────────────────────

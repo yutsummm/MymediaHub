@@ -12,7 +12,7 @@ import os
 from datetime import datetime, timedelta
 
 import pytest
-from conftest import auth
+from conftest import auth, publish_and_wait
 
 import main
 from utils import APP_TZ, app_now_str, get_db
@@ -90,8 +90,10 @@ def test_published_at_matches_app_now(client, group_with_post):
         json={"title": "Публикуем", "content": "т", "platforms": []},
         headers=auth(group_with_post["token"]),
     ).json()["id"]
-    published = client.post(
-        f"/api/groups/{gid}/posts/{pid}/publish", headers=auth(group_with_post["token"])
+    publish_and_wait(client, f"/api/groups/{gid}/posts/{pid}/publish",
+                     auth(group_with_post["token"]))
+    published = client.get(
+        f"/api/groups/{gid}/posts/{pid}", headers=auth(group_with_post["token"])
     ).json()
     assert minutes_from_now(published["published_at"]) < 5
 

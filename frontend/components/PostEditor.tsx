@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import dynamic from 'next/dynamic'
 import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
-import { api } from '@/lib/api'
+import { api, publishOutcome, waitForPublish } from '@/lib/api'
 import { useToast } from '@/contexts/ToastContext'
 import { useGroup } from '@/contexts/GroupContext'
 import { useAuth } from '@/contexts/AuthContext'
@@ -198,7 +198,16 @@ export default function PostEditor({
         else newPost = await api.createPost(body)
         if (status === 'published' && currentGroup) {
           try {
-            const r = await api.publishGroupPost(currentGroup.id, newPost.id)
+            // Ставим в очередь и ждём воркера: сама отправка идёт вне запроса
+            const job = await api.publishGroupPost(currentGroup.id, newPost.id)
+            const finished = await waitForPublish(job.id)
+            if (finished.state === 'failed') {
+              showToast('Пост создан, но опубликовать не удалось', 'error',
+                        finished.error ?? undefined)
+              router.push('/posts')
+              return
+            }
+            const r = publishOutcome(finished)
             const errs: string[] = []
             const okParts: string[] = []
             if (r.vk_error) errs.push(`VK: ${r.vk_error}`)

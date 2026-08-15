@@ -82,9 +82,22 @@ def reset_rate_limit():
     """
     import utils
 
-    utils.RATE_LIMIT_STORE.clear()
+    def clear():
+        utils.RATE_LIMIT_FALLBACK.clear()
+        try:
+            conn = utils.get_db()
+        except Exception:
+            return
+        try:
+            c = conn.cursor()
+            c.execute("DELETE FROM rate_limits")
+            conn.commit()
+        finally:
+            conn.close()
+
+    clear()
     yield
-    utils.RATE_LIMIT_STORE.clear()
+    clear()
 
 
 @pytest.fixture()
@@ -154,6 +167,34 @@ def register_and_verify(client, email: str, password: str = "Passw0rd!", **extra
     )
     assert v.status_code == 200, v.text
     return v.json()
+
+
+def drain_publish_queue(max_jobs: int = 50) -> int:
+    """
+    Прогоняет очередь публикации.
+
+    Публикация асинхронная: ручка только ставит задачу. В тестах ждать воркера
+    незачем — разбираем очередь тут же и синхронно.
+    """
+    from publish_queue import process_jobs
+
+    return process_jobs(max_jobs=max_jobs)
+
+
+def publish_and_wait(client, path: str, headers: dict) -> dict:
+    """Публикует пост и возвращает состояние задачи после обработки."""
+    from publish_queue import get_job
+    from utils import get_db
+
+    r = client.post(path, headers=headers)
+    assert r.status_code == 200, r.text
+    job_id = r.json()["id"]
+    drain_publish_queue()
+    conn = get_db()
+    try:
+        return get_job(conn, job_id)
+    finally:
+        conn.close()
 
 
 @pytest.fixture()

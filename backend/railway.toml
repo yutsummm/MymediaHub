@@ -2,6 +2,12 @@
 builder = "nixpacks"
 
 [deploy]
+# Схему двигает отдельная команда, один раз за выкатку и до того, как новый код
+# начнёт обслуживать людей. Раньше миграции жили в startup-хуке приложения:
+# на Railway новый контейнер поднимается ещё до того, как снят старый, а при
+# масштабировании инстансов было бы несколько — и все полезли бы накатывать
+# alembic одновременно.
+preDeployCommand = "python manage.py migrate"
 startCommand = "uvicorn main:app --host 0.0.0.0 --port $PORT"
 healthcheckPath = "/"
 healthcheckTimeout = 300

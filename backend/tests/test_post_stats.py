@@ -6,7 +6,7 @@ Telegram. Заполняла их только синхронизация ВК �
 появись второй источник, площадки начали бы затирать цифры друг друга, и понять,
 чьи числа сейчас в колонке, стало бы невозможно.
 """
-from conftest import auth
+from conftest import auth, drain_publish_queue
 
 from stats import save_platform_stats, stats_for_posts
 from utils import get_db
@@ -20,6 +20,7 @@ def published_post(client, group, title="Со статистикой"):
         headers=auth(group["token"]),
     ).json()["id"]
     client.post(f"/api/groups/{gid}/posts/{pid}/publish", headers=auth(group["token"]))
+    drain_publish_queue()
     return pid
 
 
@@ -139,6 +140,7 @@ def test_publishing_does_not_reset_collected_stats(client, group_with_post):
 
     gid = group_with_post["group_id"]
     client.post(f"/api/groups/{gid}/posts/{pid}/publish", headers=auth(group_with_post["token"]))
+    drain_publish_queue()
     post = client.get(f"/api/groups/{gid}/posts/{pid}", headers=auth(group_with_post["token"])).json()
     assert post["views"] == 500
 

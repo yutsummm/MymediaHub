@@ -15,7 +15,7 @@ import sys
 import traceback
 from datetime import timedelta
 
-from publishing import perform_publish
+from publish_queue import enqueue, process_jobs, requeue_stuck_jobs
 from telegram_stats import (
     TELEGRAM_POLL_INTERVAL,
     TELEGRAM_STATS_ENABLED,
@@ -33,6 +33,8 @@ MAX_PER_TICK = int(os.getenv("SCHEDULER_MAX_PER_TICK", "10"))
 # анонс мероприятия, которое прошло в мае, выкидывать в живой паблик нельзя.
 # Всё, что старше, помечается пропущенным и ждёт решения человека.
 MAX_DELAY_MINUTES = int(os.getenv("SCHEDULER_MAX_DELAY_MINUTES", "120"))
+# Очередь публикации разбирается чаще: человек нажал «Опубликовать» и ждёт.
+PUBLISH_POLL_INTERVAL = int(os.getenv("PUBLISH_POLL_SECONDS", "3"))
 
 
 def _window() -> tuple[str, str]:
@@ -142,8 +144,11 @@ def publish_due_posts() -> int:
                 break
             published += 1
             try:
-                perform_publish(conn, post, group_id=post.get("group_id"))
-                print(f"⏰  отложенный пост #{post['id']} опубликован")
+                # Отправкой занимается воркер очереди — тот же путь, что и у
+                # ручной публикации. Иначе тяжёлое видео вешало бы такт
+                # планировщика на минуты.
+                enqueue(conn, post["id"], post.get("group_id"), post.get("author_id"))
+                print(f"⏰  отложенный пост #{post['id']} поставлен в очередь")
             except Exception as e:
                 # Сеть, соцсеть, что угодно. Пост уже снят с очереди: повторять
                 # автоматически нельзя — публикация не идемпотентна, и повтор
@@ -179,6 +184,21 @@ async def scheduler_loop():
         await asyncio.sleep(SCHEDULER_INTERVAL)
 
 
+async def publish_worker_loop():
+    """
+    Разбирает очередь публикации.
+
+    Отдельный цикл, а не общий с планировщиком: один тяжёлый пост с видео
+    занимает минуты, и такт «кому пора выходить» не должен его ждать.
+    """
+    while True:
+        try:
+            await asyncio.to_thread(process_jobs)
+        except Exception:
+            traceback.print_exc(file=sys.stderr)
+        await asyncio.sleep(PUBLISH_POLL_INTERVAL)
+
+
 async def telegram_stats_loop():
     """
     Отдельный такт: реакции Telegram нельзя запросить задним числом, их надо
@@ -197,11 +217,14 @@ def start(app) -> None:
     if not SCHEDULER_ENABLED:
         print("⏰  планировщик отключён (SCHEDULER_ENABLED=0)")
         return
-    try:
-        flag_interrupted_posts()
-    except Exception:
-        traceback.print_exc(file=sys.stderr)
+    for sweep in (flag_interrupted_posts, requeue_stuck_jobs):
+        try:
+            sweep()
+        except Exception:
+            traceback.print_exc(file=sys.stderr)
     app.state.scheduler_task = asyncio.create_task(scheduler_loop())
+    app.state.publish_worker_task = asyncio.create_task(publish_worker_loop())
+    print(f"📮  воркер публикации запущен, очередь раз в {PUBLISH_POLL_INTERVAL} с")
     print(f"⏰  планировщик запущен, проверка каждые {SCHEDULER_INTERVAL} с")
     if TELEGRAM_STATS_ENABLED:
         app.state.telegram_stats_task = asyncio.create_task(telegram_stats_loop())

@@ -5,7 +5,7 @@ import requests as http_requests
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from models import AIEnhanceRequest, GenerateRequest, PostCreate, PostUpdate
-from publishing import perform_publish
+from publish_queue import enqueue, get_job, job_for_post
 from stats import save_platform_stats, serialize_post, serialize_posts
 from utils import (
     _AI_PROMPTS,
@@ -183,10 +183,17 @@ def delete_post(post_id: int, user_id: int = Depends(get_current_user_id)):
 
 @router.post("/api/posts/{post_id}/publish")
 def publish_post(post_id: int, user_id: int = Depends(get_current_user_id)):
+    """
+    Ставит пост в очередь и сразу отвечает.
+
+    Раньше отправка шла прямо здесь: загрузка видео в ВК идёт с таймаутом 120
+    секунд на файл, и тяжёлый пост либо подвешивал запрос, либо отваливался по
+    таймауту прокси — а пост к тому моменту мог уже уйти.
+    """
     conn = get_db()
-    post = require_post_access(post_id, user_id, conn, write=True)
     try:
-        return perform_publish(conn, post)
+        post = require_post_access(post_id, user_id, conn, write=True)
+        return enqueue(conn, post["id"], post.get("group_id"), user_id)
     finally:
         conn.close()
 
@@ -365,13 +372,39 @@ def publish_group_post(gid: int, post_id: int, user_id: int = Depends(get_curren
     if role == "volunteer":
         conn.close()
         raise HTTPException(403, "Наблюдатели не могут публиковать посты")
-    c.execute("SELECT * FROM posts WHERE id=%s AND group_id=%s", (post_id, gid))
+    c.execute("SELECT id FROM posts WHERE id=%s AND group_id=%s", (post_id, gid))
     post = c.fetchone()
     if not post:
         conn.close()
         raise HTTPException(404, "Пост не найден")
     try:
-        return perform_publish(conn, post, group_id=gid)
+        return enqueue(conn, post_id, gid, user_id)
+    finally:
+        conn.close()
+
+
+@router.get("/api/publish-jobs/{job_id}")
+def get_publish_job(job_id: int, user_id: int = Depends(get_current_user_id)):
+    """Состояние задачи публикации — по нему интерфейс ждёт результата."""
+    conn = get_db()
+    try:
+        job = get_job(conn, job_id)
+        if not job:
+            raise HTTPException(404, "Задача не найдена")
+        # Право смотреть задачу — это право на сам пост
+        require_post_access(job["post_id"], user_id, conn)
+        return job
+    finally:
+        conn.close()
+
+
+@router.get("/api/posts/{post_id}/publish-job")
+def get_post_publish_job(post_id: int, user_id: int = Depends(get_current_user_id)):
+    """Последняя задача по посту: интерфейс восстанавливает состояние после перезагрузки."""
+    conn = get_db()
+    try:
+        require_post_access(post_id, user_id, conn)
+        return job_for_post(conn, post_id) or {"state": "none", "post_id": post_id}
     finally:
         conn.close()
 
