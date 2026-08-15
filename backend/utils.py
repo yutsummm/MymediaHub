@@ -51,6 +51,31 @@ def row_to_dict(row):
     return d
 
 
+# ── Время приложения ─────────────────────────────────────────────────────────
+# Даты в базе — текст «YYYY-MM-DDTHH:MM» без зоны, и пишут их два разных
+# источника: scheduled_at приходит из браузера (местное время Красноярска),
+# а контейнер и Postgres на Railway живут в UTC. Сравнивать одно с другим
+# напрямую нельзя — отложенный пост уехал бы на 7 часов.
+# Поэтому «сейчас» у приложения всегда в APP_TZ.
+
+APP_TZ = os.getenv("APP_TZ", "Asia/Krasnoyarsk")
+
+
+def app_now() -> datetime:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        return datetime.now(ZoneInfo(APP_TZ))
+    except (ZoneInfoNotFoundError, ValueError):
+        print(f"WARNING: неизвестная таймзона APP_TZ={APP_TZ!r}, беру время контейнера")
+        return datetime.now()
+
+
+def app_now_str() -> str:
+    """«Сейчас» в том же формате, в каком даты лежат в базе."""
+    return app_now().strftime("%Y-%m-%dT%H:%M")
+
+
 # ── Password helpers ─────────────────────────────────────────────────────────
 
 def hash_password(password: str) -> str:

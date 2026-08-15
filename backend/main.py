@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
+import scheduler
 from alembic import command
 from alembic.config import Config
 from utils import (
@@ -380,6 +381,7 @@ def startup():
     except Exception as e:
         print(f"❌  проблема с каталогом загрузок: {e}")
         raise
+    scheduler.start(app)
     print("✅  MediaHub API запущен!  →  http://localhost:8000")
 
 

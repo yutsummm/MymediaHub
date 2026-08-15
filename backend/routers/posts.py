@@ -6,9 +6,9 @@ import requests as http_requests
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from models import AIEnhanceRequest, GenerateRequest, PostCreate, PostUpdate
+from publishing import perform_publish
 from utils import (
     _AI_PROMPTS,
-    UPLOAD_DIR,
     check_rate_limit,
     decrypt_row_secret,
     get_current_user_id,
@@ -19,12 +19,6 @@ from utils import (
     require_group_member,
     require_post_access,
     row_to_dict,
-    tg_send_post,
-    upload_filename,
-    vk_upload_doc_to_wall,
-    vk_upload_photo_to_wall,
-    vk_upload_video_to_wall,
-    vk_wall_post,
 )
 
 router = APIRouter()
@@ -169,140 +163,11 @@ def delete_post(post_id: int, user_id: int = Depends(get_current_user_id)):
 @router.post("/api/posts/{post_id}/publish")
 def publish_post(post_id: int, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
-    c = conn.cursor()
     post = require_post_access(post_id, user_id, conn, write=True)
-    now = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M")
-    c.execute(
-        "UPDATE posts SET status='published',published_at=%s,views=0,reactions=0,comments=0,shares=0 WHERE id=%s",
-        (now, post_id),
-    )
-    conn.commit()
-
-    post_dict = row_to_dict(post)
-    vk_post_id = None
-    vk_error = None
-    photo_errors: list = []
-
-    platforms = post_dict.get("platforms", [])
-    if "vk" in platforms:
-        c.execute("SELECT group_id, access_token FROM vk_settings WHERE id=1")
-        vk = decrypt_row_secret(c.fetchone(), "access_token")
-        if vk:
-            try:
-                message = f"{post_dict['title']}\n\n{post_dict['content']}"
-                attachments = []
-                backend_base = os.getenv("BACKEND_URL", "https://backend-production-30d6.up.railway.app").rstrip("/")
-                for item in (post_dict.get("media") or []):
-                    item_type = item.get("type")
-                    if item_type not in ("image", "video", "doc"):
-                        continue
-                    fname = upload_filename(item["url"])
-                    orig_name = item.get("filename") or fname
-                    fpath = os.path.join(UPLOAD_DIR, fname)
-                    try:
-                        if os.path.exists(fpath):
-                            with open(fpath, "rb") as f:
-                                file_data = f.read()
-                        else:
-                            file_url = f"{backend_base}{item['url']}"
-                            resp = http_requests.get(file_url, timeout=120)
-                            resp.raise_for_status()
-                            file_data = resp.content
-                        if item_type == "image":
-                            att = vk_upload_photo_to_wall(vk["access_token"], vk["group_id"], file_data, fname)
-                        elif item_type == "video":
-                            att = vk_upload_video_to_wall(
-                                vk["access_token"], vk["group_id"], file_data, fname,
-                                title=post_dict.get("title", ""),
-                                description=post_dict.get("content", ""),
-                            )
-                        else:
-                            att = vk_upload_doc_to_wall(
-                                vk["access_token"], vk["group_id"], file_data, orig_name,
-                                title=post_dict.get("title", "") or orig_name,
-                            )
-                        attachments.append(att)
-                    except Exception as media_err:
-                        msg = str(media_err)
-                        if any(kw in msg.lower() for kw in [
-                            "unavailable with group auth", "group authorization", "access denied",
-                            "this action is not available", "community token", "group token",
-                            "error_code: 15", "no access to call this method",
-                        ]):
-                            msg = f"Нет прав на загрузку {item_type}. Получите пользовательский токен в Настройках (кнопка «Получить токен ВК»)"
-                        photo_errors.append(msg)
-                vk_post_id = vk_wall_post(vk["access_token"], vk["group_id"], message, attachments)
-                if photo_errors:
-                    notif_msg = (
-                        f"Пост «{post_dict['title']}» опубликован в ВКонтакте, "
-                        f"но {len(photo_errors)} фото не загружено: {photo_errors[0]}"
-                    )
-                    notif_type = "warning"
-                else:
-                    notif_msg = f"Пост «{post_dict['title']}» опубликован в группу ВКонтакте"
-                    notif_type = "success"
-                c.execute(
-                    "INSERT INTO notifications (user_id, message, type, is_read) VALUES (%s, %s, %s, 0)",
-                    (post_dict.get("author_id", 1), notif_msg, notif_type),
-                )
-                conn.commit()
-            except Exception as e:
-                vk_error = str(e)
-                c.execute(
-                    "INSERT INTO notifications (user_id, message, type, is_read) VALUES (%s, %s, %s, 0)",
-                    (post_dict.get("author_id", 1), f"Ошибка публикации в VK: {vk_error}", "error"),
-                )
-                conn.commit()
-
-    tg_message_ids: list = []
-    tg_error = None
-    if "telegram" in platforms:
-        c.execute("SELECT bot_token, chat_id FROM tg_settings WHERE id=1")
-        tg = decrypt_row_secret(c.fetchone(), "bot_token")
-        if tg:
-            try:
-                tg_message = f"{post_dict['title']}\n\n{post_dict['content']}" if post_dict.get("title") else post_dict.get("content", "")
-                backend_base = os.getenv("BACKEND_URL", "https://backend-production-30d6.up.railway.app").rstrip("/")
-                tg_message_ids = tg_send_post(
-                    tg["bot_token"], tg["chat_id"], tg_message,
-                    post_dict.get("media") or [], backend_base,
-                )
-                c.execute(
-                    "INSERT INTO notifications (user_id, message, type, is_read) VALUES (%s, %s, %s, 0)",
-                    (post_dict.get("author_id", 1),
-                     f"Пост «{post_dict['title']}» опубликован в Telegram", "success"),
-                )
-                conn.commit()
-            except Exception as e:
-                tg_error = str(e)
-                c.execute(
-                    "INSERT INTO notifications (user_id, message, type, is_read) VALUES (%s, %s, %s, 0)",
-                    (post_dict.get("author_id", 1),
-                     f"Ошибка публикации в Telegram: {tg_error}", "error"),
-                )
-                conn.commit()
-
-    if vk_post_id is not None:
-        c.execute("UPDATE posts SET vk_post_id=%s WHERE id=%s", (str(vk_post_id), post_id))
-    if tg_message_ids:
-        c.execute("UPDATE posts SET tg_message_ids=%s WHERE id=%s", (json.dumps(tg_message_ids), post_id))
-    conn.commit()
-
-    c.execute("SELECT * FROM posts WHERE id=%s", (post_id,))
-    row = c.fetchone()
-    conn.close()
-    result = row_to_dict(row)
-    if vk_post_id is not None:
-        result["vk_post_id"] = vk_post_id
-    if vk_error is not None:
-        result["vk_error"] = vk_error
-    if photo_errors:
-        result["vk_photo_errors"] = photo_errors
-    if tg_message_ids:
-        result["tg_message_ids"] = tg_message_ids
-    if tg_error is not None:
-        result["tg_error"] = tg_error
-    return result
+    try:
+        return perform_publish(conn, post)
+    finally:
+        conn.close()
 
 
 # ── Group-scoped Posts ──────────────────────────────────────────────────────
@@ -471,99 +336,10 @@ def publish_group_post(gid: int, post_id: int, user_id: int = Depends(get_curren
     if not post:
         conn.close()
         raise HTTPException(404, "Пост не найден")
-    now = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M")
-    c.execute(
-        "UPDATE posts SET status='published',published_at=%s,views=0,reactions=0,comments=0,shares=0 WHERE id=%s",
-        (now, post_id),
-    )
-    conn.commit()
-    post_dict = row_to_dict(post)
-    vk_post_id = None
-    vk_error = None
-    photo_errors: list = []
-    platforms = post_dict.get("platforms", [])
-    backend_base = os.getenv("BACKEND_URL", "https://backend-production-30d6.up.railway.app").rstrip("/")
-    if "vk" in platforms:
-        c.execute("SELECT group_id, access_token FROM vk_settings WHERE workspace_id=%s", (gid,))
-        vk = decrypt_row_secret(c.fetchone(), "access_token")
-        if vk:
-            try:
-                message = f"{post_dict['title']}\n\n{post_dict['content']}"
-                attachments = []
-                for item in (post_dict.get("media") or []):
-                    item_type = item.get("type")
-                    if item_type not in ("image", "video", "doc"):
-                        continue
-                    fname = upload_filename(item["url"])
-                    orig_name = item.get("filename") or fname
-                    fpath = os.path.join(UPLOAD_DIR, fname)
-                    try:
-                        if os.path.exists(fpath):
-                            with open(fpath, "rb") as f:
-                                file_data = f.read()
-                        else:
-                            file_url = f"{backend_base}{item['url']}"
-                            resp = http_requests.get(file_url, timeout=120)
-                            resp.raise_for_status()
-                            file_data = resp.content
-                        if item_type == "image":
-                            att = vk_upload_photo_to_wall(vk["access_token"], vk["group_id"], file_data, fname)
-                        elif item_type == "video":
-                            att = vk_upload_video_to_wall(
-                                vk["access_token"], vk["group_id"], file_data, fname,
-                                title=post_dict.get("title", ""),
-                                description=post_dict.get("content", ""),
-                            )
-                        else:
-                            att = vk_upload_doc_to_wall(
-                                vk["access_token"], vk["group_id"], file_data, orig_name,
-                                title=post_dict.get("title", "") or orig_name,
-                            )
-                        attachments.append(att)
-                    except Exception as media_err:
-                        msg = str(media_err)
-                        if any(kw in msg.lower() for kw in [
-                            "unavailable with group auth", "group authorization", "access denied",
-                            "this action is not available", "community token", "group token",
-                            "error_code: 15", "no access to call this method",
-                        ]):
-                            msg = f"Нет прав на загрузку {item_type}. Получите пользовательский токен в Настройках"
-                        photo_errors.append(msg)
-                vk_post_id = vk_wall_post(vk["access_token"], vk["group_id"], message, attachments)
-            except Exception as e:
-                vk_error = str(e)
-
-    tg_message_ids: list = []
-    tg_error = None
-    if "telegram" in platforms:
-        c.execute("SELECT bot_token, chat_id FROM tg_settings WHERE workspace_id=%s", (gid,))
-        tg = decrypt_row_secret(c.fetchone(), "bot_token")
-        if tg:
-            try:
-                tg_message = f"{post_dict['title']}\n\n{post_dict['content']}" if post_dict.get("title") else post_dict.get("content", "")
-                tg_message_ids = tg_send_post(
-                    tg["bot_token"], tg["chat_id"], tg_message,
-                    post_dict.get("media") or [], backend_base,
-                )
-            except Exception as e:
-                tg_error = str(e)
-
-    if vk_post_id is not None:
-        c.execute("UPDATE posts SET vk_post_id=%s WHERE id=%s", (str(vk_post_id), post_id))
-    if tg_message_ids:
-        c.execute("UPDATE posts SET tg_message_ids=%s WHERE id=%s", (json.dumps(tg_message_ids), post_id))
-    conn.commit()
-
-    c.execute("SELECT * FROM posts WHERE id=%s", (post_id,))
-    row = c.fetchone()
-    conn.close()
-    result = row_to_dict(row)
-    result["vk_post_id"] = vk_post_id
-    result["vk_error"] = vk_error
-    result["photo_errors"] = photo_errors
-    result["tg_message_ids"] = tg_message_ids
-    result["tg_error"] = tg_error
-    return result
+    try:
+        return perform_publish(conn, post, group_id=gid)
+    finally:
+        conn.close()
 
 
 # ── VK Stats Sync ────────────────────────────────────────────────────────────
