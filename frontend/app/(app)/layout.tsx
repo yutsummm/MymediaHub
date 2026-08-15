@@ -46,6 +46,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }, [user, pathname])
 
+  // Хук обязан вызываться до раннего return — иначе количество хуков между
+  // рендерами меняется и React падает.
+  const closeNav = useCallback(() => setNavOpen(false), [])
+
   if (loading || groupsLoading || !user) return null
 
   const title = TITLES[pathname] ?? (pathname.includes('/edit') ? 'Редактировать пост' : pathname)
@@ -54,7 +58,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', width: '100%' }}>
       <div className="top-stripe" />
-      <Sidebar unread={unread} open={navOpen} onClose={useCallback(() => setNavOpen(false), [])} />
+      <Sidebar unread={unread} open={navOpen} onClose={closeNav} />
 
       <div className="main-layout">
         {/* Topbar */}

@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends
-from utils import get_db, get_current_user_id
+from fastapi import APIRouter, Depends, HTTPException
+
+from utils import get_current_user_id, get_db
 
 router = APIRouter()
 
@@ -24,10 +25,16 @@ def get_notifications(
 
 
 @router.put("/api/notifications/{notif_id}/read")
-def mark_read(notif_id: int):
+def mark_read(notif_id: int, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
-    c.execute("UPDATE notifications SET is_read=1 WHERE id=%s", (notif_id,))
+    c.execute(
+        "UPDATE notifications SET is_read=1 WHERE id=%s AND user_id=%s RETURNING id",
+        (notif_id, user_id),
+    )
+    updated = c.fetchone()
     conn.commit()
     conn.close()
+    if not updated:
+        raise HTTPException(404, "Уведомление не найдено")
     return {"ok": True}

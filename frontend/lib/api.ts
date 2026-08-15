@@ -80,7 +80,7 @@ export const api = {
     req<import('./types').Post>(`/api/posts/${id}`, { method: 'PUT', body: body(data) }),
   deletePost: (id: number) => req<{ ok: boolean }>(`/api/posts/${id}`, { method: 'DELETE' }),
   publishPost: (id: number) =>
-    req<import('./types').Post>(`/api/posts/${id}/publish`, { method: 'POST' }),
+    req<import('./types').PublishResult>(`/api/posts/${id}/publish`, { method: 'POST' }),
 
   getCalendar: (start: string, end: string) =>
     req<import('./types').Post[]>(`/api/calendar?start=${start}&end=${end}`),
@@ -126,9 +126,13 @@ export const api = {
     const form = new FormData()
     form.append('file', file)
     const url = `${BASE}/api/upload`
+    // Content-Type не задаём — его выставит браузер вместе с boundary для FormData
+    const token = _getToken()
+    const headers: Record<string, string> = {}
+    if (token) headers['Authorization'] = `Bearer ${token}`
     let res: Response
     try {
-      res = await fetch(url, { method: 'POST', body: form })
+      res = await fetch(url, { method: 'POST', body: form, headers })
     } catch (e) {
       throw new Error(`Сеть недоступна: ${(e as Error).message}`)
     }
@@ -230,7 +234,7 @@ export const api = {
   deleteGroupPost: (groupId: number, postId: number) =>
     req<{ ok: boolean }>(`/api/groups/${groupId}/posts/${postId}`, { method: 'DELETE' }),
   publishGroupPost: (groupId: number, postId: number) =>
-    req<import('./types').Post>(`/api/groups/${groupId}/posts/${postId}/publish`, { method: 'POST' }),
+    req<import('./types').PublishResult>(`/api/groups/${groupId}/posts/${postId}/publish`, { method: 'POST' }),
 
   // Group-scoped settings
   getGroupVkSettings: (groupId: number) =>

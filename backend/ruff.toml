@@ -1,0 +1,29 @@
+line-length = 120
+target-version = "py311"
+exclude = [".venv", "venv", "alembic/versions", "uploads"]
+
+[lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # bugbear
+    "UP",   # pyupgrade
+    "C4",   # comprehensions
+    "SIM",  # simplify
+]
+ignore = [
+    "E501",    # длину строк уже ограничивает line-length, дубль не нужен
+    "B008",    # Depends()/Query() в дефолтах аргументов — идиома FastAPI
+    "SIM105",  # contextlib.suppress вместо try/except/pass читается хуже
+    "B904",    # `raise HTTPException(...) from e` — шум: клиенту цепочка не видна
+]
+
+[lint.per-file-ignores]
+# Роутеры импортируются после load_dotenv(): utils читает переменные окружения
+# на импорте, поэтому порядок здесь принципиален.
+"main.py" = ["E402"]
+# conftest выставляет DATABASE_URL до импорта main — по той же причине.
+# F401: фикстуры импортируются ради побочного эффекта регистрации.
+"tests/conftest.py" = ["E402", "F401"]
+"tests/*" = ["F401"]

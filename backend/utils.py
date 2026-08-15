@@ -2,20 +2,20 @@
 MediaHub — shared utilities and helpers
 """
 
-from fastapi import HTTPException, Header
-from typing import Optional, List
-import psycopg2
-import psycopg2.extras
-import json, os, hashlib, bcrypt, uuid, time
-from jose import jwt, JWTError
+import hashlib
+import json
+import os
+import secrets
+import time
 from datetime import datetime, timedelta
 from math import asin, cos, radians, sin, sqrt
-from urllib.parse import quote
+
+import bcrypt
+import psycopg2
+import psycopg2.extras
 import requests as http_requests
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-import smtplib
-import secrets
+from fastapi import Header, HTTPException
+from jose import JWTError, jwt
 
 # ── DB ───────────────────────────────────────────────────────────────────────
 
@@ -142,6 +142,54 @@ def require_group_member(group_id: int, user_id: int, conn) -> str:
     return row["role"]
 
 
+def require_admin(user_id: int, conn) -> None:
+    """Глобальная роль admin — для операций вне контекста группы."""
+    c = conn.cursor()
+    c.execute("SELECT role FROM users WHERE id=%s", (user_id,))
+    row = c.fetchone()
+    if not row or row["role"] != "admin":
+        raise HTTPException(403, "Требуются права администратора")
+
+
+def user_group_ids(user_id: int, conn) -> list[int]:
+    c = conn.cursor()
+    c.execute("SELECT group_id FROM group_members WHERE user_id=%s", (user_id,))
+    return [r["group_id"] for r in c.fetchall()]
+
+
+def posts_scope(user_id: int, conn, alias: str = "p") -> tuple:
+    """
+    SQL-фильтр «посты, доступные пользователю»: посты его групп плюс его собственные
+    посты без группы. Возвращает (условие, параметры) для подстановки в WHERE.
+    """
+    prefix = f"{alias}." if alias else ""
+    ids = user_group_ids(user_id, conn)
+    own = f"({prefix}group_id IS NULL AND {prefix}author_id=%s)"
+    if not ids:
+        return own, [user_id]
+    return f"({prefix}group_id = ANY(%s) OR {own})", [ids, user_id]
+
+
+def require_post_access(post_id: int, user_id: int, conn, write: bool = False):
+    """
+    Отдаёт пост, если пользователь состоит в его группе (или это его собственный
+    пост без группы). При write=True волонтёрам отказывает — как в групповых роутах.
+    """
+    c = conn.cursor()
+    c.execute("SELECT * FROM posts WHERE id=%s", (post_id,))
+    post = c.fetchone()
+    if not post:
+        raise HTTPException(404, "Пост не найден")
+    if post["group_id"] is None:
+        if post["author_id"] != user_id:
+            raise HTTPException(403, "Нет доступа к этому посту")
+        return post
+    role = require_group_member(post["group_id"], user_id, conn)
+    if write and role == "volunteer":
+        raise HTTPException(403, "Недостаточно прав")
+    return post
+
+
 # ── Distance ─────────────────────────────────────────────────────────────────
 
 def distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -245,10 +293,7 @@ def vk_get_group_name(access_token: str, group_id: str) -> str:
         if "error" in data:
             raise ValueError(data["error"].get("error_msg", "VK API error"))
         response = data.get("response", {})
-        if isinstance(response, list):
-            groups = response
-        else:
-            groups = response.get("groups", [])
+        groups = response if isinstance(response, list) else response.get("groups", [])
         if not groups:
             raise ValueError("Группа не найдена")
         return groups[0].get("name", "")
@@ -377,7 +422,8 @@ def vk_upload_doc_to_wall(access_token: str, group_id: str, doc_data: bytes, fil
     return f"doc{doc['owner_id']}_{doc['id']}"
 
 
-def vk_wall_post(access_token: str, group_id: str, message: str, attachments: List[str] = []) -> int:
+def vk_wall_post(access_token: str, group_id: str, message: str, attachments: list[str] | None = None) -> int:
+    attachments = attachments or []
     clean_id = group_id.lstrip("-")
     params: dict = {
         "owner_id": f"-{clean_id}",
@@ -434,10 +480,10 @@ def _resolve_media_bytes(item: dict, backend_base: str) -> tuple[bytes, str]:
     return resp.content, item.get("filename") or fname
 
 
-def tg_send_post(bot_token: str, chat_id: str, message: str, media: List[dict], backend_base: str) -> List[int]:
+def tg_send_post(bot_token: str, chat_id: str, message: str, media: list[dict], backend_base: str) -> list[int]:
     photos_videos = [m for m in media if m.get("type") in ("image", "video")]
     docs = [m for m in media if m.get("type") == "doc"]
-    posted_ids: List[int] = []
+    posted_ids: list[int] = []
 
     caption_with_media = len(message) <= TG_CAPTION_LIMIT and (photos_videos or docs)
     sent_text_separately = False

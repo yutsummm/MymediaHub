@@ -25,11 +25,11 @@ def upgrade() -> None:
         sa.Column("name", sa.Text(), nullable=False),
         sa.Column("email", sa.Text(), nullable=False),
         sa.Column("role", sa.Text(), nullable=False, server_default="editor"),
-        sa.Column("avatar", sa.Text(), nullable=False, server_default=""),
+        sa.Column("avatar", sa.Text(), nullable=True, server_default=""),
         sa.Column(
             "created_at",
             sa.Text(),
-            nullable=False,
+            nullable=True,
             server_default=sa.text("to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD\"T\"HH24:MI')"),
         ),
         sa.Column("password_hash", sa.Text(), nullable=True),
@@ -44,29 +44,29 @@ def upgrade() -> None:
         sa.Column("title", sa.Text(), nullable=False),
         sa.Column("content", sa.Text(), nullable=False),
         sa.Column("status", sa.Text(), nullable=False, server_default="draft"),
-        sa.Column("platforms", sa.Text(), nullable=False, server_default='["vk"]'),
-        sa.Column("tags", sa.Text(), nullable=False, server_default="[]"),
+        sa.Column("platforms", sa.Text(), nullable=True, server_default='["vk"]'),
+        sa.Column("tags", sa.Text(), nullable=True, server_default="[]"),
         sa.Column("scheduled_at", sa.Text(), nullable=True),
         sa.Column("published_at", sa.Text(), nullable=True),
-        sa.Column("views", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("reactions", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("comments", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("shares", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("author_id", sa.Integer(), nullable=False, server_default="1"),
+        sa.Column("views", sa.Integer(), nullable=True, server_default="0"),
+        sa.Column("reactions", sa.Integer(), nullable=True, server_default="0"),
+        sa.Column("comments", sa.Integer(), nullable=True, server_default="0"),
+        sa.Column("shares", sa.Integer(), nullable=True, server_default="0"),
+        sa.Column("author_id", sa.Integer(), nullable=True, server_default="1"),
         sa.Column("template_type", sa.Text(), nullable=True),
         sa.Column(
             "created_at",
             sa.Text(),
-            nullable=False,
+            nullable=True,
             server_default=sa.text("to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD\"T\"HH24:MI')"),
         ),
-        sa.Column("media", sa.Text(), nullable=False, server_default="[]"),
+        sa.Column("media", sa.Text(), nullable=True, server_default="[]"),
         sa.Column("location_address", sa.Text(), nullable=True),
         sa.Column("location_lat", sa.Float(), nullable=True),
         sa.Column("location_lng", sa.Float(), nullable=True),
         sa.Column("group_id", sa.Integer(), nullable=True),
         sa.Column("vk_post_id", sa.Text(), nullable=True),
-        sa.Column("tg_message_ids", sa.Text(), nullable=False, server_default="[]"),
+        sa.Column("tg_message_ids", sa.Text(), nullable=True, server_default="[]"),
         sa.Column("vk_stats_updated_at", sa.Text(), nullable=True),
         sa.ForeignKeyConstraint(["author_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
@@ -78,7 +78,7 @@ def upgrade() -> None:
         sa.Column("name", sa.Text(), nullable=False),
         sa.Column("type", sa.Text(), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
-        sa.Column("fields", sa.Text(), nullable=False, server_default="[]"),
+        sa.Column("fields", sa.Text(), nullable=True, server_default="[]"),
         sa.Column("template_text", sa.Text(), nullable=False),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("type"),
@@ -87,14 +87,14 @@ def upgrade() -> None:
     op.create_table(
         "notifications",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("user_id", sa.Integer(), nullable=False, server_default="1"),
+        sa.Column("user_id", sa.Integer(), nullable=True, server_default="1"),
         sa.Column("message", sa.Text(), nullable=False),
-        sa.Column("type", sa.Text(), nullable=False, server_default="info"),
-        sa.Column("is_read", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("type", sa.Text(), nullable=True, server_default="info"),
+        sa.Column("is_read", sa.Integer(), nullable=True, server_default="0"),
         sa.Column(
             "created_at",
             sa.Text(),
-            nullable=False,
+            nullable=True,
             server_default=sa.text("to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD\"T\"HH24:MI')"),
         ),
         sa.Column("group_id", sa.Integer(), nullable=True),
@@ -106,11 +106,11 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), autoincrement=False, nullable=False, server_default="1"),
         sa.Column("group_id", sa.Text(), nullable=False),
         sa.Column("access_token", sa.Text(), nullable=False),
-        sa.Column("group_name", sa.Text(), nullable=False, server_default=""),
+        sa.Column("group_name", sa.Text(), nullable=True, server_default=""),
         sa.Column(
             "connected_at",
             sa.Text(),
-            nullable=False,
+            nullable=True,
             server_default=sa.text("to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD\"T\"HH24:MI')"),
         ),
         sa.Column("workspace_id", sa.Integer(), nullable=True),
@@ -122,11 +122,11 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), autoincrement=False, nullable=False, server_default="1"),
         sa.Column("bot_token", sa.Text(), nullable=False),
         sa.Column("chat_id", sa.Text(), nullable=False),
-        sa.Column("chat_title", sa.Text(), nullable=False, server_default=""),
+        sa.Column("chat_title", sa.Text(), nullable=True, server_default=""),
         sa.Column(
             "connected_at",
             sa.Text(),
-            nullable=False,
+            nullable=True,
             server_default=sa.text("to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD\"T\"HH24:MI')"),
         ),
         sa.Column("workspace_id", sa.Integer(), nullable=True),
@@ -141,7 +141,7 @@ def upgrade() -> None:
         sa.Column("password_hash", sa.Text(), nullable=False),
         sa.Column("code", sa.Text(), nullable=False),
         sa.Column("expires_at", sa.DateTime(), nullable=False),
-        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.current_timestamp()),
+        sa.Column("created_at", sa.DateTime(), nullable=True, server_default=sa.func.current_timestamp()),
         sa.PrimaryKeyConstraint("id"),
     )
 
@@ -151,7 +151,7 @@ def upgrade() -> None:
         sa.Column("email", sa.Text(), nullable=False),
         sa.Column("code", sa.Text(), nullable=False),
         sa.Column("expires_at", sa.DateTime(), nullable=False),
-        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.current_timestamp()),
+        sa.Column("created_at", sa.DateTime(), nullable=True, server_default=sa.func.current_timestamp()),
         sa.PrimaryKeyConstraint("id"),
     )
 
@@ -159,13 +159,13 @@ def upgrade() -> None:
         "groups",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("name", sa.Text(), nullable=False),
-        sa.Column("description", sa.Text(), nullable=False, server_default=""),
-        sa.Column("avatar", sa.Text(), nullable=False, server_default=""),
+        sa.Column("description", sa.Text(), nullable=True, server_default=""),
+        sa.Column("avatar", sa.Text(), nullable=True, server_default=""),
         sa.Column("created_by", sa.Integer(), nullable=False),
         sa.Column(
             "created_at",
             sa.Text(),
-            nullable=False,
+            nullable=True,
             server_default=sa.text("to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD\"T\"HH24:MI')"),
         ),
         sa.ForeignKeyConstraint(["created_by"], ["users.id"]),
@@ -181,7 +181,7 @@ def upgrade() -> None:
         sa.Column(
             "joined_at",
             sa.Text(),
-            nullable=False,
+            nullable=True,
             server_default=sa.text("to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD\"T\"HH24:MI')"),
         ),
         sa.ForeignKeyConstraint(["group_id"], ["groups.id"], ondelete="CASCADE"),
@@ -198,12 +198,12 @@ def upgrade() -> None:
         sa.Column("role", sa.Text(), nullable=False, server_default="editor"),
         sa.Column("created_by", sa.Integer(), nullable=False),
         sa.Column("expires_at", sa.Text(), nullable=False),
-        sa.Column("used_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("max_uses", sa.Integer(), nullable=False, server_default="1"),
+        sa.Column("used_count", sa.Integer(), nullable=True, server_default="0"),
+        sa.Column("max_uses", sa.Integer(), nullable=True, server_default="1"),
         sa.Column(
             "created_at",
             sa.Text(),
-            nullable=False,
+            nullable=True,
             server_default=sa.text("to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD\"T\"HH24:MI')"),
         ),
         sa.ForeignKeyConstraint(["group_id"], ["groups.id"], ondelete="CASCADE"),
@@ -218,12 +218,12 @@ def upgrade() -> None:
         sa.Column("user_id", sa.Integer(), nullable=False),
         sa.Column("group_id", sa.Integer(), nullable=False),
         sa.Column("event_name", sa.Text(), nullable=False),
-        sa.Column("media", sa.Text(), nullable=False, server_default="[]"),
+        sa.Column("media", sa.Text(), nullable=True, server_default="[]"),
         sa.Column("status", sa.Text(), nullable=False, server_default="pending"),
         sa.Column(
             "created_at",
             sa.Text(),
-            nullable=False,
+            nullable=True,
             server_default=sa.text("to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD\"T\"HH24:MI')"),
         ),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
@@ -232,10 +232,10 @@ def upgrade() -> None:
     )
 
     # FK for posts.group_id, added after groups table exists
-    op.create_foreign_key("posts_group_fk", "posts", "groups", ["group_id"], ["groups.id"])
-    op.create_foreign_key("notifications_group_fk", "notifications", "groups", ["group_id"], ["groups.id"])
-    op.create_foreign_key("vk_settings_workspace_fk", "vk_settings", "groups", ["workspace_id"], ["groups.id"])
-    op.create_foreign_key("tg_settings_workspace_fk", "tg_settings", "groups", ["workspace_id"], ["groups.id"])
+    op.create_foreign_key("posts_group_fk", "posts", "groups", ["group_id"], ["id"])
+    op.create_foreign_key("notifications_group_fk", "notifications", "groups", ["group_id"], ["id"])
+    op.create_foreign_key("vk_settings_workspace_fk", "vk_settings", "groups", ["workspace_id"], ["id"])
+    op.create_foreign_key("tg_settings_workspace_fk", "tg_settings", "groups", ["workspace_id"], ["id"])
 
 
 def downgrade() -> None:

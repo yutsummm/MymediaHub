@@ -10,11 +10,23 @@ venv/
 dist/
 build/
 
+# Тесты и линтеры
+.pytest_cache/
+.ruff_cache/
+
+# Загруженные пользователями файлы
+backend/uploads/
+
 # Node
 node_modules/
 .next/
 .npm/
 npm-debug.log*
+
+# Артефакт инкрементальной сборки TypeScript.
+# Ломает сборку на Railway: nixpacks монтирует сюда кеш-директорию,
+# а bind-mount поверх существующего файла падает с «not a directory».
+*.tsbuildinfo
 
 # OS
 .DS_Store

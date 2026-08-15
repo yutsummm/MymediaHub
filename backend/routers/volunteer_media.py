@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException, Depends
-from typing import Optional
-from utils import get_db, get_current_user_id, require_group_member
 import json
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from utils import get_current_user_id, get_db, require_group_member
 
 router = APIRouter()
 
@@ -9,9 +10,9 @@ router = APIRouter()
 @router.get("/api/groups/{gid}/volunteer-media")
 def get_volunteer_media(
     gid: int,
-    event: Optional[str] = None,
-    user_id_filter: Optional[int] = None,
-    status: Optional[str] = None,
+    event: str | None = None,
+    user_id_filter: int | None = None,
+    status: str | None = None,
     limit: int = 50,
     offset: int = 0,
     user_id: int = Depends(get_current_user_id),

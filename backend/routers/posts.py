@@ -1,13 +1,28 @@
-from fastapi import APIRouter, HTTPException, Depends, Query, Request
-from typing import Optional, List
-from utils import (
-    get_db, row_to_dict, get_current_user_id, require_group_member,
-    vk_upload_photo_to_wall, vk_upload_video_to_wall, vk_upload_doc_to_wall,
-    vk_wall_post, tg_send_post, UPLOAD_DIR, _AI_PROMPTS, check_rate_limit,
-)
-from models import PostCreate, PostUpdate, AIEnhanceRequest, GenerateRequest
-import json, os, datetime
+import datetime
+import json
+import os
+
 import requests as http_requests
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from models import AIEnhanceRequest, GenerateRequest, PostCreate, PostUpdate
+from utils import (
+    _AI_PROMPTS,
+    UPLOAD_DIR,
+    check_rate_limit,
+    get_current_user_id,
+    get_db,
+    posts_scope,
+    require_admin,
+    require_group_member,
+    require_post_access,
+    row_to_dict,
+    tg_send_post,
+    vk_upload_doc_to_wall,
+    vk_upload_photo_to_wall,
+    vk_upload_video_to_wall,
+    vk_wall_post,
+)
 
 router = APIRouter()
 
@@ -16,17 +31,22 @@ router = APIRouter()
 
 @router.get("/api/posts")
 def get_posts(
-    q: Optional[str] = None,
-    status: Optional[str] = None,
-    platform: Optional[str] = None,
-    tag: Optional[str] = None,
+    q: str | None = None,
+    status: str | None = None,
+    platform: str | None = None,
+    tag: str | None = None,
     limit: int = 100,
     offset: int = 0,
+    user_id: int = Depends(get_current_user_id),
 ):
     conn = get_db()
     c = conn.cursor()
-    query = "SELECT p.*, u.name as author_name FROM posts p LEFT JOIN users u ON p.author_id=u.id WHERE 1=1"
-    params: list = []
+    scope_sql, scope_params = posts_scope(user_id, conn)
+    query = (
+        "SELECT p.*, u.name as author_name FROM posts p "
+        f"LEFT JOIN users u ON p.author_id=u.id WHERE {scope_sql}"
+    )
+    params: list = list(scope_params)
     if q:
         query += " AND (LOWER(p.title) LIKE LOWER(%s) OR LOWER(p.content) LIKE LOWER(%s))"
         params += [f'%{q}%', f'%{q}%']
@@ -43,14 +63,14 @@ def get_posts(
     params += [limit, offset]
     c.execute(query, params)
     rows = c.fetchall()
-    c.execute("SELECT COUNT(*) FROM posts")
+    c.execute(f"SELECT COUNT(*) FROM posts p WHERE {scope_sql}", scope_params)
     total = c.fetchone()["count"]
     conn.close()
     return {"posts": [row_to_dict(r) for r in rows], "total": total}
 
 
 @router.post("/api/posts")
-def create_post(body: PostCreate):
+def create_post(body: PostCreate, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
     c.execute(
@@ -59,7 +79,7 @@ def create_post(body: PostCreate):
         "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
         (body.title, body.content, body.status, json.dumps(body.platforms),
          json.dumps(body.tags), body.scheduled_at, body.location_address,
-         body.location_lat, body.location_lng, body.author_id, body.template_type,
+         body.location_lat, body.location_lng, user_id, body.template_type,
          json.dumps([m.dict() for m in body.media])),
     )
     pid = c.fetchone()["id"]
@@ -71,9 +91,10 @@ def create_post(body: PostCreate):
 
 
 @router.get("/api/posts/{post_id}")
-def get_post(post_id: int):
+def get_post(post_id: int, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
+    require_post_access(post_id, user_id, conn)
     c.execute(
         "SELECT p.*, u.name as author_name FROM posts p LEFT JOIN users u ON p.author_id=u.id WHERE p.id=%s",
         (post_id,),
@@ -86,13 +107,10 @@ def get_post(post_id: int):
 
 
 @router.put("/api/posts/{post_id}")
-def update_post(post_id: int, body: PostUpdate):
+def update_post(post_id: int, body: PostUpdate, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT id FROM posts WHERE id=%s", (post_id,))
-    if not c.fetchone():
-        conn.close()
-        raise HTTPException(404, "Пост не найден")
+    require_post_access(post_id, user_id, conn, write=True)
     updates, params = [], []
     if body.title is not None:
         updates.append("title=%s")
@@ -135,13 +153,10 @@ def update_post(post_id: int, body: PostUpdate):
 
 
 @router.delete("/api/posts/{post_id}")
-def delete_post(post_id: int):
+def delete_post(post_id: int, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT id FROM posts WHERE id=%s", (post_id,))
-    if not c.fetchone():
-        conn.close()
-        raise HTTPException(404)
+    require_post_access(post_id, user_id, conn, write=True)
     c.execute("DELETE FROM posts WHERE id=%s", (post_id,))
     conn.commit()
     conn.close()
@@ -149,14 +164,10 @@ def delete_post(post_id: int):
 
 
 @router.post("/api/posts/{post_id}/publish")
-def publish_post(post_id: int):
+def publish_post(post_id: int, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT * FROM posts WHERE id=%s", (post_id,))
-    post = c.fetchone()
-    if not post:
-        conn.close()
-        raise HTTPException(404)
+    post = require_post_access(post_id, user_id, conn, write=True)
     now = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M")
     c.execute(
         "UPDATE posts SET status='published',published_at=%s,views=0,reactions=0,comments=0,shares=0 WHERE id=%s",
@@ -296,10 +307,10 @@ def publish_post(post_id: int):
 @router.get("/api/groups/{gid}/posts")
 def get_group_posts(
     gid: int,
-    q: Optional[str] = None,
-    status: Optional[str] = None,
-    platform: Optional[str] = None,
-    tag: Optional[str] = None,
+    q: str | None = None,
+    status: str | None = None,
+    platform: str | None = None,
+    tag: str | None = None,
     limit: int = 100,
     offset: int = 0,
     user_id: int = Depends(get_current_user_id),
@@ -555,9 +566,10 @@ def publish_group_post(gid: int, post_id: int, user_id: int = Depends(get_curren
 # ── VK Stats Sync ────────────────────────────────────────────────────────────
 
 @router.post("/api/posts/sync-vk-stats")
-def sync_vk_stats():
+def sync_vk_stats(user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
+    require_admin(user_id, conn)
     c.execute("SELECT group_id, access_token FROM vk_settings WHERE id=1")
     vk = c.fetchone()
     if not vk:
@@ -684,14 +696,20 @@ def group_sync_vk_stats(gid: int, user_id: int = Depends(get_current_user_id)):
 # ── Calendar ─────────────────────────────────────────────────────────────────
 
 @router.get("/api/calendar")
-def get_calendar(start: str = Query(...), end: str = Query(...)):
+def get_calendar(
+    start: str = Query(...),
+    end: str = Query(...),
+    user_id: int = Depends(get_current_user_id),
+):
     conn = get_db()
     c = conn.cursor()
+    scope_sql, scope_params = posts_scope(user_id, conn, alias="")
     c.execute(
         "SELECT id,title,status,platforms,tags,scheduled_at,published_at,created_at FROM posts "
-        "WHERE (scheduled_at BETWEEN %s AND %s) OR (published_at BETWEEN %s AND %s) OR (created_at BETWEEN %s AND %s) "
+        f"WHERE {scope_sql} AND ("
+        "(scheduled_at BETWEEN %s AND %s) OR (published_at BETWEEN %s AND %s) OR (created_at BETWEEN %s AND %s)) "
         "ORDER BY COALESCE(scheduled_at, published_at, created_at)",
-        (start, end, start, end, start, end),
+        scope_params + [start, end, start, end, start, end],
     )
     rows = c.fetchall()
     conn.close()
@@ -701,7 +719,7 @@ def get_calendar(start: str = Query(...), end: str = Query(...)):
 # ── Templates ─────────────────────────────────────────────────────────────────
 
 @router.get("/api/templates")
-def get_templates():
+def get_templates(user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT * FROM templates")
@@ -719,7 +737,7 @@ def get_templates():
 
 
 @router.post("/api/generate-text")
-def generate_text(body: GenerateRequest):
+def generate_text(body: GenerateRequest, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT * FROM templates WHERE type=%s", (body.template_type,))
@@ -742,9 +760,10 @@ def generate_text(body: GenerateRequest):
 # ── AI Enhance ───────────────────────────────────────────────────────────────
 
 @router.post("/api/ai-enhance")
-def ai_enhance(body: AIEnhanceRequest, request: Request = None):
-    client_ip = request.client.host if request else "unknown"
-    check_rate_limit(f"ai:{client_ip}", 15, 60)
+def ai_enhance(body: AIEnhanceRequest, user_id: int = Depends(get_current_user_id)):
+    # Ключ по пользователю, а не по IP: за прокси Railway у всех клиентов один IP,
+    # и лимит по IP превратился бы в общий лимит на весь сервис.
+    check_rate_limit(f"ai:{user_id}", 15, 60)
     if not body.text.strip():
         raise HTTPException(400, "Текст не может быть пустым")
 

@@ -1,5 +1,5 @@
+
 from pydantic import BaseModel
-from typing import Optional, List
 
 
 class MediaItem(BaseModel):
@@ -12,28 +12,28 @@ class PostCreate(BaseModel):
     title: str
     content: str
     status: str = "draft"
-    platforms: List[str] = ["vk"]
-    tags: List[str] = []
-    scheduled_at: Optional[str] = None
-    template_type: Optional[str] = None
+    platforms: list[str] = ["vk"]
+    tags: list[str] = []
+    scheduled_at: str | None = None
+    template_type: str | None = None
     author_id: int = 1
-    media: List[MediaItem] = []
-    location_address: Optional[str] = None
-    location_lat: Optional[float] = None
-    location_lng: Optional[float] = None
+    media: list[MediaItem] = []
+    location_address: str | None = None
+    location_lat: float | None = None
+    location_lng: float | None = None
 
 
 class PostUpdate(BaseModel):
-    title: Optional[str] = None
-    content: Optional[str] = None
-    status: Optional[str] = None
-    platforms: Optional[List[str]] = None
-    tags: Optional[List[str]] = None
-    scheduled_at: Optional[str] = None
-    media: Optional[List[MediaItem]] = None
-    location_address: Optional[str] = None
-    location_lat: Optional[float] = None
-    location_lng: Optional[float] = None
+    title: str | None = None
+    content: str | None = None
+    status: str | None = None
+    platforms: list[str] | None = None
+    tags: list[str] | None = None
+    scheduled_at: str | None = None
+    media: list[MediaItem] | None = None
+    location_address: str | None = None
+    location_lat: float | None = None
+    location_lng: float | None = None
 
 
 class GenerateRequest(BaseModel):
@@ -101,9 +101,9 @@ class GroupCreate(BaseModel):
 
 
 class GroupUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    avatar: Optional[str] = None
+    name: str | None = None
+    description: str | None = None
+    avatar: str | None = None
 
 
 class GroupMemberRoleUpdate(BaseModel):
@@ -113,4 +113,4 @@ class GroupMemberRoleUpdate(BaseModel):
 class InviteLinkCreate(BaseModel):
     role: str = "editor"
     expires_hours: int = 24
-    max_uses: Optional[int] = None
+    max_uses: int | None = None

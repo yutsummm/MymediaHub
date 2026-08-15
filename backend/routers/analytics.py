@@ -1,12 +1,13 @@
-from fastapi import APIRouter, HTTPException, Depends, Query
-from fastapi.responses import StreamingResponse
-from utils import get_db, get_current_user_id, require_group_member
-from typing import Optional
+import io
 from datetime import datetime, timedelta
 from urllib.parse import quote
+
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-import io
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+from utils import get_current_user_id, get_db, posts_scope, require_group_member
 
 router = APIRouter()
 
@@ -88,7 +89,7 @@ def _build_workbook(dt_start, dt_end, summary: dict, timeline, pl_stats, top_pos
         ws2.append([row["date"], row["views"], row["reactions"], row["posts"]])
         ws2.row_dimensions[i].height = 18
         style_data_row(ws2, i, 4, shade=(i % 2 == 0))
-    for col, w in zip("ABCD", [14, 14, 12, 14]):
+    for col, w in zip("ABCD", [14, 14, 12, 14], strict=False):
         ws2.column_dimensions[col].width = w
 
     ws3 = wb.create_sheet("Площадки")
@@ -99,7 +100,7 @@ def _build_workbook(dt_start, dt_end, summary: dict, timeline, pl_stats, top_pos
         ws3.append([pl["platform"], pl["count"], pl["views"], pl["reactions"]])
         ws3.row_dimensions[i].height = 20
         style_data_row(ws3, i, 4, shade=(i % 2 == 0))
-    for col, w in zip("ABCD", [16, 14, 14, 12]):
+    for col, w in zip("ABCD", [16, 14, 14, 12], strict=False):
         ws3.column_dimensions[col].width = w
 
     ws4 = wb.create_sheet("Топ постов")
@@ -113,7 +114,7 @@ def _build_workbook(dt_start, dt_end, summary: dict, timeline, pl_stats, top_pos
         ])
         ws4.row_dimensions[i].height = 20
         style_data_row(ws4, i, 7, shade=(i % 2 == 0))
-    for col, w in zip("ABCDEFG", [4, 40, 12, 10, 14, 10, 22]):
+    for col, w in zip("ABCDEFG", [4, 40, 12, 10, 14, 10, 22], strict=False):
         ws4.column_dimensions[col].width = w
 
     return wb
@@ -122,30 +123,37 @@ def _build_workbook(dt_start, dt_end, summary: dict, timeline, pl_stats, top_pos
 # ── Global Analytics ──────────────────────────────────────────────────────────
 
 @router.get("/api/analytics/summary")
-def analytics_summary():
+def analytics_summary(user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT COUNT(*) FROM posts")
+    scope, sp = posts_scope(user_id, conn, alias="")
+    c.execute(f"SELECT COUNT(*) FROM posts WHERE {scope}", sp)
     total = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) FROM posts WHERE status='published'")
+    c.execute(f"SELECT COUNT(*) FROM posts WHERE {scope} AND status='published'", sp)
     published = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) FROM posts WHERE status='scheduled'")
+    c.execute(f"SELECT COUNT(*) FROM posts WHERE {scope} AND status='scheduled'", sp)
     scheduled = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) FROM posts WHERE status='draft'")
+    c.execute(f"SELECT COUNT(*) FROM posts WHERE {scope} AND status='draft'", sp)
     drafts = c.fetchone()["count"]
-    c.execute("SELECT SUM(views) v,SUM(reactions) r,SUM(comments) c,SUM(shares) sh FROM posts WHERE status='published'")
+    c.execute(
+        "SELECT SUM(views) v,SUM(reactions) r,SUM(comments) c,SUM(shares) sh FROM posts "
+        f"WHERE {scope} AND status='published'",
+        sp,
+    )
     s = c.fetchone()
     c.execute(
         "SELECT id,title,views,reactions,comments,shares,published_at FROM posts "
-        "WHERE status='published' ORDER BY (views+reactions*3+comments*2+shares*4) DESC LIMIT 5"
+        f"WHERE {scope} AND status='published' "
+        "ORDER BY (views+reactions*3+comments*2+shares*4) DESC LIMIT 5",
+        sp,
     )
     top = c.fetchall()
     pl_stats = []
     for pl in ["vk", "telegram"]:
         c.execute(
             "SELECT COUNT(*) cnt,SUM(views) v,SUM(reactions) r FROM posts "
-            "WHERE platforms LIKE %s AND status='published'",
-            (f'%"{pl}"%',),
+            f"WHERE {scope} AND platforms LIKE %s AND status='published'",
+            sp + [f'%"{pl}"%'],
         )
         ps = c.fetchone()
         pl_stats.append({"platform": pl, "count": ps["cnt"] or 0, "views": ps["v"] or 0, "reactions": ps["r"] or 0})
@@ -164,18 +172,20 @@ def analytics_summary():
 
 
 @router.get("/api/analytics/timeline")
-def analytics_timeline(period: str = "month"):
+def analytics_timeline(period: str = "month", user_id: int = Depends(get_current_user_id)):
     days = {"week": 7, "month": 30, "quarter": 90}.get(period, 30)
     now = datetime.now()
     result = []
     conn = get_db()
     c = conn.cursor()
+    scope, sp = posts_scope(user_id, conn, alias="")
     for i in range(days - 1, -1, -1):
         day = now - timedelta(days=i)
         ds = day.strftime("%Y-%m-%d")
         c.execute(
-            "SELECT SUM(views) v, SUM(reactions) r, COUNT(*) p FROM posts WHERE published_at LIKE %s",
-            (ds + "%",),
+            "SELECT SUM(views) v, SUM(reactions) r, COUNT(*) p FROM posts "
+            f"WHERE {scope} AND published_at LIKE %s",
+            sp + [ds + "%"],
         )
         row = c.fetchone()
         result.append({
@@ -187,7 +197,11 @@ def analytics_timeline(period: str = "month"):
 
 
 @router.get("/api/analytics/export")
-def analytics_export(start_date: str = Query(...), end_date: str = Query(...)):
+def analytics_export(
+    start_date: str = Query(...),
+    end_date: str = Query(...),
+    user_id: int = Depends(get_current_user_id),
+):
     try:
         dt_start = datetime.strptime(start_date, "%Y-%m-%d")
         dt_end = datetime.strptime(end_date, "%Y-%m-%d")
@@ -197,21 +211,27 @@ def analytics_export(start_date: str = Query(...), end_date: str = Query(...)):
     conn = get_db()
     c = conn.cursor()
 
-    date_filter = "published_at >= %s AND published_at < %s AND status='published'"
+    scope, sp = posts_scope(user_id, conn, alias="")
     end_next = (dt_end + timedelta(days=1)).strftime("%Y-%m-%d")
     start_str = dt_start.strftime("%Y-%m-%d")
 
-    c.execute(f"SELECT COUNT(*) FROM posts WHERE {date_filter}", (start_str, end_next))
+    date_filter = f"{scope} AND published_at >= %s AND published_at < %s AND status='published'"
+    df_params = sp + [start_str, end_next]
+
+    c.execute(f"SELECT COUNT(*) FROM posts WHERE {date_filter}", df_params)
     published = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) FROM posts WHERE status='scheduled'")
+    c.execute(f"SELECT COUNT(*) FROM posts WHERE {scope} AND status='scheduled'", sp)
     scheduled = c.fetchone()["count"]
-    c.execute("SELECT COUNT(*) FROM posts WHERE status='draft'")
+    c.execute(f"SELECT COUNT(*) FROM posts WHERE {scope} AND status='draft'", sp)
     drafts = c.fetchone()["count"]
-    c.execute(f"SELECT COUNT(*) FROM posts WHERE published_at >= %s AND published_at < %s", (start_str, end_next))
+    c.execute(
+        f"SELECT COUNT(*) FROM posts WHERE {scope} AND published_at >= %s AND published_at < %s",
+        sp + [start_str, end_next],
+    )
     total = c.fetchone()["count"]
     c.execute(
         f"SELECT SUM(views) v,SUM(reactions) r,SUM(comments) cm,SUM(shares) sh FROM posts WHERE {date_filter}",
-        (start_str, end_next),
+        df_params,
     )
     s = c.fetchone()
     total_views = s["v"] or 0
@@ -222,7 +242,11 @@ def analytics_export(start_date: str = Query(...), end_date: str = Query(...)):
     for i in range(delta):
         day = dt_start + timedelta(days=i)
         ds = day.strftime("%Y-%m-%d")
-        c.execute("SELECT SUM(views) v, SUM(reactions) r, COUNT(*) p FROM posts WHERE published_at LIKE %s", (ds + "%",))
+        c.execute(
+            "SELECT SUM(views) v, SUM(reactions) r, COUNT(*) p FROM posts "
+            f"WHERE {scope} AND published_at LIKE %s",
+            sp + [ds + "%"],
+        )
         row = c.fetchone()
         timeline.append({"date": ds, "label": day.strftime("%d.%m"), "views": row["v"] or 0, "reactions": row["r"] or 0, "posts": row["p"] or 0})
 
@@ -230,7 +254,7 @@ def analytics_export(start_date: str = Query(...), end_date: str = Query(...)):
     for pl in ["vk", "telegram"]:
         c.execute(
             f"SELECT COUNT(*) cnt,SUM(views) v,SUM(reactions) r FROM posts WHERE platforms LIKE %s AND {date_filter}",
-            (f'%"{pl}"%', start_str, end_next),
+            [f'%"{pl}"%'] + df_params,
         )
         ps = c.fetchone()
         pl_stats.append({"platform": pl.upper(), "count": ps["cnt"] or 0, "views": ps["v"] or 0, "reactions": ps["r"] or 0})
@@ -238,7 +262,7 @@ def analytics_export(start_date: str = Query(...), end_date: str = Query(...)):
     c.execute(
         f"SELECT title,views,reactions,comments,shares,published_at FROM posts WHERE {date_filter} "
         "ORDER BY (views+reactions*3+comments*2+shares*4) DESC LIMIT 10",
-        (start_str, end_next),
+        df_params,
     )
     top_posts = c.fetchall()
     conn.close()
@@ -362,7 +386,7 @@ def group_analytics_export(
     scheduled = c.fetchone()["count"]
     c.execute("SELECT COUNT(*) FROM posts WHERE group_id=%s AND status='draft'", (gid,))
     drafts = c.fetchone()["count"]
-    c.execute(f"SELECT COUNT(*) FROM posts WHERE group_id=%s AND published_at >= %s AND published_at < %s", (gid, start_str, end_next))
+    c.execute("SELECT COUNT(*) FROM posts WHERE group_id=%s AND published_at >= %s AND published_at < %s", (gid, start_str, end_next))
     total = c.fetchone()["count"]
     c.execute(
         f"SELECT SUM(views) v,SUM(reactions) r,SUM(comments) cm,SUM(shares) sh FROM posts WHERE {date_filter}",

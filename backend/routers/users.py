@@ -1,15 +1,18 @@
-from fastapi import APIRouter, HTTPException
-from utils import get_db, row_to_dict, hash_password
-from models import UserUpdate, UserCreate
 import re
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from models import UserCreate, UserUpdate
+from utils import get_current_user_id, get_db, hash_password, require_admin, row_to_dict
 
 router = APIRouter()
 
 
 @router.get("/api/users")
-def get_users(limit: int = 100, offset: int = 0):
+def get_users(limit: int = 100, offset: int = 0, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
+    require_admin(user_id, conn)
     c.execute("SELECT * FROM users ORDER BY id LIMIT %s OFFSET %s", (limit, offset))
     rows = c.fetchall()
     c.execute("SELECT COUNT(*) FROM users")
@@ -19,9 +22,15 @@ def get_users(limit: int = 100, offset: int = 0):
 
 
 @router.put("/api/users/{user_id}/role")
-def update_role(user_id: int, body: UserUpdate):
+def update_role(user_id: int, body: UserUpdate, actor_id: int = Depends(get_current_user_id)):
+    if body.role not in ("admin", "editor", "volunteer"):
+        raise HTTPException(400, "Недопустимая роль")
     conn = get_db()
     c = conn.cursor()
+    require_admin(actor_id, conn)
+    if actor_id == user_id and body.role != "admin":
+        conn.close()
+        raise HTTPException(400, "Нельзя снять с себя права администратора")
     c.execute("UPDATE users SET role=%s WHERE id=%s", (body.role, user_id))
     conn.commit()
     c.execute("SELECT * FROM users WHERE id=%s", (user_id,))
@@ -31,7 +40,9 @@ def update_role(user_id: int, body: UserUpdate):
 
 
 @router.post("/api/users")
-def create_user(body: UserCreate):
+def create_user(body: UserCreate, actor_id: int = Depends(get_current_user_id)):
+    if body.role not in ("admin", "editor", "volunteer"):
+        raise HTTPException(400, "Недопустимая роль")
     if not body.name.strip():
         raise HTTPException(400, "Введите имя")
     if not body.email.strip():
@@ -44,6 +55,7 @@ def create_user(body: UserCreate):
         raise HTTPException(400, "Пароль должен содержать хотя бы один спецсимвол")
     conn = get_db()
     c = conn.cursor()
+    require_admin(actor_id, conn)
     c.execute("SELECT id FROM users WHERE email=%s", (body.email.lower().strip(),))
     if c.fetchone():
         conn.close()
@@ -62,9 +74,13 @@ def create_user(body: UserCreate):
 
 
 @router.delete("/api/users/{user_id}")
-def delete_user(user_id: int):
+def delete_user(user_id: int, actor_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
+    require_admin(actor_id, conn)
+    if actor_id == user_id:
+        conn.close()
+        raise HTTPException(400, "Нельзя удалить самого себя")
     c.execute("SELECT id FROM users WHERE id=%s", (user_id,))
     if not c.fetchone():
         conn.close()

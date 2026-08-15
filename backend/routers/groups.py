@@ -1,8 +1,10 @@
-from fastapi import APIRouter, HTTPException, Depends
-from utils import get_db, get_current_user_id, require_group_member
-from models import GroupCreate, GroupUpdate, GroupMemberRoleUpdate, InviteLinkCreate
-from datetime import datetime, timedelta
 import uuid
+from datetime import datetime, timedelta
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from models import GroupCreate, GroupMemberRoleUpdate, GroupUpdate, InviteLinkCreate
+from utils import get_current_user_id, get_db, require_group_member
 
 router = APIRouter()
 
@@ -236,7 +238,7 @@ def accept_invite(token: str, user_id: int = Depends(get_current_user_id)):
         raise HTTPException(409, "Вы уже участник этой группы")
     c.execute(
         "INSERT INTO group_members (group_id, user_id, role) VALUES (%s, %s, %s)",
-        (gid, link["role"], user_id),
+        (gid, user_id, link["role"]),
     )
     c.execute("UPDATE invite_links SET used_count=used_count+1 WHERE token=%s", (token,))
     conn.commit()

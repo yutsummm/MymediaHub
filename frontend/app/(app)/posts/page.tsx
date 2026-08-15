@@ -126,12 +126,12 @@ export default function PostsPage() {
       const result = currentGroup
         ? await api.publishGroupPost(currentGroup.id, p.id)
         : await api.publishPost(p.id)
-      const r = result as any
+      const r = result
       const errs: string[] = []
       const okParts: string[] = []
       if (r.vk_error) errs.push(`VK: ${r.vk_error}`)
       else if (r.vk_post_id) okParts.push(`VK (id: ${r.vk_post_id})`)
-      if (r.photo_errors?.length) errs.push(`VK медиа: ${r.photo_errors[0]}`)
+      if (r.vk_photo_errors?.length) errs.push(`VK медиа: ${r.vk_photo_errors[0]}`)
       if (r.tg_error) errs.push(`Telegram: ${r.tg_error}`)
       else if (r.tg_message_ids?.length) okParts.push(`Telegram (${r.tg_message_ids.length} сообщ.)`)
       if (errs.length) {

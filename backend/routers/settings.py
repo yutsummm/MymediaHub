@@ -1,12 +1,18 @@
-from fastapi import APIRouter, HTTPException, Depends
-from utils import (
-    get_db, get_current_user_id, require_group_member,
-    vk_get_group_name, tg_get_chat_title, VK_API_VERSION,
-)
-from models import VkSettingsSave, TgSettingsSave, VkOAuthExchange
 from datetime import datetime
+
 import requests as http_requests
-import os
+from fastapi import APIRouter, Depends, HTTPException
+
+from models import TgSettingsSave, VkOAuthExchange, VkSettingsSave
+from utils import (
+    VK_API_VERSION,
+    get_current_user_id,
+    get_db,
+    require_admin,
+    require_group_member,
+    tg_get_chat_title,
+    vk_get_group_name,
+)
 
 router = APIRouter()
 
@@ -14,9 +20,10 @@ router = APIRouter()
 # ── VK Settings ───────────────────────────────────────────────────────────────
 
 @router.get("/api/settings/vk")
-def get_vk_settings():
+def get_vk_settings(user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
+    require_admin(user_id, conn)
     c.execute("SELECT id, group_id, group_name, connected_at FROM vk_settings WHERE id=1")
     row = c.fetchone()
     conn.close()
@@ -28,12 +35,14 @@ def get_vk_settings():
 
 
 @router.post("/api/settings/vk")
-def save_vk_settings(body: VkSettingsSave):
+def save_vk_settings(body: VkSettingsSave, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    require_admin(user_id, conn)
     try:
         group_name = vk_get_group_name(body.access_token, body.group_id)
     except ValueError as e:
+        conn.close()
         raise HTTPException(400, str(e))
-    conn = get_db()
     c = conn.cursor()
     c.execute("SELECT id FROM vk_settings WHERE id=1")
     exists = c.fetchone()
@@ -54,7 +63,12 @@ def save_vk_settings(body: VkSettingsSave):
 
 
 @router.post("/api/vk/oauth-exchange")
-def vk_oauth_exchange(body: VkOAuthExchange):
+def vk_oauth_exchange(body: VkOAuthExchange, user_id: int = Depends(get_current_user_id)):
+    conn_check = get_db()
+    try:
+        require_admin(user_id, conn_check)
+    finally:
+        conn_check.close()
     r = http_requests.get(
         "https://oauth.vk.com/access_token",
         params={
@@ -97,9 +111,10 @@ def vk_oauth_exchange(body: VkOAuthExchange):
 
 
 @router.delete("/api/settings/vk")
-def delete_vk_settings():
+def delete_vk_settings(user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
+    require_admin(user_id, conn)
     c.execute("DELETE FROM vk_settings WHERE id=1")
     conn.commit()
     conn.close()
@@ -188,9 +203,10 @@ def delete_group_vk_settings(gid: int, user_id: int = Depends(get_current_user_i
 # ── Telegram Settings ────────────────────────────────────────────────────────
 
 @router.get("/api/settings/telegram")
-def get_tg_settings():
+def get_tg_settings(user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
+    require_admin(user_id, conn)
     c.execute("SELECT id, chat_id, chat_title, connected_at FROM tg_settings WHERE id=1")
     row = c.fetchone()
     conn.close()
@@ -202,12 +218,14 @@ def get_tg_settings():
 
 
 @router.post("/api/settings/telegram")
-def save_tg_settings(body: TgSettingsSave):
+def save_tg_settings(body: TgSettingsSave, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    require_admin(user_id, conn)
     try:
         chat_title = tg_get_chat_title(body.bot_token, body.chat_id)
     except ValueError as e:
+        conn.close()
         raise HTTPException(400, str(e))
-    conn = get_db()
     c = conn.cursor()
     c.execute("SELECT id FROM tg_settings WHERE id=1")
     exists = c.fetchone()
@@ -228,9 +246,10 @@ def save_tg_settings(body: TgSettingsSave):
 
 
 @router.delete("/api/settings/telegram")
-def delete_tg_settings():
+def delete_tg_settings(user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
+    require_admin(user_id, conn)
     c.execute("DELETE FROM tg_settings WHERE id=1")
     conn.commit()
     conn.close()

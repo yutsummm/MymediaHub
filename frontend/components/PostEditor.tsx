@@ -198,7 +198,7 @@ export default function PostEditor({
         else newPost = await api.createPost(body)
         if (status === 'published' && currentGroup) {
           try {
-            const r = await api.publishGroupPost(currentGroup.id, newPost.id) as any
+            const r = await api.publishGroupPost(currentGroup.id, newPost.id)
             const errs: string[] = []
             const okParts: string[] = []
             if (r.vk_error) errs.push(`VK: ${r.vk_error}`)

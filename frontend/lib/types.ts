@@ -39,6 +39,16 @@ export interface Post {
   vk_stats_updated_at?: string | null
 }
 
+/**
+ * Ответ ручек публикации: сам пост плюс результат отправки в VK и Telegram.
+ * Поля необязательные — приходят только когда платформа реально задействована.
+ */
+export interface PublishResult extends Post {
+  vk_error?: string
+  vk_photo_errors?: string[]
+  tg_error?: string
+}
+
 export interface TemplateField {
   key: string
   label: string

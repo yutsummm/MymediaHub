@@ -3,13 +3,19 @@ MediaHub — Медиахаб для молодёжных центров
 FastAPI + PostgreSQL backend
 """
 
+import datetime
+import json
+import os
+import random
+
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from dotenv import load_dotenv
-import os, json, random, datetime, hashlib
 
-from utils import get_db, hash_password, UPLOAD_DIR
+from alembic import command
+from alembic.config import Config
+from utils import DATABASE_URL, UPLOAD_DIR, get_db, hash_password
 
 load_dotenv()
 
@@ -34,16 +40,16 @@ app.add_middleware(
 
 # ── Routers ──────────────────────────────────────────────────────────────────
 
-from routers.auth import router as auth_router
-from routers.posts import router as posts_router
-from routers.groups import router as groups_router
-from routers.settings import router as settings_router
-from routers.volunteer_media import router as volunteer_media_router
-from routers.notifications import router as notifications_router
 from routers.analytics import router as analytics_router
-from routers.users import router as users_router
-from routers.yc import router as yc_router
+from routers.auth import router as auth_router
+from routers.groups import router as groups_router
+from routers.notifications import router as notifications_router
+from routers.posts import router as posts_router
+from routers.settings import router as settings_router
 from routers.upload import router as upload_router
+from routers.users import router as users_router
+from routers.volunteer_media import router as volunteer_media_router
+from routers.yc import router as yc_router
 
 app.include_router(auth_router)
 app.include_router(posts_router)
@@ -64,169 +70,93 @@ def root():
     return {"status": "ok", "service": "MediaHub API"}
 
 
-# ── DB init ──────────────────────────────────────────────────────────────────
+# ── Схема БД ─────────────────────────────────────────────────────────────────
+# Единственный источник правды по схеме — миграции alembic (alembic/versions/).
+# Здесь только их запуск; CREATE TABLE руками добавлять нельзя — новую колонку
+# заводите через `alembic revision`, иначе схема снова разъедется.
 
-def init_db():
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Ревизия, описывающая схему в том виде, в каком её создавал прежний init_db().
+# База, поднятая до перехода на alembic, помечается этой ревизией без повторного
+# применения DDL — таблицы в ней уже есть.
+BASELINE_REVISION = "3ee67a8c2e29"
+
+
+def _alembic_config() -> Config:
+    cfg = Config(os.path.join(BASE_DIR, "alembic.ini"))
+    cfg.set_main_option("script_location", os.path.join(BASE_DIR, "alembic"))
+    # URL передаём через attributes, а не set_main_option: ConfigParser
+    # интерполирует «%», и URL-encoded пароль (Railway) сломал бы запуск.
+    cfg.attributes["db_url"] = DATABASE_URL
+    return cfg
+
+
+# Объекты, которые прежний init_db() добавлял в последнюю очередь (ALTER TABLE
+# и поздние CREATE TABLE). Если база «дореформенная», но чего-то из этого нет,
+# значит она отстаёт от baseline-ревизии и помечать её нельзя — молча
+# проштампованная неполная схема даст 500-е уже в рантайме.
+BASELINE_REQUIRED = [
+    ("users", "password_hash"),
+    ("posts", "media"),
+    ("posts", "location_address"),
+    ("posts", "location_lat"),
+    ("posts", "location_lng"),
+    ("posts", "group_id"),
+    ("posts", "vk_post_id"),
+    ("posts", "tg_message_ids"),
+    ("posts", "vk_stats_updated_at"),
+    ("notifications", "group_id"),
+    ("vk_settings", "workspace_id"),
+    ("tg_settings", "workspace_id"),
+    ("groups", "id"),
+    ("group_members", "id"),
+    ("invite_links", "id"),
+    ("volunteer_media", "id"),
+]
+
+
+def _assert_matches_baseline(conn):
+    c = conn.cursor()
+    c.execute(
+        "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema='public'"
+    )
+    present = {(r["table_name"], r["column_name"]) for r in c.fetchall()}
+    missing = [f"{t}.{col}" for t, col in BASELINE_REQUIRED if (t, col) not in present]
+    if missing:
+        raise RuntimeError(
+            "База выглядит созданной до перехода на alembic, но не дотягивает до "
+            f"ревизии {BASELINE_REVISION}. Не хватает: {', '.join(missing)}. "
+            "Пометить её базовой ревизией нельзя — приведите схему вручную "
+            "или снимите дамп и обратитесь к миграциям."
+        )
+
+
+def run_migrations():
     conn = get_db()
     c = conn.cursor()
+    c.execute(
+        "SELECT to_regclass('public.alembic_version') IS NOT NULL AS versioned, "
+        "       to_regclass('public.users') IS NOT NULL AS legacy"
+    )
+    state = c.fetchone()
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY,
-            name TEXT NOT NULL,
-            email TEXT UNIQUE NOT NULL,
-            role TEXT NOT NULL DEFAULT 'editor',
-            avatar TEXT DEFAULT '',
-            created_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI')
-        )
-    """)
+    cfg = _alembic_config()
+    if state["legacy"] and not state["versioned"]:
+        _assert_matches_baseline(conn)
+        conn.close()
+        command.stamp(cfg, BASELINE_REVISION)
+        print(f"alembic: существующая схема помечена ревизией {BASELINE_REVISION}")
+    else:
+        conn.close()
+    command.upgrade(cfg, "head")
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS posts (
-            id SERIAL PRIMARY KEY,
-            title TEXT NOT NULL,
-            content TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'draft',
-            platforms TEXT DEFAULT '["vk"]',
-            tags TEXT DEFAULT '[]',
-            scheduled_at TEXT,
-            published_at TEXT,
-            views INTEGER DEFAULT 0,
-            reactions INTEGER DEFAULT 0,
-            comments INTEGER DEFAULT 0,
-            shares INTEGER DEFAULT 0,
-            author_id INTEGER DEFAULT 1,
-            template_type TEXT,
-            created_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI'),
-            FOREIGN KEY (author_id) REFERENCES users(id)
-        )
-    """)
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS templates (
-            id SERIAL PRIMARY KEY,
-            name TEXT NOT NULL,
-            type TEXT NOT NULL UNIQUE,
-            description TEXT,
-            fields TEXT DEFAULT '[]',
-            template_text TEXT NOT NULL
-        )
-    """)
+# ── Демо-данные ──────────────────────────────────────────────────────────────
 
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS notifications (
-            id SERIAL PRIMARY KEY,
-            user_id INTEGER DEFAULT 1,
-            message TEXT NOT NULL,
-            type TEXT DEFAULT 'info',
-            is_read INTEGER DEFAULT 0,
-            created_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI')
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS vk_settings (
-            id INTEGER PRIMARY KEY DEFAULT 1,
-            group_id TEXT NOT NULL,
-            access_token TEXT NOT NULL,
-            group_name TEXT DEFAULT '',
-            connected_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI')
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS tg_settings (
-            id INTEGER PRIMARY KEY DEFAULT 1,
-            bot_token TEXT NOT NULL,
-            chat_id TEXT NOT NULL,
-            chat_title TEXT DEFAULT '',
-            connected_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI')
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS email_verifications (
-            id SERIAL PRIMARY KEY,
-            email TEXT NOT NULL,
-            name TEXT NOT NULL,
-            password_hash TEXT NOT NULL,
-            code TEXT NOT NULL,
-            expires_at TIMESTAMP NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS password_resets (
-            id SERIAL PRIMARY KEY,
-            email TEXT NOT NULL,
-            code TEXT NOT NULL,
-            expires_at TIMESTAMP NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS media TEXT DEFAULT '[]'")
-    c.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
-    c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS location_address TEXT")
-    c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS location_lat DOUBLE PRECISION")
-    c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS location_lng DOUBLE PRECISION")
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS groups (
-            id SERIAL PRIMARY KEY,
-            name TEXT NOT NULL,
-            description TEXT DEFAULT '',
-            avatar TEXT DEFAULT '',
-            created_by INTEGER NOT NULL REFERENCES users(id),
-            created_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI')
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS group_members (
-            id SERIAL PRIMARY KEY,
-            group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            role TEXT NOT NULL DEFAULT 'editor',
-            joined_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI'),
-            UNIQUE (group_id, user_id)
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS invite_links (
-            id SERIAL PRIMARY KEY,
-            group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-            token TEXT NOT NULL UNIQUE,
-            role TEXT NOT NULL DEFAULT 'editor',
-            created_by INTEGER NOT NULL REFERENCES users(id),
-            expires_at TEXT NOT NULL,
-            used_count INTEGER DEFAULT 0,
-            max_uses INTEGER DEFAULT 1,
-            created_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI')
-        )
-    """)
-
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS volunteer_media (
-            id SERIAL PRIMARY KEY,
-            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-            event_name TEXT NOT NULL,
-            media TEXT DEFAULT '[]',
-            status TEXT NOT NULL DEFAULT 'pending',
-            created_at TEXT DEFAULT to_char(CURRENT_TIMESTAMP, 'YYYY-MM-DD"T"HH24:MI')
-        )
-    """)
-
-    c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id)")
-    c.execute("ALTER TABLE notifications ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES groups(id)")
-    c.execute("ALTER TABLE vk_settings ADD COLUMN IF NOT EXISTS workspace_id INTEGER REFERENCES groups(id)")
-    c.execute("ALTER TABLE tg_settings ADD COLUMN IF NOT EXISTS workspace_id INTEGER REFERENCES groups(id)")
-    c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS vk_post_id TEXT")
-    c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS tg_message_ids TEXT DEFAULT '[]'")
-    c.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS vk_stats_updated_at TEXT")
+def seed_db():
+    conn = get_db()
+    c = conn.cursor()
 
     c.execute("SELECT COUNT(*) FROM users")
     if c.fetchone()["count"] == 0:
@@ -363,11 +293,16 @@ def init_db():
 @app.on_event("startup")
 def startup():
     try:
-        init_db()
-        print("✅  MediaHub API запущен!  →  http://localhost:8000")
+        run_migrations()
     except Exception as e:
-        print(f"❌  init_db() FAILED: {e}")
+        print(f"❌  миграции не применились: {e}")
         raise
+    try:
+        seed_db()
+    except Exception as e:
+        print(f"❌  seed_db() FAILED: {e}")
+        raise
+    print("✅  MediaHub API запущен!  →  http://localhost:8000")
 
 
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")

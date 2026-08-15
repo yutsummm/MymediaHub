@@ -1,16 +1,27 @@
-from fastapi import APIRouter, HTTPException, UploadFile, File
+import os
+import uuid
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+
 from utils import (
+    ALLOWED_DOC_TYPES,
+    ALLOWED_IMAGE_TYPES,
+    ALLOWED_VIDEO_TYPES,
+    MAX_DOC_SIZE,
+    MAX_IMAGE_SIZE,
+    MAX_VIDEO_SIZE,
     UPLOAD_DIR,
-    ALLOWED_IMAGE_TYPES, ALLOWED_VIDEO_TYPES, ALLOWED_DOC_TYPES,
-    MAX_IMAGE_SIZE, MAX_VIDEO_SIZE, MAX_DOC_SIZE,
+    get_current_user_id,
 )
-import os, uuid
 
 router = APIRouter()
 
 
 @router.post("/api/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(
+    file: UploadFile = File(...),
+    user_id: int = Depends(get_current_user_id),
+):
     content_type = file.content_type or ""
     if content_type not in ALLOWED_IMAGE_TYPES | ALLOWED_VIDEO_TYPES | ALLOWED_DOC_TYPES:
         raise HTTPException(400, f"Неподдерживаемый тип файла: {content_type}")

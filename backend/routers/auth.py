@@ -1,10 +1,23 @@
+import os
+import random
+import re
+import smtplib
+import sys
+import traceback
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, HTTPException, Request
+
+from models import ForgotPasswordRequest, LoginRequest, RegisterRequest, ResetPasswordRequest
 from utils import (
-    get_db, row_to_dict, hash_password, verify_password,
-    create_token, get_current_user_id, check_rate_limit, send_reset_email,
+    check_rate_limit,
+    create_token,
+    get_db,
+    hash_password,
+    row_to_dict,
+    send_reset_email,
+    verify_password,
 )
-from models import LoginRequest, RegisterRequest, ForgotPasswordRequest, ResetPasswordRequest
-import random, datetime, re, os, smtplib, traceback, sys
 
 router = APIRouter()
 
