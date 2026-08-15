@@ -8,8 +8,16 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Request
 
-from models import ForgotPasswordRequest, LoginRequest, RegisterRequest, ResetPasswordRequest
+from models import (
+    ForgotPasswordRequest,
+    LoginRequest,
+    RegisterRequest,
+    ResendCodeRequest,
+    ResetPasswordRequest,
+    VerifyEmailRequest,
+)
 from utils import (
+    check_invite_usable,
     check_rate_limit,
     create_token,
     get_db,
@@ -17,10 +25,54 @@ from utils import (
     redeem_invite,
     row_to_dict,
     send_reset_email,
+    send_verification_email,
     verify_password,
 )
 
 router = APIRouter()
+
+# Сколько живёт код подтверждения регистрации.
+VERIFICATION_TTL = timedelta(minutes=15)
+
+
+def _issue_session(c, uid: int) -> dict:
+    """Ответ, который ждёт фронт после успешного входа: пользователь, токен, группы."""
+    c.execute("SELECT * FROM users WHERE id=%s", (uid,))
+    user = c.fetchone()
+    c.execute(
+        "SELECT g.id, g.name, g.description, g.avatar, gm.role, g.created_at "
+        "FROM groups g JOIN group_members gm ON g.id = gm.group_id WHERE gm.user_id=%s ORDER BY g.id",
+        (uid,),
+    )
+    groups = [dict(r) for r in c.fetchall()]
+    return {"user": row_to_dict(user), "token": create_token(uid), "groups": groups}
+
+
+def _validate_password(password: str) -> None:
+    if len(password) < 8:
+        raise HTTPException(400, "Пароль должен содержать минимум 8 символов")
+    if not re.search(r'[a-zA-Zа-яА-Я]', password):
+        raise HTTPException(400, "Пароль должен содержать хотя бы одну букву")
+    if not re.search(r'[!@#$%^&*()\-_=+\[\]{};:\'",.<>/?\\|`~]', password):
+        raise HTTPException(400, "Пароль должен содержать хотя бы один спецсимвол")
+
+
+def _send_code_or_drop(conn, email: str, code: str) -> None:
+    """
+    Письмо уходит после коммита заявки. Если отправка не удалась — заявку
+    убираем, иначе человек застрянет с кодом, которого никогда не увидит.
+    """
+    try:
+        send_verification_email(email, code)
+    except Exception as e:
+        c = conn.cursor()
+        c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
+        conn.commit()
+        conn.close()
+        if isinstance(e, ValueError):
+            raise HTTPException(503, str(e))
+        traceback.print_exc(file=sys.stderr)
+        raise HTTPException(500, f"Не удалось отправить письмо: {type(e).__name__}: {e}")
 
 
 @router.post("/api/auth/login")
@@ -39,16 +91,9 @@ def login(req: LoginRequest, request: Request = None):
     if not ph or not verify_password(req.password, ph):
         conn.close()
         raise HTTPException(401, "Неверный пароль")
-    user_id = user["id"]
-    token = create_token(user_id)
-    c.execute(
-        "SELECT g.id, g.name, g.description, g.avatar, gm.role, g.created_at "
-        "FROM groups g JOIN group_members gm ON g.id = gm.group_id WHERE gm.user_id=%s ORDER BY g.id",
-        (user_id,),
-    )
-    groups = [dict(r) for r in c.fetchall()]
+    session = _issue_session(c, user["id"])
     conn.close()
-    return {"user": row_to_dict(user), "token": token, "groups": groups}
+    return session
 
 
 @router.get("/api/debug/smtp-test")
@@ -70,18 +115,21 @@ def smtp_test():
 
 @router.post("/api/auth/register")
 def register(req: RegisterRequest, request: Request = None):
+    """
+    Шаг 1 из 2. Пользователь здесь НЕ создаётся — заявка кладётся в
+    email_verifications, а на почту уходит код. Аккаунт появляется только после
+    /api/auth/verify-email. Иначе любым чужим адресом можно было завести
+    рабочий аккаунт: почта никак не проверялась.
+    """
     client_ip = request.client.host if request else "unknown"
     check_rate_limit(f"register:{client_ip}", 3, 300)
     if not req.name.strip():
         raise HTTPException(400, "Введите имя")
     if not req.email.strip():
         raise HTTPException(400, "Введите email")
-    if len(req.password) < 8:
-        raise HTTPException(400, "Пароль должен содержать минимум 8 символов")
-    if not re.search(r'[a-zA-Zа-яА-Я]', req.password):
-        raise HTTPException(400, "Пароль должен содержать хотя бы одну букву")
-    if not re.search(r'[!@#$%^&*()\-_=+\[\]{};:\'",.<>/?\\|`~]', req.password):
-        raise HTTPException(400, "Пароль должен содержать хотя бы один спецсимвол")
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", req.email.strip()):
+        raise HTTPException(400, "Некорректный email")
+    _validate_password(req.password)
     email = req.email.lower().strip()
     name = req.name.strip()
     conn = get_db()
@@ -90,10 +138,75 @@ def register(req: RegisterRequest, request: Request = None):
     if c.fetchone():
         conn.close()
         raise HTTPException(409, "Пользователь с таким email уже существует")
+
+    # Ссылку проверяем сразу, не расходуя: про мёртвое приглашение надо сказать
+    # здесь, а не после того, как человек сходит за кодом в почту.
+    if req.invite_token:
+        try:
+            check_invite_usable(req.invite_token.strip(), conn)
+        except HTTPException:
+            conn.close()
+            raise
+
+    # Пароль храним уже захешированным: заявка живёт в базе до подтверждения.
+    code = str(random.randint(100000, 999999))
+    c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
+    c.execute(
+        "INSERT INTO email_verifications (email, name, password_hash, code, expires_at, invite_token) "
+        "VALUES (%s,%s,%s,%s,%s,%s)",
+        (
+            email,
+            name,
+            hash_password(req.password),
+            code,
+            datetime.utcnow() + VERIFICATION_TTL,
+            req.invite_token.strip() if req.invite_token else None,
+        ),
+    )
+    conn.commit()
+    _send_code_or_drop(conn, email, code)
+    conn.close()
+    return {"status": "code_sent", "email": email}
+
+
+@router.post("/api/auth/verify-email")
+def verify_email(req: VerifyEmailRequest, request: Request = None):
+    """Шаг 2 из 2: код сошёлся — создаём пользователя и сразу пускаем внутрь."""
+    client_ip = request.client.host if request else "unknown"
+    check_rate_limit(f"verify:{client_ip}", 10, 300)
+    email = req.email.lower().strip()
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(
+        "SELECT * FROM email_verifications WHERE email=%s ORDER BY id DESC LIMIT 1", (email,)
+    )
+    pending = c.fetchone()
+    if not pending:
+        conn.close()
+        raise HTTPException(400, "Заявка не найдена. Зарегистрируйтесь заново")
+    if datetime.utcnow() > pending["expires_at"]:
+        c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
+        conn.commit()
+        conn.close()
+        raise HTTPException(400, "Срок действия кода истёк. Зарегистрируйтесь заново")
+    if pending["code"] != req.code.strip():
+        conn.close()
+        raise HTTPException(400, "Неверный код подтверждения")
+
+    # Пока заявка ждала подтверждения, адрес могли занять.
+    c.execute("SELECT id FROM users WHERE email=%s", (email,))
+    if c.fetchone():
+        c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
+        conn.commit()
+        conn.close()
+        raise HTTPException(409, "Пользователь с таким email уже существует")
+
+    name = pending["name"]
     avatar = "".join(p[0].upper() for p in name.split()[:2])
     c.execute(
-        "INSERT INTO users (name, email, role, avatar, password_hash) VALUES (%s,%s,%s,%s,%s) RETURNING id",
-        (name, email, "editor", avatar, hash_password(req.password)),
+        "INSERT INTO users (name, email, role, avatar, password_hash) "
+        "VALUES (%s,%s,%s,%s,%s) RETURNING id",
+        (name, email, "editor", avatar, pending["password_hash"]),
     )
     uid = c.fetchone()["id"]
 
@@ -102,25 +215,42 @@ def register(req: RegisterRequest, request: Request = None):
     # то есть любой посторонний после регистрации мог публиковать в реальные
     # VK-паблик и Telegram-канал организации. Попасть в чужую группу теперь
     # можно только по действующему приглашению.
-    if req.invite_token:
+    invite_error = None
+    if pending["invite_token"]:
         try:
-            redeem_invite(req.invite_token.strip(), uid, conn)
-        except HTTPException:
-            conn.rollback()
-            conn.close()
-            raise
+            redeem_invite(pending["invite_token"], uid, conn)
+        except HTTPException as e:
+            # Приглашение могло истечь, пока человек искал письмо. Аккаунт всё
+            # равно заслужен — создаём, но честно говорим, что в группу не ввели.
+            invite_error = e.detail
+    c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
     conn.commit()
-    c.execute("SELECT * FROM users WHERE id=%s", (uid,))
-    user = c.fetchone()
-    token = create_token(uid)
-    c.execute(
-        "SELECT g.id, g.name, g.description, g.avatar, gm.role, g.created_at "
-        "FROM groups g JOIN group_members gm ON g.id = gm.group_id WHERE gm.user_id=%s ORDER BY g.id",
-        (uid,),
-    )
-    groups = [dict(r) for r in c.fetchall()]
+    session = _issue_session(c, uid)
     conn.close()
-    return {"user": row_to_dict(user), "token": token, "groups": groups}
+    return {**session, "invite_error": invite_error}
+
+
+@router.post("/api/auth/resend-code")
+def resend_code(req: ResendCodeRequest, request: Request = None):
+    """Новый код по той же заявке — письмо теряется чаще, чем хотелось бы."""
+    client_ip = request.client.host if request else "unknown"
+    check_rate_limit(f"resend:{client_ip}", 3, 300)
+    email = req.email.lower().strip()
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT id FROM email_verifications WHERE email=%s", (email,))
+    if not c.fetchone():
+        conn.close()
+        raise HTTPException(400, "Заявка не найдена. Зарегистрируйтесь заново")
+    code = str(random.randint(100000, 999999))
+    c.execute(
+        "UPDATE email_verifications SET code=%s, expires_at=%s WHERE email=%s",
+        (code, datetime.utcnow() + VERIFICATION_TTL, email),
+    )
+    conn.commit()
+    _send_code_or_drop(conn, email, code)
+    conn.close()
+    return {"status": "code_sent", "email": email}
 
 
 @router.post("/api/auth/forgot-password")
@@ -158,12 +288,7 @@ def forgot_password(req: ForgotPasswordRequest, request: Request = None):
 def reset_password(req: ResetPasswordRequest, request: Request = None):
     client_ip = request.client.host if request else "unknown"
     check_rate_limit(f"reset:{client_ip}", 5, 300)
-    if len(req.new_password) < 8:
-        raise HTTPException(400, "Пароль должен содержать минимум 8 символов")
-    if not re.search(r'[a-zA-Zа-яА-Я]', req.new_password):
-        raise HTTPException(400, "Пароль должен содержать хотя бы одну букву")
-    if not re.search(r'[!@#$%^&*()\-_=+\[\]{};:\'",.<>/?\\|`~]', req.new_password):
-        raise HTTPException(400, "Пароль должен содержать хотя бы один спецсимвол")
+    _validate_password(req.new_password)
     email = req.email.lower().strip()
     conn = get_db()
     c = conn.cursor()

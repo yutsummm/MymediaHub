@@ -97,7 +97,8 @@ def check_rate_limit(key: str, max_requests: int = 10, window_seconds: int = 60)
 
 # ── Email ────────────────────────────────────────────────────────────────────
 
-def send_reset_email(to_email: str, code: str):
+def _send_email(to_email: str, subject: str, html: str):
+    """Отправка через Brevo. Общая для сброса пароля и подтверждения почты."""
     api_key = os.getenv("BREVO_API_KEY", "")
     sender_email = os.getenv("BREVO_SENDER_EMAIL", "")
     sender_name = os.getenv("BREVO_SENDER_NAME", "MediaHub")
@@ -106,29 +107,55 @@ def send_reset_email(to_email: str, code: str):
     if not sender_email:
         raise ValueError("BREVO_SENDER_EMAIL не задан")
 
-    html = f"""
-    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
-      <h2 style="color:#4f46e5">MediaHub</h2>
-      <p>Вы запросили сброс пароля.</p>
-      <p>Ваш код для сброса пароля:</p>
-      <div style="font-size:36px;font-weight:800;letter-spacing:12px;color:#4f46e5;padding:20px;background:#f0f0ff;border-radius:12px;text-align:center">{code}</div>
-      <p style="color:#888;font-size:13px;margin-top:20px">Код действителен 15 минут. Если вы не запрашивали сброс — проигнорируйте это письмо.</p>
-    </div>
-    """
-
     resp = http_requests.post(
         "https://api.brevo.com/v3/smtp/email",
         headers={"api-key": api_key, "Content-Type": "application/json"},
         json={
             "sender": {"name": sender_name, "email": sender_email},
             "to": [{"email": to_email}],
-            "subject": "Сброс пароля — MediaHub",
+            "subject": subject,
             "htmlContent": html,
         },
         timeout=10,
     )
     if resp.status_code >= 400:
         raise RuntimeError(f"Brevo error {resp.status_code}: {resp.text}")
+
+
+def _code_email_html(lead: str, code: str, note: str) -> str:
+    return f"""
+    <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
+      <h2 style="color:#4f46e5">MediaHub</h2>
+      <p>{lead}</p>
+      <div style="font-size:36px;font-weight:800;letter-spacing:12px;color:#4f46e5;padding:20px;background:#f0f0ff;border-radius:12px;text-align:center">{code}</div>
+      <p style="color:#888;font-size:13px;margin-top:20px">{note}</p>
+    </div>
+    """
+
+
+def send_reset_email(to_email: str, code: str):
+    _send_email(
+        to_email,
+        "Сброс пароля — MediaHub",
+        _code_email_html(
+            "Вы запросили сброс пароля. Ваш код:",
+            code,
+            "Код действителен 15 минут. Если вы не запрашивали сброс — проигнорируйте это письмо.",
+        ),
+    )
+
+
+def send_verification_email(to_email: str, code: str):
+    _send_email(
+        to_email,
+        "Подтверждение регистрации — MediaHub",
+        _code_email_html(
+            "Вы регистрируетесь в MediaHub. Код подтверждения:",
+            code,
+            "Код действителен 15 минут. Если вы не регистрировались — просто проигнорируйте это письмо, "
+            "аккаунт создан не будет.",
+        ),
+    )
 
 
 # ── Group membership ────────────────────────────────────────────────────────
@@ -142,13 +169,12 @@ def require_group_member(group_id: int, user_id: int, conn) -> str:
     return row["role"]
 
 
-def redeem_invite(token: str, user_id: int, conn) -> dict:
+def check_invite_usable(token: str, conn) -> dict:
     """
-    Единственный способ попасть в чужую группу — принять действующее приглашение.
-    Используется и при регистрации по ссылке, и при приёме уже залогиненным
-    пользователем: логика проверок должна быть одна, иначе разъедется.
+    Проверяет ссылку, ничего не расходуя. Нужна на первом шаге регистрации:
+    про мёртвое приглашение честнее сказать сразу, а не после письма с кодом.
 
-    Возвращает {"group_id": int, "role": str}.
+    Возвращает строку invite_links.
     """
     c = conn.cursor()
     c.execute(
@@ -160,6 +186,21 @@ def redeem_invite(token: str, user_id: int, conn) -> dict:
         raise HTTPException(404, "Ссылка приглашения не найдена")
     if datetime.fromisoformat(link["expires_at"].rstrip("Z")) < datetime.utcnow():
         raise HTTPException(410, "Ссылка приглашения истекла")
+    if link["max_uses"] is not None and link["used_count"] >= link["max_uses"]:
+        raise HTTPException(410, "Лимит использований ссылки исчерпан")
+    return link
+
+
+def redeem_invite(token: str, user_id: int, conn) -> dict:
+    """
+    Единственный способ попасть в чужую группу — принять действующее приглашение.
+    Используется и при регистрации по ссылке, и при приёме уже залогиненным
+    пользователем: логика проверок должна быть одна, иначе разъедется.
+
+    Возвращает {"group_id": int, "role": str}.
+    """
+    c = conn.cursor()
+    link = check_invite_usable(token, conn)
 
     c.execute("SELECT 1 FROM group_members WHERE group_id=%s AND user_id=%s", (link["group_id"], user_id))
     if c.fetchone():

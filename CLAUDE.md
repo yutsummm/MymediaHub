@@ -52,7 +52,7 @@ frontend/
 `posts` (status: `draft` | `scheduled` | `published`; platforms/tags/media — JSON-строки),
 `templates` (4 сида: announcement, results, vacancy, grant), `notifications`,
 `vk_settings` / `tg_settings` (с `workspace_id` → groups), `volunteer_media`,
-`email_verifications`, `password_resets`.
+`email_verifications` (заявки на регистрацию до подтверждения почты), `password_resets`.
 
 Даты в `posts`/`users` хранятся как **TEXT** в формате `YYYY-MM-DDTHH:MM`, не как timestamp.
 
@@ -61,8 +61,16 @@ frontend/
 - **Два параллельных набора эндпоинтов**: глобальные (`/api/posts`, `/api/settings/vk`)
   и групповые (`/api/groups/{gid}/posts`, `/api/groups/{gid}/settings/vk`). Фронт работает
   через групповые. Глобальные — легаси с одиночного воркспейса.
+- **Регистрация в два шага.** `POST auth/register` пользователя не создаёт: кладёт
+  заявку в `email_verifications` (имя, хеш пароля, код, `invite_token`) и шлёт код
+  на почту. Аккаунт появляется только в `POST auth/verify-email`, там же
+  применяется приглашение. `auth/resend-code` шлёт код заново. Ссылка-приглашение
+  проверяется дважды: на первом шаге `check_invite_usable` (без расхода), на
+  втором `redeem_invite` — если за это время ссылку исчерпали, аккаунт всё равно
+  создаётся, а в ответе приходит `invite_error`.
 - **Авторизация**: все `/api/*` требуют `Depends(get_current_user_id)`, кроме
-  `auth/login`, `auth/register`, `auth/forgot-password`, `auth/reset-password`,
+  `auth/login`, `auth/register`, `auth/verify-email`, `auth/resend-code`,
+  `auth/forgot-password`, `auth/reset-password`,
   `GET /api/invites/{token}`, `GET /api/debug/smtp-test`. Групповые роуты проверяют
   членство через `require_group_member`. Глобальные списки постов/аналитики
   фильтруются хелпером `posts_scope` (посты групп пользователя + его посты без группы),
@@ -119,12 +127,17 @@ BACKEND_URL), `frontend/.env.local` (NEXT_PUBLIC_YANDEX_MAPS_KEY, опц. NEXT_P
 `test_auth_required.py` перебирает все роуты приложения и требует `Depends(get_current_user_id)`
 у каждого, кроме явного списка публичных — новый незакрытый роут уронит сборку.
 `test_migrations.py::test_app_code_contains_no_ddl` запрещает CREATE/ALTER TABLE вне alembic.
+`test_registration_isolation.py` стережёт, что новичок не попадает в чужую группу.
+`test_email_verification.py` стережёт, что до подтверждения почты пользователя не существует.
 
 ## Известные проблемы
 
 1. ~~Глобальные эндпоинты без авторизации.~~ Исправлено — см. «Авторизация» выше.
 2. ~~Дублирование схемы init_db ↔ alembic.~~ Исправлено — источник правды только alembic.
 3. ~~Нет тестов и линтеров.~~ Исправлено — см. «Проверки» выше.
+4. ~~Открытая регистрация давала доступ к чужой группе.~~ Исправлено — автовступления нет.
+5. ~~Почта не подтверждалась, `email_verifications` не использовалась.~~ Исправлено —
+   см. «Регистрация в два шага» выше.
 
 Осталось нерешённым:
 

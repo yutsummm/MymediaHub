@@ -11,6 +11,8 @@ from utils import get_current_user_id
 PUBLIC_ROUTES = {
     ("POST", "/api/auth/login"),
     ("POST", "/api/auth/register"),
+    ("POST", "/api/auth/verify-email"),
+    ("POST", "/api/auth/resend-code"),
     ("POST", "/api/auth/forgot-password"),
     ("POST", "/api/auth/reset-password"),
     ("GET", "/api/debug/smtp-test"),

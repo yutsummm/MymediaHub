@@ -131,8 +131,10 @@ def legacy_database():
     ac.execute(f'DROP DATABASE IF EXISTS "{legacy_name}"')
     ac.execute(f'CREATE DATABASE "{legacy_name}"')
 
-    # Схему собираем миграциями, затем стираем след alembic — получаем ровно то,
-    # что оставлял после себя старый init_db().
+    # Схему собираем миграциями до BASELINE_REVISION (именно её оставлял после
+    # себя старый init_db()), затем стираем след alembic. Гнать до head нельзя:
+    # получилась бы база новее «легаси», и последующий upgrade падал бы на
+    # «колонка уже существует» — как раз то, что этот тест должен ловить.
     original = os.environ["DATABASE_URL"]
     os.environ["DATABASE_URL"] = legacy_url
     import utils
@@ -141,7 +143,9 @@ def legacy_database():
     utils.DATABASE_URL = legacy_url
     main.DATABASE_URL = legacy_url
     try:
-        main.run_migrations()
+        from alembic import command
+
+        command.upgrade(main._alembic_config(), main.BASELINE_REVISION)
         conn = psycopg2.connect(legacy_url)
         conn.autocommit = True
         conn.cursor().execute("DROP TABLE alembic_version")
@@ -185,10 +189,21 @@ def test_legacy_database_gets_stamped_not_recreated(legacy_database):
 
     conn = psycopg2.connect(legacy_database, cursor_factory=psycopg2.extras.RealDictCursor)
     c = conn.cursor()
+    # База помечается базовой ревизией, а затем догоняется до head обычным
+    # upgrade — данные при этом остаются на месте.
+    from alembic.script import ScriptDirectory
+
+    head = ScriptDirectory.from_config(main._alembic_config()).get_current_head()
     c.execute("SELECT version_num FROM alembic_version")
-    assert c.fetchone()["version_num"] == main.BASELINE_REVISION
+    assert c.fetchone()["version_num"] == head
     c.execute("SELECT COUNT(*) FROM users WHERE email='legacy@test.local'")
     assert c.fetchone()["count"] == 1
+    # Ровно то, ради чего нужен догоняющий upgrade: поздние миграции доехали
+    c.execute(
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_name='email_verifications' AND column_name='invite_token'"
+    )
+    assert c.fetchone(), "после штампа база должна догнаться до head"
     conn.close()
 
 

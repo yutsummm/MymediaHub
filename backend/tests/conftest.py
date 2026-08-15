@@ -109,18 +109,61 @@ def auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
 
 
+@pytest.fixture(autouse=True)
+def no_outgoing_email(monkeypatch):
+    """
+    Тесты не должны стучаться в Brevo. Подменяем отправку на месте вызова —
+    роутер импортирует функции по имени, патчить utils недостаточно.
+    """
+    import routers.auth as auth_router
+    import utils
+
+    for module in (auth_router, utils):
+        for fn in ("send_verification_email", "send_reset_email"):
+            if hasattr(module, fn):
+                monkeypatch.setattr(module, fn, lambda *a, **kw: None)
+    yield
+
+
+def pending_code(email: str) -> str:
+    """Достаёт код подтверждения из базы — писем в тестах нет."""
+    from utils import get_db
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(
+        "SELECT code FROM email_verifications WHERE email=%s ORDER BY id DESC LIMIT 1",
+        (email.lower().strip(),),
+    )
+    row = c.fetchone()
+    conn.close()
+    assert row, f"нет заявки на регистрацию для {email}"
+    return row["code"]
+
+
+def register_and_verify(client, email: str, password: str = "Passw0rd!", **extra) -> dict:
+    """Полный путь регистрации: заявка → код → аккаунт. Отдаёт тело verify-email."""
+    r = client.post(
+        "/api/auth/register",
+        json={"name": "Тест Юзер", "email": email, "password": password, **extra},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "code_sent"
+    v = client.post(
+        "/api/auth/verify-email", json={"email": email, "code": pending_code(email)}
+    )
+    assert v.status_code == 200, v.text
+    return v.json()
+
+
 @pytest.fixture()
 def make_user(client):
-    """Регистрирует нового пользователя и отдаёт (токен, id)."""
+    """Регистрирует и подтверждает нового пользователя, отдаёт (токен, id)."""
 
     def _make(prefix: str = "user"):
         email = f"{prefix}-{uuid.uuid4().hex[:8]}@test.local"
-        r = client.post(
-            "/api/auth/register",
-            json={"name": "Тест Юзер", "email": email, "password": "Passw0rd!"},
-        )
-        assert r.status_code == 200, r.text
-        return r.json()["token"], r.json()["user"]["id"]
+        body = register_and_verify(client, email)
+        return body["token"], body["user"]["id"]
 
     return _make
 

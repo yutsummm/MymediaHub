@@ -9,18 +9,25 @@
 import uuid
 
 import pytest
-from conftest import auth
+from conftest import auth, pending_code
 
 
 def _register(client, prefix="stranger", invite_token=None):
-    body = {
-        "name": "Посторонний",
-        "email": f"{prefix}-{uuid.uuid4().hex[:8]}@test.local",
-        "password": "Passw0rd!",
-    }
+    """
+    Полный путь регистрации: заявка → код из базы → аккаунт. Отдаёт ответ того
+    шага, на котором всё закончилось, поэтому проверки статусов ниже работают
+    и для отказов на первом шаге (битая или исчерпанная ссылка).
+    """
+    email = f"{prefix}-{uuid.uuid4().hex[:8]}@test.local"
+    body = {"name": "Посторонний", "email": email, "password": "Passw0rd!"}
     if invite_token is not None:
         body["invite_token"] = invite_token
-    return client.post("/api/auth/register", json=body)
+    r = client.post("/api/auth/register", json=body)
+    if r.status_code != 200:
+        return r
+    return client.post(
+        "/api/auth/verify-email", json={"email": email, "code": pending_code(email)}
+    )
 
 
 # ── Главное: чужих групп новичок не получает ────────────────────────────────
@@ -117,7 +124,7 @@ def test_invited_volunteer_still_cannot_publish(client, invite_link):
 
 
 def test_register_with_unknown_invite_creates_nothing(client):
-    """Битый токен не создаёт «висячего» пользователя."""
+    """Битый токен отбивается сразу, до письма, и не создаёт «висячего» пользователя."""
     email = f"ghost-{uuid.uuid4().hex[:8]}@test.local"
     r = client.post(
         "/api/auth/register",

@@ -24,12 +24,10 @@ def captured_codes(monkeypatch):
 
 @pytest.fixture()
 def registered_user(client):
+    from conftest import register_and_verify
+
     email = f"reset-{uuid.uuid4().hex[:8]}@test.local"
-    r = client.post(
-        "/api/auth/register",
-        json={"name": "Сброс Тест", "email": email, "password": "OldPassw0rd!"},
-    )
-    assert r.status_code == 200, r.text
+    register_and_verify(client, email, password="OldPassw0rd!")
     return email
 
 

@@ -49,13 +49,23 @@ export const api = {
     req<{ user: import('./types').User; token: string }>('/api/auth/login', {
       method: 'POST', body: body({ email, password }),
     }),
-  // inviteToken — регистрация по ссылке-приглашению. Без него новый пользователь
-  // не попадает ни в одну существующую группу.
+  // Регистрация в два шага: register только шлёт код на почту, аккаунт создаёт
+  // verifyEmail. inviteToken — регистрация по ссылке-приглашению; без него новый
+  // пользователь не попадает ни в одну существующую группу.
   register: (name: string, email: string, password: string, inviteToken?: string | null) =>
-    req<{ user: import('./types').User; token: string; groups: import('./types').Group[] }>('/api/auth/register', {
+    req<{ status: string; email: string }>('/api/auth/register', {
       method: 'POST',
       body: body(inviteToken ? { name, email, password, invite_token: inviteToken } : { name, email, password }),
     }),
+  verifyEmail: (email: string, code: string) =>
+    req<{
+      user: import('./types').User
+      token: string
+      groups: import('./types').Group[]
+      invite_error: string | null
+    }>('/api/auth/verify-email', { method: 'POST', body: body({ email, code }) }),
+  resendCode: (email: string) =>
+    req<{ status: string }>('/api/auth/resend-code', { method: 'POST', body: body({ email }) }),
   forgotPassword: (email: string) =>
     req<{ status: string }>('/api/auth/forgot-password', {
       method: 'POST', body: body({ email }),
