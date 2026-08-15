@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from models import TgSettingsSave, VkOAuthExchange, VkSettingsSave
 from utils import (
     VK_API_VERSION,
+    encrypt_secret,
     get_current_user_id,
     get_db,
     require_admin,
@@ -50,12 +51,12 @@ def save_vk_settings(body: VkSettingsSave, user_id: int = Depends(get_current_us
     if exists:
         c.execute(
             "UPDATE vk_settings SET group_id=%s, access_token=%s, group_name=%s, connected_at=%s WHERE id=1",
-            (body.group_id.lstrip("-"), body.access_token, group_name, now),
+            (body.group_id.lstrip("-"), encrypt_secret(body.access_token), group_name, now),
         )
     else:
         c.execute(
             "INSERT INTO vk_settings (id, group_id, access_token, group_name, connected_at) VALUES (1, %s, %s, %s, %s)",
-            (body.group_id.lstrip("-"), body.access_token, group_name, now),
+            (body.group_id.lstrip("-"), encrypt_secret(body.access_token), group_name, now),
         )
     conn.commit()
     conn.close()
@@ -98,12 +99,12 @@ def vk_oauth_exchange(body: VkOAuthExchange, user_id: int = Depends(get_current_
     if exists:
         c.execute(
             "UPDATE vk_settings SET group_id=%s, access_token=%s, group_name=%s, connected_at=%s WHERE id=1",
-            (clean_id, access_token, group_name, now),
+            (clean_id, encrypt_secret(access_token), group_name, now),
         )
     else:
         c.execute(
             "INSERT INTO vk_settings (id, group_id, access_token, group_name, connected_at) VALUES (1, %s, %s, %s, %s)",
-            (clean_id, access_token, group_name, now),
+            (clean_id, encrypt_secret(access_token), group_name, now),
         )
     conn.commit()
     conn.close()
@@ -174,12 +175,12 @@ def save_group_vk_settings(gid: int, body: VkSettingsSave, user_id: int = Depend
     if exists:
         c.execute(
             "UPDATE vk_settings SET group_id=%s, access_token=%s, group_name=%s, connected_at=%s WHERE workspace_id=%s",
-            (clean_id, body.access_token, group_name, now, gid),
+            (clean_id, encrypt_secret(body.access_token), group_name, now, gid),
         )
     else:
         c.execute(
             "INSERT INTO vk_settings (workspace_id, group_id, access_token, group_name, connected_at) VALUES (%s, %s, %s, %s, %s)",
-            (gid, clean_id, body.access_token, group_name, now),
+            (gid, clean_id, encrypt_secret(body.access_token), group_name, now),
         )
     conn.commit()
     conn.close()
@@ -233,12 +234,12 @@ def save_tg_settings(body: TgSettingsSave, user_id: int = Depends(get_current_us
     if exists:
         c.execute(
             "UPDATE tg_settings SET bot_token=%s, chat_id=%s, chat_title=%s, connected_at=%s WHERE id=1",
-            (body.bot_token, body.chat_id, chat_title, now),
+            (encrypt_secret(body.bot_token), body.chat_id, chat_title, now),
         )
     else:
         c.execute(
             "INSERT INTO tg_settings (id, bot_token, chat_id, chat_title, connected_at) VALUES (1, %s, %s, %s, %s)",
-            (body.bot_token, body.chat_id, chat_title, now),
+            (encrypt_secret(body.bot_token), body.chat_id, chat_title, now),
         )
     conn.commit()
     conn.close()
@@ -298,12 +299,12 @@ def save_group_tg_settings(gid: int, body: TgSettingsSave, user_id: int = Depend
     if exists:
         c.execute(
             "UPDATE tg_settings SET bot_token=%s, chat_id=%s, chat_title=%s, connected_at=%s WHERE workspace_id=%s",
-            (body.bot_token, body.chat_id, chat_title, now, gid),
+            (encrypt_secret(body.bot_token), body.chat_id, chat_title, now, gid),
         )
     else:
         c.execute(
             "INSERT INTO tg_settings (workspace_id, bot_token, chat_id, chat_title, connected_at) VALUES (%s, %s, %s, %s, %s)",
-            (gid, body.bot_token, body.chat_id, chat_title, now),
+            (gid, encrypt_secret(body.bot_token), body.chat_id, chat_title, now),
         )
     conn.commit()
     conn.close()

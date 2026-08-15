@@ -10,6 +10,7 @@ from utils import (
     _AI_PROMPTS,
     UPLOAD_DIR,
     check_rate_limit,
+    decrypt_row_secret,
     get_current_user_id,
     get_db,
     posts_scope,
@@ -183,7 +184,7 @@ def publish_post(post_id: int, user_id: int = Depends(get_current_user_id)):
     platforms = post_dict.get("platforms", [])
     if "vk" in platforms:
         c.execute("SELECT group_id, access_token FROM vk_settings WHERE id=1")
-        vk = c.fetchone()
+        vk = decrypt_row_secret(c.fetchone(), "access_token")
         if vk:
             try:
                 message = f"{post_dict['title']}\n\n{post_dict['content']}"
@@ -255,7 +256,7 @@ def publish_post(post_id: int, user_id: int = Depends(get_current_user_id)):
     tg_error = None
     if "telegram" in platforms:
         c.execute("SELECT bot_token, chat_id FROM tg_settings WHERE id=1")
-        tg = c.fetchone()
+        tg = decrypt_row_secret(c.fetchone(), "bot_token")
         if tg:
             try:
                 tg_message = f"{post_dict['title']}\n\n{post_dict['content']}" if post_dict.get("title") else post_dict.get("content", "")
@@ -482,7 +483,7 @@ def publish_group_post(gid: int, post_id: int, user_id: int = Depends(get_curren
     backend_base = os.getenv("BACKEND_URL", "https://backend-production-30d6.up.railway.app").rstrip("/")
     if "vk" in platforms:
         c.execute("SELECT group_id, access_token FROM vk_settings WHERE workspace_id=%s", (gid,))
-        vk = c.fetchone()
+        vk = decrypt_row_secret(c.fetchone(), "access_token")
         if vk:
             try:
                 message = f"{post_dict['title']}\n\n{post_dict['content']}"
@@ -534,7 +535,7 @@ def publish_group_post(gid: int, post_id: int, user_id: int = Depends(get_curren
     tg_error = None
     if "telegram" in platforms:
         c.execute("SELECT bot_token, chat_id FROM tg_settings WHERE workspace_id=%s", (gid,))
-        tg = c.fetchone()
+        tg = decrypt_row_secret(c.fetchone(), "bot_token")
         if tg:
             try:
                 tg_message = f"{post_dict['title']}\n\n{post_dict['content']}" if post_dict.get("title") else post_dict.get("content", "")
@@ -571,12 +572,12 @@ def sync_vk_stats(user_id: int = Depends(get_current_user_id)):
     c = conn.cursor()
     require_admin(user_id, conn)
     c.execute("SELECT group_id, access_token FROM vk_settings WHERE id=1")
-    vk = c.fetchone()
+    vk = decrypt_row_secret(c.fetchone(), "access_token")
     if not vk:
         conn.close()
         return {"synced": 0, "message": "VK не подключён"}
     c.execute("SELECT DISTINCT vk.group_id, vk.access_token FROM vk_settings vk WHERE vk.workspace_id IS NOT NULL")
-    all_vk = [dict(r) for r in c.fetchall()]
+    all_vk = [decrypt_row_secret(r, "access_token") for r in c.fetchall()]
     if vk:
         all_vk.append(dict(vk))
     seen = set()
@@ -639,7 +640,7 @@ def group_sync_vk_stats(gid: int, user_id: int = Depends(get_current_user_id)):
     require_group_member(gid, user_id, conn)
 
     c.execute("SELECT group_id, access_token FROM vk_settings WHERE group_id=%s", (str(gid),))
-    vk = c.fetchone()
+    vk = decrypt_row_secret(c.fetchone(), "access_token")
     if not vk:
         conn.close()
         return {"synced": 0, "message": "VK не подключён для этой группы"}

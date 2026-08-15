@@ -68,6 +68,14 @@ frontend/
   проверяется дважды: на первом шаге `check_invite_usable` (без расхода), на
   втором `redeem_invite` — если за это время ссылку исчерпали, аккаунт всё равно
   создаётся, а в ответе приходит `invite_error`.
+- **Секреты в базе зашифрованы.** `vk_settings.access_token` и `tg_settings.bot_token`
+  пишутся через `encrypt_secret()` (Fernet, префикс `enc:v1:`), читаются через
+  `decrypt_secret()` / `decrypt_row_secret(row, поле)`. Ключ — `TOKEN_ENCRYPTION_KEY`,
+  а если он не задан, выводится из `JWT_SECRET` через HKDF: требовать новую
+  переменную нельзя, иначе на уже поднятых окружениях шифрование не включится.
+  **Смена `JWT_SECRET` без переноса ключа сделает токены нечитаемыми** — интеграции
+  придётся переподключить. Значения без префикса читаются как есть (легаси), а
+  `encrypt_existing_secrets()` в startup дошифровывает их, идемпотентно.
 - **Авторизация**: все `/api/*` требуют `Depends(get_current_user_id)`, кроме
   `auth/login`, `auth/register`, `auth/verify-email`, `auth/resend-code`,
   `auth/forgot-password`, `auth/reset-password`,
@@ -129,6 +137,8 @@ BACKEND_URL), `frontend/.env.local` (NEXT_PUBLIC_YANDEX_MAPS_KEY, опц. NEXT_P
 `test_migrations.py::test_app_code_contains_no_ddl` запрещает CREATE/ALTER TABLE вне alembic.
 `test_registration_isolation.py` стережёт, что новичок не попадает в чужую группу.
 `test_email_verification.py` стережёт, что до подтверждения почты пользователя не существует.
+`test_secret_encryption.py` стережёт, что токены соцсетей не лежат в базе открытым текстом.
+`test_settings_multi_group.py` стережёт, что интеграция подключается больше чем к одной группе.
 
 ## Известные проблемы
 
@@ -138,6 +148,11 @@ BACKEND_URL), `frontend/.env.local` (NEXT_PUBLIC_YANDEX_MAPS_KEY, опц. NEXT_P
 4. ~~Открытая регистрация давала доступ к чужой группе.~~ Исправлено — автовступления нет.
 5. ~~Почта не подтверждалась, `email_verifications` не использовалась.~~ Исправлено —
    см. «Регистрация в два шага» выше.
+6. ~~Токены соцсетей в базе открытым текстом.~~ Исправлено — см. «Секреты в базе» выше.
+7. ~~`vk_settings.id` / `tg_settings.id` были `INTEGER DEFAULT 1` без последовательности,
+   из-за чего интеграция подключалась только к одной группе (вторая падала с
+   UniqueViolation).~~ Исправлено миграцией `c7f2a5b30d84`; id=1 навсегда закреплён
+   за глобальными настройками, последовательность стартует с 2.
 
 Осталось нерешённым:
 

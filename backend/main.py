@@ -15,7 +15,14 @@ from fastapi.staticfiles import StaticFiles
 
 from alembic import command
 from alembic.config import Config
-from utils import DATABASE_URL, UPLOAD_DIR, get_db, hash_password
+from utils import (
+    DATABASE_URL,
+    SECRET_PREFIX,
+    UPLOAD_DIR,
+    encrypt_secret,
+    get_db,
+    hash_password,
+)
 
 load_dotenv()
 
@@ -290,6 +297,37 @@ def seed_db():
     conn.close()
 
 
+def encrypt_existing_secrets():
+    """
+    Дошифровывает токены соцсетей, записанные до включения шифрования.
+
+    Чтение умеет и открытый текст, так что без этого ничего не сломается — но
+    тогда старые токены так и лежали бы в базе голыми. Операция идемпотентна:
+    строки с префиксом пропускаются, поэтому её безопасно гонять при каждом
+    старте, в том числе после разворачивания старого дампа.
+    """
+    conn = get_db()
+    c = conn.cursor()
+    encrypted = 0
+    for table, column in (("vk_settings", "access_token"), ("tg_settings", "bot_token")):
+        c.execute(
+            f"SELECT id, {column} AS secret FROM {table} "  # noqa: S608 — имена свои, не из ввода
+            f"WHERE {column} IS NOT NULL AND {column} <> '' "
+            f"AND {column} NOT LIKE %s",
+            (SECRET_PREFIX + "%",),
+        )
+        for row in c.fetchall():
+            c.execute(
+                f"UPDATE {table} SET {column}=%s WHERE id=%s",  # noqa: S608
+                (encrypt_secret(row["secret"]), row["id"]),
+            )
+            encrypted += 1
+    conn.commit()
+    conn.close()
+    if encrypted:
+        print(f"🔒  зашифровано токенов интеграций: {encrypted}")
+
+
 @app.on_event("startup")
 def startup():
     try:
@@ -301,6 +339,11 @@ def startup():
         seed_db()
     except Exception as e:
         print(f"❌  seed_db() FAILED: {e}")
+        raise
+    try:
+        encrypt_existing_secrets()
+    except Exception as e:
+        print(f"❌  не удалось зашифровать токены интеграций: {e}")
         raise
     print("✅  MediaHub API запущен!  →  http://localhost:8000")
 

@@ -2,6 +2,7 @@
 MediaHub — shared utilities and helpers
 """
 
+import base64
 import hashlib
 import json
 import os
@@ -78,6 +79,77 @@ def get_current_user_id(authorization: str = Header(None)) -> int:
         return int(payload["sub"])
     except (JWTError, KeyError, ValueError, IndexError):
         raise HTTPException(401, "Недействительный токен")
+
+
+# ── Шифрование секретов в базе ───────────────────────────────────────────────
+# Токены соцсетей (vk_settings.access_token, tg_settings.bot_token) — это полный
+# доступ к пабликам организации. В открытом виде утечка дампа базы отдаёт их
+# целиком. Пишем их шифрованными, читаем через decrypt_secret.
+
+SECRET_PREFIX = "enc:v1:"
+
+
+def _fernet():
+    """
+    Ключ берём из TOKEN_ENCRYPTION_KEY, а если его нет — выводим из JWT_SECRET.
+    Отдельный ключ лучше, но требовать новую переменную окружения нельзя: на
+    уже поднятых окружениях её никто не задаст, и шифрование просто не включится.
+    Безопасность при этом не проседает: кто добыл JWT_SECRET, тот и так выпишет
+    себе админский токен и прочитает настройки через API.
+    """
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+    raw = os.getenv("TOKEN_ENCRYPTION_KEY", "").strip()
+    if raw:
+        return Fernet(raw.encode())
+    derived = HKDF(
+        algorithm=hashes.SHA256(), length=32, salt=b"mediahub.secrets.v1",
+        info=b"social-tokens",
+    ).derive(JWT_SECRET.encode())
+    return Fernet(base64.urlsafe_b64encode(derived))
+
+
+def encrypt_secret(value: str | None) -> str | None:
+    """Шифрует значение перед записью в базу. None и пустое отдаёт как есть."""
+    if not value:
+        return value
+    if value.startswith(SECRET_PREFIX):
+        return value
+    return SECRET_PREFIX + _fernet().encrypt(value.encode()).decode()
+
+
+def decrypt_secret(value: str | None) -> str | None:
+    """
+    Расшифровывает значение из базы. Значения без префикса возвращает как есть:
+    в базе остаются строки, записанные до включения шифрования, и ломать на них
+    публикацию нельзя — они дошифруются при следующем сохранении настроек.
+    """
+    if not value or not value.startswith(SECRET_PREFIX):
+        return value
+    from cryptography.fernet import InvalidToken
+
+    try:
+        return _fernet().decrypt(value[len(SECRET_PREFIX):].encode()).decode()
+    except InvalidToken:
+        # Сменили JWT_SECRET, не перенеся TOKEN_ENCRYPTION_KEY — расшифровать
+        # нечем. Молча отдавать мусор в VK нельзя, лучше внятная ошибка.
+        raise HTTPException(
+            500,
+            "Не удалось расшифровать токен интеграции. Вероятно, сменился "
+            "JWT_SECRET или TOKEN_ENCRYPTION_KEY — переподключите интеграцию "
+            "в настройках.",
+        )
+
+
+def decrypt_row_secret(row, field: str) -> dict | None:
+    """Строка настроек интеграции с расшифрованным секретом. None пробрасывает."""
+    if row is None:
+        return None
+    d = dict(row)
+    d[field] = decrypt_secret(d.get(field))
+    return d
 
 
 # ── Rate limiter ────────────────────────────────────────────────────────────
