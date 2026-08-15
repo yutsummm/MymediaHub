@@ -53,16 +53,17 @@ const STEPS = [{ n: 1, l: 'Шаблон' }, { n: 2, l: 'Данные' }, { n: 3,
 type AiMode = 'creative' | 'formal' | 'calltoaction'
 type AiModifier = 'shortify' | 'hashtags' | 'russify'
 
-const AI_MODES_CONFIG: { id: AiMode; icon: ReactNode; title: string; info: string }[] = [
-  { id: 'creative',     icon: <svg {...S14}><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72z"/><path d="m14 7 3 3"/></svg>,    title: 'Улучшить текст',    info: 'Переписывает текст для молодёжной аудитории: добавляет энергичность и эмодзи, сохраняя все факты, даты и имена' },
-  { id: 'formal',       icon: <svg {...S14}><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg>, title: 'Официальный тон',   info: 'Переводит в нейтрально-деловой стиль — подходит для объявлений, вакансий и грантовых постов' },
-  { id: 'calltoaction', icon: <svg {...S14}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,                                                                                                                                                                                   title: 'Призыв к действию', info: 'Дописывает сильный CTA — «зарегистрируйся», «приходи», «поделись» — по теме поста' },
+// short — всегда видно на карточке, info — полный текст в нативной подсказке при наведении
+const AI_MODES_CONFIG: { id: AiMode; icon: ReactNode; title: string; short: string; info: string }[] = [
+  { id: 'creative',     icon: <svg {...S14}><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72z"/><path d="m14 7 3 3"/></svg>,    title: 'Улучшить текст', short: 'Живее, с эмодзи', info: 'Переписывает текст для молодёжной аудитории: добавляет энергичность и эмодзи, сохраняя все факты, даты и имена' },
+  { id: 'formal',       icon: <svg {...S14}><line x1="3" x2="21" y1="22" y2="22"/><line x1="6" x2="6" y1="18" y2="11"/><line x1="10" x2="10" y1="18" y2="11"/><line x1="14" x2="14" y1="18" y2="11"/><line x1="18" x2="18" y1="18" y2="11"/><polygon points="12 2 20 7 4 7"/></svg>, title: 'Официальный тон', short: 'Нейтрально-деловой тон', info: 'Переводит в нейтрально-деловой стиль — подходит для объявлений, вакансий и грантовых постов' },
+  { id: 'calltoaction', icon: <svg {...S14}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>,                                                                                                                                                                                   title: 'Призыв к действию', short: 'Допишет призыв в конце', info: 'Дописывает сильный CTA — «зарегистрируйся», «приходи», «поделись» — по теме поста' },
 ]
 
-const AI_MODIFIERS_CONFIG: { id: AiModifier; icon: ReactNode; title: string; info: string }[] = [
-  { id: 'shortify', icon: <svg {...S14}><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>, title: 'Сократить',   info: 'Сокращает пост вдвое: убирает лишние слова и повторы, сохраняя ключевые факты и смысл' },
-  { id: 'hashtags', icon: <svg {...S14}><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>,                                          title: 'Хештеги',     info: 'Анализирует тему поста и добавляет 7–10 актуальных хештегов для ВКонтакте и Telegram в конец' },
-  { id: 'russify',  icon: <svg {...S14}><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>,                                                                               title: 'Русификация', info: 'Заменяет иностранные слова на естественные русские: фидбек→отклик, дедлайн→срок, контент→публикации' },
+const AI_MODIFIERS_CONFIG: { id: AiModifier; icon: ReactNode; title: string; short: string; info: string }[] = [
+  { id: 'shortify', icon: <svg {...S14}><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>, title: 'Сократить', short: 'Вдвое короче', info: 'Сокращает пост вдвое: убирает лишние слова и повторы, сохраняя ключевые факты и смысл' },
+  { id: 'hashtags', icon: <svg {...S14}><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>,                                          title: 'Хештеги', short: '7–10 хештегов в конец', info: 'Анализирует тему поста и добавляет 7–10 актуальных хештегов для ВКонтакте и Telegram в конец' },
+  { id: 'russify',  icon: <svg {...S14}><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>,                                                                               title: 'Русификация', short: 'Русские слова вместо англицизмов', info: 'Заменяет иностранные слова на естественные русские: фидбек→отклик, дедлайн→срок, контент→публикации' },
 ]
 
 type PostEditorProps = {
@@ -138,7 +139,6 @@ export default function PostEditor({
   const [splitLeft, setSplitLeft] = useState('')
   const [splitRight, setSplitRight] = useState('')
   const [splitLoading, setSplitLoading] = useState(false)
-  const [hoveredModeInfo, setHoveredModeInfo] = useState<string | null>(null)
   const [locationPickerOpen, setLocationPickerOpen] = useState(false)
   const [prevContent, setPrevContent] = useState<string | null>(null)
   const splitCallIdRef = useRef(0)
@@ -318,8 +318,10 @@ export default function PostEditor({
 
   function handleModeChange(mode: AiMode) {
     if (splitDebounceRef.current) clearTimeout(splitDebounceRef.current)
-    setAiMode(mode)
-    triggerSplit({ mode })
+    // повторный клик по выбранному режиму снимает выбор
+    const next = aiMode === mode ? null : mode
+    setAiMode(next)
+    triggerSplit({ mode: next })
   }
 
   function handleModifierToggle(mod: 'shortify' | 'hashtags' | 'russify', checked: boolean) {
@@ -849,48 +851,59 @@ export default function PostEditor({
                 <button type="button" className="btn btn-ghost btn-sm" style={{ fontSize: 16, lineHeight: 1, padding: '4px 8px' }} onClick={() => setAiSplitOpen(false)}>✕</button>
               </div>
 
-              {/* Main mode tabs */}
-              <div className="ai-split-tabs">
-                {AI_MODES_CONFIG.map(m => (
-                  <button
-                    key={m.id}
-                    className={`ai-split-tab${aiMode === m.id ? ' active' : ''}`}
-                    onClick={() => handleModeChange(m.id)}
-                  >
-                    <span>{m.icon}</span>
-                    <span>{m.title}</span>
-                    <span
-                      className="ai-info-badge"
-                      onMouseEnter={() => setHoveredModeInfo(m.info)}
-                      onMouseLeave={() => setHoveredModeInfo(null)}
-                    >!</span>
-                  </button>
-                ))}
+              {/* Шаг 1 — как переписать (одно из трёх, необязательно) */}
+              <div className="ai-opt-group">
+                <div className="ai-opt-label">
+                  Шаг 1 — как переписать
+                  <span className="ai-opt-hint">выберите одно</span>
+                </div>
+                <div className="ai-opt-grid">
+                  {AI_MODES_CONFIG.map(m => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      title={m.info}
+                      aria-pressed={aiMode === m.id}
+                      className={`ai-opt${aiMode === m.id ? ' active' : ''}`}
+                      onClick={() => handleModeChange(m.id)}
+                    >
+                      <span className="ai-opt-ico">{m.icon}</span>
+                      <span className="ai-opt-txt">
+                        <span className="ai-opt-ttl">{m.title}</span>
+                        <span className="ai-opt-sub">{m.short}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
 
-              {/* Modifier toggles + description */}
-              <div className="ai-split-sub-row">
-                {AI_MODIFIERS_CONFIG.map(mod => {
-                  const checked = mod.id === 'shortify' ? withShortify : mod.id === 'hashtags' ? withHashtags : withRussify
-                  return (
-                    <label key={mod.id} className="ai-russify-toggle">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={e => handleModifierToggle(mod.id, e.target.checked)}
-                      />
-                      <span>{mod.icon}</span> {mod.title}
-                      <span
-                        className="ai-info-badge"
-                        style={{ marginLeft: 3 }}
-                        onMouseEnter={() => setHoveredModeInfo(mod.info)}
-                        onMouseLeave={() => setHoveredModeInfo(null)}
-                      >!</span>
-                    </label>
-                  )
-                })}
-                <div className="ai-tab-desc">
-                  {hoveredModeInfo ?? (aiMode ? AI_MODES_CONFIG.find(m => m.id === aiMode)?.info : 'Выберите режим или отметьте галочки')}
+              {/* Шаг 2 — добавки поверх, можно несколько */}
+              <div className="ai-opt-group">
+                <div className="ai-opt-label">
+                  Шаг 2 — что добавить
+                  <span className="ai-opt-hint">необязательно, можно несколько</span>
+                </div>
+                <div className="ai-opt-grid">
+                  {AI_MODIFIERS_CONFIG.map(mod => {
+                    const checked = mod.id === 'shortify' ? withShortify : mod.id === 'hashtags' ? withHashtags : withRussify
+                    return (
+                      <button
+                        key={mod.id}
+                        type="button"
+                        title={mod.info}
+                        aria-pressed={checked}
+                        className={`ai-opt${checked ? ' active' : ''}`}
+                        onClick={() => handleModifierToggle(mod.id, !checked)}
+                      >
+                        <span className="ai-opt-ico">{mod.icon}</span>
+                        <span className="ai-opt-txt">
+                          <span className="ai-opt-ttl">{mod.title}</span>
+                          <span className="ai-opt-sub">{mod.short}</span>
+                        </span>
+                        <span className="ai-opt-mark" aria-hidden="true">{checked ? IcoCheck : null}</span>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             </div>
@@ -914,7 +927,15 @@ export default function PostEditor({
                 <div className="ai-split-result">
                   {splitRight
                     ? splitRight
-                    : <span className="ai-split-result-empty">{splitLoading ? 'Генерирую...' : (!aiMode && !withShortify && !withHashtags && !withRussify ? 'Выберите режим или отметьте галочку' : 'Результат появится здесь')}</span>
+                    : <span className="ai-split-result-empty">{
+                        splitLoading
+                          ? 'Генерирую…'
+                          : !splitLeft.trim()
+                            ? 'Слева пусто — введите текст поста'
+                            : (!aiMode && !withShortify && !withHashtags && !withRussify)
+                              ? 'Выберите вариант выше — здесь появится переписанный текст'
+                              : 'Результат появится здесь'
+                      }</span>
                   }
                 </div>
               </div>

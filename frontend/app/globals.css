@@ -1395,25 +1395,34 @@ select option { background: var(--bg-2); color: var(--text); }
 .ai-split-modal .modal-ft { flex-shrink: 0; }
 .ai-split-hd { padding: 18px 22px 0; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .ai-split-hd-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-.ai-split-tabs {
-  display: flex; gap: 0; margin: 0 -22px; padding: 0 22px;
-  overflow-x: auto; scrollbar-width: none;
+/* Группы вариантов: шаг 1 — один режим, шаг 2 — добавки поверх */
+.ai-opt-group { padding-bottom: 12px; }
+.ai-opt-label {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.1em; color: var(--text-2); margin-bottom: 7px;
 }
-.ai-split-tabs::-webkit-scrollbar { display: none; }
-.ai-split-tab {
-  display: flex; align-items: center; gap: 5px;
-  padding: 9px 12px 8px; background: transparent; border: none;
-  border-bottom: 2px solid transparent; color: var(--text-2);
-  font-size: 12px; font-weight: 600; font-family: inherit;
-  cursor: pointer; white-space: nowrap;
-  transition: color var(--dur-fast), border-color var(--dur-fast); flex-shrink: 0;
+.ai-opt-hint { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--text-3); }
+.ai-opt-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.ai-opt {
+  display: flex; align-items: center; gap: 9px; text-align: left;
+  padding: 9px 11px; border-radius: var(--r-md);
+  background: var(--surface-2); border: 1px solid var(--border);
+  color: var(--text-2); font-family: inherit; cursor: pointer; min-width: 0;
+  transition: border-color var(--dur-fast), color var(--dur-fast), background var(--dur-fast);
 }
-.ai-split-tab:hover { color: var(--text); }
-.ai-split-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-.ai-split-sub-row { display: flex; align-items: center; gap: 12px; padding: 8px 0 10px; min-height: 36px; flex-wrap: wrap; }
-.ai-russify-toggle { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: var(--text-2); cursor: pointer; user-select: none; flex-shrink: 0; }
-.ai-russify-toggle input[type="checkbox"] { width: 13px; height: 13px; cursor: pointer; accent-color: var(--accent); margin: 0; }
-.ai-tab-desc { font-size: 11px; color: var(--text-3); line-height: 1.4; flex: 1; min-width: 0; }
+.ai-opt:hover { border-color: var(--border-2); color: var(--text); }
+.ai-opt.active { border-color: var(--accent); color: var(--accent); background: var(--surface); }
+.ai-opt-ico { display: inline-flex; flex-shrink: 0; }
+.ai-opt-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* Название всегда ярче описания — иначе карточка читается как сплошное пятно */
+.ai-opt-ttl { font-size: 12px; font-weight: 600; line-height: 1.2; color: var(--text); }
+.ai-opt.active .ai-opt-ttl { color: var(--accent); }
+/* Описание — это содержание, а не микро-подпись: --text-3 (24%) для него слишком блёкло */
+.ai-opt-sub { font-size: 10.5px; line-height: 1.3; color: var(--text-2); }
+.ai-opt.active .ai-opt-sub { color: var(--text); opacity: 0.7; }
+.ai-opt-mark { margin-left: auto; display: inline-flex; flex-shrink: 0; }
+.ai-opt-mark svg { width: 14px; height: 14px; }
 .ai-split-bd { display: flex; flex: 1; min-height: 0; }
 .ai-split-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .ai-split-pane + .ai-split-pane { border-left: 1px solid var(--border); }
@@ -1421,21 +1430,17 @@ select option { background: var(--bg-2); color: var(--text); }
 .ai-split-textarea { flex: 1; width: 100%; border: none; background: var(--bg-2); color: var(--text); font-size: 13px; line-height: 1.65; padding: 14px 16px; resize: none; outline: none; font-family: inherit; }
 .ai-split-result { flex: 1; padding: 14px 16px; font-size: 13px; line-height: 1.65; color: var(--text); overflow-y: auto; white-space: pre-wrap; background: var(--surface); }
 .ai-split-result-empty { color: var(--text-3); font-style: italic; }
-.ai-info-badge {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 15px; height: 15px; border-radius: 50%;
-  background: var(--surface-2); border: 1px solid var(--border-2);
-  font-size: 9px; font-weight: 800; color: var(--text-3);
-  cursor: help; flex-shrink: 0;
-  transition: border-color var(--dur-fast), color var(--dur-fast);
-}
-.ai-info-badge:hover { border-color: var(--accent); color: var(--accent); }
-
 @media (max-width: 640px) {
   .ai-split-modal { height: min(96vh, 96dvh); }
   .ai-split-bd { flex-direction: column; }
   .ai-split-pane + .ai-split-pane { border-left: none; border-top: 1px solid var(--border); }
   .ai-split-pane { min-height: 180px; }
+  /* Карточки в столбик — на узком экране три в ряд не читаются */
+  .ai-opt-grid { grid-template-columns: 1fr; gap: 6px; }
+  .ai-opt-group { padding-bottom: 10px; }
+  /* Шесть карточек в столбик выше экрана телефона, а у окна overflow: hidden —
+     без прокрутки шапки нижние варианты просто обрезало бы */
+  .ai-split-hd { max-height: 46vh; overflow-y: auto; }
 }
 
 /* ─── Location modal ─── */
