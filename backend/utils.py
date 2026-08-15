@@ -463,7 +463,12 @@ def distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 # ── Upload configuration ─────────────────────────────────────────────────────
 
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+# Куда складывать загруженные файлы. Диск контейнера на Railway пересоздаётся
+# при каждой выкатке, поэтому в проде сюда указывают смонтированный том
+# (UPLOAD_DIR=/data/uploads) — иначе все картинки и видео постов исчезают
+# при первом же деплое. По умолчанию — папка рядом с кодом, для локальной работы.
+DEFAULT_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "").strip() or DEFAULT_UPLOAD_DIR
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}

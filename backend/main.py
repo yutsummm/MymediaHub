@@ -17,6 +17,7 @@ from alembic import command
 from alembic.config import Config
 from utils import (
     DATABASE_URL,
+    DEFAULT_UPLOAD_DIR,
     SECRET_PREFIX,
     UPLOAD_DIR,
     UPLOAD_NAME_RE,
@@ -330,6 +331,33 @@ def encrypt_existing_secrets():
         print(f"🔒  зашифровано токенов интеграций: {encrypted}")
 
 
+def check_upload_storage():
+    """
+    Говорит, куда реально легли загрузки, и проверяет, что туда можно писать.
+
+    Без смонтированного тома каталог живёт внутри контейнера и пересоздаётся
+    при каждой выкатке — все картинки и видео постов молча исчезают. Ошибку
+    прав тоже лучше увидеть при старте, а не в момент первой загрузки.
+    """
+    probe = os.path.join(UPLOAD_DIR, ".write-probe")
+    try:
+        with open(probe, "w") as f:
+            f.write("ok")
+        os.remove(probe)
+    except OSError as e:
+        raise RuntimeError(f"Каталог загрузок {UPLOAD_DIR} недоступен для записи: {e}")
+
+    files = [n for n in os.listdir(UPLOAD_DIR) if not n.startswith(".")]
+    if UPLOAD_DIR == DEFAULT_UPLOAD_DIR:
+        print(
+            f"⚠️   загрузки: {UPLOAD_DIR} — каталог внутри контейнера. "
+            "На Railway он пересоздаётся при каждой выкатке и файлы пропадут. "
+            "Смонтируйте том и задайте UPLOAD_DIR."
+        )
+    else:
+        print(f"📁  загрузки: {UPLOAD_DIR} (файлов: {len(files)})")
+
+
 @app.on_event("startup")
 def startup():
     try:
@@ -346,6 +374,11 @@ def startup():
         encrypt_existing_secrets()
     except Exception as e:
         print(f"❌  не удалось зашифровать токены интеграций: {e}")
+        raise
+    try:
+        check_upload_storage()
+    except Exception as e:
+        print(f"❌  проблема с каталогом загрузок: {e}")
         raise
     print("✅  MediaHub API запущен!  →  http://localhost:8000")
 
