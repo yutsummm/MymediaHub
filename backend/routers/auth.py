@@ -19,6 +19,7 @@ from models import (
 from utils import (
     check_invite_usable,
     check_rate_limit,
+    client_ip,
     create_token,
     get_db,
     hash_password,
@@ -77,8 +78,8 @@ def _send_code_or_drop(conn, email: str, code: str) -> None:
 
 @router.post("/api/auth/login")
 def login(req: LoginRequest, request: Request = None):
-    client_ip = request.client.host if request else "unknown"
-    check_rate_limit(f"login:{client_ip}", 5, 60)
+    ip = client_ip(request)
+    check_rate_limit(f"login:{ip}", 5, 60)
 
     conn = get_db()
     c = conn.cursor()
@@ -121,8 +122,8 @@ def register(req: RegisterRequest, request: Request = None):
     /api/auth/verify-email. Иначе любым чужим адресом можно было завести
     рабочий аккаунт: почта никак не проверялась.
     """
-    client_ip = request.client.host if request else "unknown"
-    check_rate_limit(f"register:{client_ip}", 3, 300)
+    ip = client_ip(request)
+    check_rate_limit(f"register:{ip}", 3, 300)
     if not req.name.strip():
         raise HTTPException(400, "Введите имя")
     if not req.email.strip():
@@ -172,8 +173,8 @@ def register(req: RegisterRequest, request: Request = None):
 @router.post("/api/auth/verify-email")
 def verify_email(req: VerifyEmailRequest, request: Request = None):
     """Шаг 2 из 2: код сошёлся — создаём пользователя и сразу пускаем внутрь."""
-    client_ip = request.client.host if request else "unknown"
-    check_rate_limit(f"verify:{client_ip}", 10, 300)
+    ip = client_ip(request)
+    check_rate_limit(f"verify:{ip}", 10, 300)
     email = req.email.lower().strip()
     conn = get_db()
     c = conn.cursor()
@@ -233,8 +234,8 @@ def verify_email(req: VerifyEmailRequest, request: Request = None):
 @router.post("/api/auth/resend-code")
 def resend_code(req: ResendCodeRequest, request: Request = None):
     """Новый код по той же заявке — письмо теряется чаще, чем хотелось бы."""
-    client_ip = request.client.host if request else "unknown"
-    check_rate_limit(f"resend:{client_ip}", 3, 300)
+    ip = client_ip(request)
+    check_rate_limit(f"resend:{ip}", 3, 300)
     email = req.email.lower().strip()
     conn = get_db()
     c = conn.cursor()
@@ -255,8 +256,8 @@ def resend_code(req: ResendCodeRequest, request: Request = None):
 
 @router.post("/api/auth/forgot-password")
 def forgot_password(req: ForgotPasswordRequest, request: Request = None):
-    client_ip = request.client.host if request else "unknown"
-    check_rate_limit(f"forgot:{client_ip}", 3, 300)
+    ip = client_ip(request)
+    check_rate_limit(f"forgot:{ip}", 3, 300)
     email = req.email.lower().strip()
     conn = get_db()
     c = conn.cursor()
@@ -286,8 +287,8 @@ def forgot_password(req: ForgotPasswordRequest, request: Request = None):
 
 @router.post("/api/auth/reset-password")
 def reset_password(req: ResetPasswordRequest, request: Request = None):
-    client_ip = request.client.host if request else "unknown"
-    check_rate_limit(f"reset:{client_ip}", 5, 300)
+    ip = client_ip(request)
+    check_rate_limit(f"reset:{ip}", 5, 300)
     _validate_password(req.new_password)
     email = req.email.lower().strip()
     conn = get_db()

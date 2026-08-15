@@ -5,6 +5,7 @@ MediaHub — shared utilities and helpers
 import base64
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -318,6 +319,51 @@ def page_meta(total: int, limit: int, offset: int) -> dict:
 # период») это один запрос вместо чтения и записи списка отметок.
 
 RATE_LIMIT_FALLBACK: dict[str, list[float]] = {}
+
+
+# 100.64.0.0/10 — shared address space (RFC 6598), в нём живут внутренние прокси
+# Railway. Python не относит его к приватным, поэтому перечисляем отдельно:
+# без этого «публичным адресом клиента» оказывался бы прокси платформы, а он у
+# каждого запроса свой.
+_INFRA_NETS = (
+    ipaddress.ip_network("100.64.0.0/10"),
+    ipaddress.ip_network("fc00::/7"),
+)
+
+
+def _is_infrastructure(addr) -> bool:
+    if addr.is_private or addr.is_loopback or addr.is_reserved or addr.is_link_local:
+        return True
+    return any(addr in net for net in _INFRA_NETS if addr.version == net.version)
+
+
+def client_ip(request) -> str:
+    """
+    Адрес клиента с учётом прокси.
+
+    request.client.host на Railway — это адрес их внутреннего прокси, и у
+    каждого запроса он свой (100.64.0.3, .5, .6 …). Ключ лимита получался
+    каждый раз новым, то есть рейт-лимит на проде не работал вовсе — ни в
+    прежнем виде, ни в новом.
+
+    Берём самый правый публичный адрес из X-Forwarded-For: заголовок
+    дописывается каждым прокси слева направо, поэтому подставленное клиентом
+    значение остаётся левее настоящего и до нас не доходит. Внутренние адреса
+    самой платформы пропускаем.
+    """
+    forwarded = (request.headers.get("x-forwarded-for") or "") if request else ""
+    for candidate in reversed([p.strip() for p in forwarded.split(",") if p.strip()]):
+        try:
+            addr = ipaddress.ip_address(candidate.rsplit(":", 1)[0]
+                                        if candidate.count(":") == 1 else candidate)
+        except ValueError:
+            continue
+        if _is_infrastructure(addr):
+            continue
+        return str(addr)
+    if request and request.client:
+        return request.client.host
+    return "unknown"
 
 
 def check_rate_limit(key: str, max_requests: int = 10, window_seconds: int = 60):

@@ -195,3 +195,53 @@ def test_admin_endpoints_still_work_after_all_this(client, admin_token):
     """Дымовая проверка: перенос миграций не сломал обычную работу."""
     assert client.get("/api/users", headers=auth(admin_token)).status_code == 200
     assert client.get("/api/posts", headers=auth(admin_token)).status_code == 200
+
+
+# ── Кто такой «клиент» ───────────────────────────────────────────────────────
+
+class FakeRequest:
+    def __init__(self, forwarded: str | None, peer: str = "100.64.0.7"):
+        self.headers = {"x-forwarded-for": forwarded} if forwarded else {}
+        self.client = type("C", (), {"host": peer})()
+
+
+def test_client_ip_ignores_platform_proxies():
+    """
+    Причина, по которой лимит не работал на проде: request.client.host — это
+    адрес внутреннего прокси Railway, и у каждого запроса он свой. Ключ
+    получался каждый раз новым.
+    """
+    from utils import client_ip
+
+    assert client_ip(FakeRequest("93.184.216.34", peer="100.64.0.3")) == "93.184.216.34"
+    assert client_ip(FakeRequest("93.184.216.34, 100.64.0.3, 100.64.0.9")) == "93.184.216.34"
+
+
+def test_client_ip_takes_the_rightmost_public_address():
+    """
+    Заголовок дописывается слева направо, поэтому подставленное клиентом
+    значение остаётся левее настоящего. Берём правое — подделка не проходит.
+    """
+    from utils import client_ip
+
+    assert client_ip(FakeRequest("8.8.8.8, 93.184.216.34")) == "93.184.216.34"
+
+
+def test_client_ip_falls_back_to_peer():
+    from utils import client_ip
+
+    assert client_ip(FakeRequest(None, peer="198.51.100.4")) == "198.51.100.4"
+    assert client_ip(FakeRequest("не-адрес", peer="198.51.100.4")) == "198.51.100.4"
+    # Даже если в заголовке только адреса самой платформы
+    assert client_ip(FakeRequest("100.64.0.3, 100.64.0.9", peer="100.64.0.9")) == "100.64.0.9"
+
+
+def test_same_client_shares_one_limit_key(client):
+    """Проверка сути: один и тот же клиент должен упираться в лимит."""
+    headers = {"X-Forwarded-For": "93.184.216.34"}
+    codes = [
+        client.post("/api/auth/login", json={"email": "нет@такого.local", "password": "x"},
+                    headers=headers).status_code
+        for _ in range(7)
+    ]
+    assert 429 in codes, f"лимит не сработал: {codes}"
