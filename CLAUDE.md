@@ -54,7 +54,8 @@ frontend/
 `vk_settings` / `tg_settings` (с `workspace_id` → groups), `volunteer_media`,
 `email_verifications` (заявки на регистрацию до подтверждения почты), `password_resets`.
 
-Даты в `posts`/`users` хранятся как **TEXT** в формате `YYYY-MM-DDTHH:MM`, не как timestamp.
+Даты в `posts`/`users` хранятся как **TEXT** в формате `YYYY-MM-DDTHH:MM`, не как timestamp,
+и все — в зоне `APP_TZ` (см. «Все человеческие даты» ниже).
 
 ## Архитектурные особенности (важно помнить)
 
@@ -100,11 +101,17 @@ frontend/
   Просроченные больше чем на `SCHEDULER_MAX_DELAY_MINUTES` (120) не публикуются
   вовсе — `flag_missed_posts()` пишет причину в `posts.publish_error`.
   Выключается через `SCHEDULER_ENABLED=0`.
-- **Время приложения — `APP_TZ`** (по умолчанию `Asia/Krasnoyarsk`), `utils.app_now_str()`.
-  `scheduled_at` приходит из браузера по местному времени, а контейнер и Postgres на
-  Railway живут в UTC: сравнение напрямую увело бы публикацию на 7 часов.
-  `published_at` теперь тоже пишется в `APP_TZ`. **`created_at` остался UTC**
-  (server_default в базе) — даты в базе живут в двух разных зонах, это не доделано.
+- **Все «человеческие» даты — в одной зоне, `APP_TZ`** (по умолчанию `Asia/Krasnoyarsk`).
+  В коде время берётся только через `utils.app_now()` / `app_now_str()`, никаких
+  `datetime.now()`. В базе то же самое делают `server_default`:
+  `to_char(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Krasnoyarsk', ...)`.
+  Зона в дефолтах зашита миграцией `e5c9d4a71b38`, она же разово сдвинула
+  накопленные значения из UTC. **Зона в миграции и `APP_TZ` обязаны совпадать** —
+  расхождение ловит `check_time_alignment()` при старте (предупреждает, не роняет)
+  и тест `test_timezones.py`.
+  Не в этой зоне и трогать нельзя: `invite_links.expires_at`,
+  `password_resets.expires_at`, `email_verifications.expires_at` — это внутренние
+  пары «записали `utcnow` / сравнили с `utcnow`», согласованные сами с собой.
 - **Авторизация**: все `/api/*` требуют `Depends(get_current_user_id)`, кроме
   `auth/login`, `auth/register`, `auth/verify-email`, `auth/resend-code`,
   `auth/forgot-password`, `auth/reset-password`,
@@ -173,6 +180,7 @@ BACKEND_URL), `frontend/.env.local` (NEXT_PUBLIC_YANDEX_MAPS_KEY, опц. NEXT_P
 `test_settings_multi_group.py` стережёт, что интеграция подключается больше чем к одной группе.
 `test_upload_access.py` стережёт, что файлы не отдаются без подписи и что подпись не оседает в базе.
 `test_scheduler.py` стережёт автопубликацию: срок, двойную отправку и протухшие посты.
+`test_timezones.py` стережёт, что даты пишутся в одной зоне и что сдвиг не задел чужие форматы.
 
 ## Известные проблемы
 
@@ -192,6 +200,8 @@ BACKEND_URL), `frontend/.env.local` (NEXT_PUBLIC_YANDEX_MAPS_KEY, опц. NEXT_P
 9. ~~Загрузки терялись при каждой выкатке.~~ Исправлено — том на Railway + `UPLOAD_DIR`.
 10. ~~Отложенные посты никогда не публиковались — планировщика не было вовсе.~~
     Исправлено, см. «Планировщик отложенных постов» выше.
+11. ~~Даты в базе жили в двух часовых поясах разом (UTC и местный).~~ Исправлено
+    миграцией `e5c9d4a71b38`, см. «Все человеческие даты» выше.
 
 Осталось нерешённым:
 
@@ -205,5 +215,14 @@ BACKEND_URL), `frontend/.env.local` (NEXT_PUBLIC_YANDEX_MAPS_KEY, опц. NEXT_P
 
 `posts.created_at / scheduled_at / published_at`, `users.created_at` и прочие «временные»
 поля — это **TEXT** в формате `YYYY-MM-DDTHH:MM`. Сортировка лексикографическая совпадает
-с хронологической, поэтому `ORDER BY` работает, но арифметика по датам и таймзоны — нет.
+с хронологической, поэтому `ORDER BY` работает, но арифметика по датам — нет.
 Фильтры по периодам собираются строковыми сравнениями (`BETWEEN`, `LIKE 'YYYY-MM-DD%'`).
+
+Зоны в строке нет, поэтому единственная защита — договорённость: **все такие поля
+в `APP_TZ`**. Пишем их только через `app_now_str()` (код) и `server_default` с
+`AT TIME ZONE` (база). Любое новое место, где появляется дата, обязано брать время
+оттуда же — `datetime.now()` на Railway вернёт UTC и снова разведёт зоны.
+
+Исключения, где зона другая и так и надо: `invite_links.expires_at`,
+`password_resets.expires_at`, `email_verifications.expires_at` — их пишет и читает
+`datetime.utcnow()`, обе стороны в UTC, трогать нельзя.

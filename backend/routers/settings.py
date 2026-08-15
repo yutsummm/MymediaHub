@@ -1,4 +1,3 @@
-from datetime import datetime
 
 import requests as http_requests
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from models import TgSettingsSave, VkOAuthExchange, VkSettingsSave
 from utils import (
     VK_API_VERSION,
+    app_now_str,
     encrypt_secret,
     get_current_user_id,
     get_db,
@@ -47,7 +47,7 @@ def save_vk_settings(body: VkSettingsSave, user_id: int = Depends(get_current_us
     c = conn.cursor()
     c.execute("SELECT id FROM vk_settings WHERE id=1")
     exists = c.fetchone()
-    now = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    now = app_now_str()
     if exists:
         c.execute(
             "UPDATE vk_settings SET group_id=%s, access_token=%s, group_name=%s, connected_at=%s WHERE id=1",
@@ -94,7 +94,7 @@ def vk_oauth_exchange(body: VkOAuthExchange, user_id: int = Depends(get_current_
     c = conn.cursor()
     c.execute("SELECT id FROM vk_settings WHERE id=1")
     exists = c.fetchone()
-    now = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    now = app_now_str()
     clean_id = body.group_id.lstrip("-")
     if exists:
         c.execute(
@@ -169,7 +169,7 @@ def save_group_vk_settings(gid: int, body: VkSettingsSave, user_id: int = Depend
         group_name = vk_get_group_name(body.access_token, body.group_id)
     except Exception:
         pass
-    now = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    now = app_now_str()
     c.execute("SELECT workspace_id FROM vk_settings WHERE workspace_id=%s", (gid,))
     exists = c.fetchone()
     if exists:
@@ -230,7 +230,7 @@ def save_tg_settings(body: TgSettingsSave, user_id: int = Depends(get_current_us
     c = conn.cursor()
     c.execute("SELECT id FROM tg_settings WHERE id=1")
     exists = c.fetchone()
-    now = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    now = app_now_str()
     if exists:
         c.execute(
             "UPDATE tg_settings SET bot_token=%s, chat_id=%s, chat_title=%s, connected_at=%s WHERE id=1",
@@ -282,7 +282,7 @@ def save_group_tg_settings(gid: int, body: TgSettingsSave, user_id: int = Depend
     if role != "admin":
         conn.close()
         raise HTTPException(403, "Только администратор может изменять настройки")
-    now = datetime.now().strftime("%Y-%m-%dT%H:%M")
+    now = app_now_str()
     chat_title = body.chat_id
     try:
         r = http_requests.get(

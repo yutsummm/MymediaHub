@@ -1,4 +1,3 @@
-import datetime
 import json
 import os
 
@@ -9,6 +8,7 @@ from models import AIEnhanceRequest, GenerateRequest, PostCreate, PostUpdate
 from publishing import perform_publish
 from utils import (
     _AI_PROMPTS,
+    app_now_str,
     check_rate_limit,
     decrypt_row_secret,
     get_current_user_id,
@@ -401,7 +401,7 @@ def sync_vk_stats(user_id: int = Depends(get_current_user_id)):
                     c.execute(
                         "UPDATE posts SET views=%s, reactions=%s, comments=%s, shares=%s, vk_stats_updated_at=%s WHERE vk_post_id=%s AND status='published'",
                         (views, reactions, comments, shares,
-                         datetime.datetime.now().strftime("%Y-%m-%dT%H:%M"), vp_id),
+                         app_now_str(), vp_id),
                     )
                     total_synced += 1
             except Exception:
@@ -462,7 +462,7 @@ def group_sync_vk_stats(gid: int, user_id: int = Depends(get_current_user_id)):
                 c.execute(
                     "UPDATE posts SET views=%s, reactions=%s, comments=%s, shares=%s, vk_stats_updated_at=%s WHERE vk_post_id=%s AND group_id=%s AND status='published'",
                     (views, reactions, comments, shares,
-                     datetime.datetime.now().strftime("%Y-%m-%dT%H:%M"), vp_id, gid),
+                     app_now_str(), vp_id, gid),
                 )
                 total_synced += 1
         except Exception:

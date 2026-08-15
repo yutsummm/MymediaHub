@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-from utils import get_current_user_id, get_db, posts_scope, require_group_member
+from utils import app_now, get_current_user_id, get_db, posts_scope, require_group_member
 
 router = APIRouter()
 
@@ -195,7 +195,7 @@ def analytics_summary(user_id: int = Depends(get_current_user_id)):
 @router.get("/api/analytics/timeline")
 def analytics_timeline(period: str = "month", user_id: int = Depends(get_current_user_id)):
     days = {"week": 7, "month": 30, "quarter": 90}.get(period, 30)
-    now = datetime.now()
+    now = app_now()
     result = []
     conn = get_db()
     c = conn.cursor()
@@ -359,7 +359,7 @@ def group_analytics_summary(gid: int, user_id: int = Depends(get_current_user_id
 @router.get("/api/groups/{gid}/analytics/timeline")
 def group_analytics_timeline(gid: int, period: str = "month", user_id: int = Depends(get_current_user_id)):
     days = {"week": 7, "month": 30, "quarter": 90}.get(period, 30)
-    now = datetime.now()
+    now = app_now()
     result = []
     conn = get_db()
     c = conn.cursor()

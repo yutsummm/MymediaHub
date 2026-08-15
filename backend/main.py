@@ -17,11 +17,14 @@ import scheduler
 from alembic import command
 from alembic.config import Config
 from utils import (
+    APP_TZ,
     DATABASE_URL,
     DEFAULT_UPLOAD_DIR,
     SECRET_PREFIX,
     UPLOAD_DIR,
     UPLOAD_NAME_RE,
+    app_now,
+    app_now_str,
     check_upload_signature,
     encrypt_secret,
     get_db,
@@ -225,7 +228,7 @@ def seed_db():
 
     c.execute("SELECT COUNT(*) FROM posts")
     if c.fetchone()["count"] == 0:
-        now = datetime.datetime.now()
+        now = app_now()
         rows = [
             ("🔥 Хакатон IT-Кубок — регистрация открыта!",
              "🔥 Хакатон IT-Кубок\n\n📅 Дата: 25–26 апреля, 10:00\n📍 Место: Каменка\n\nСоревнования по программированию.\n\n👉 @it_kubok\n\n#мероприятие #молодёжь",
@@ -332,6 +335,52 @@ def encrypt_existing_secrets():
         print(f"🔒  зашифровано токенов интеграций: {encrypted}")
 
 
+def check_time_alignment() -> bool:
+    """
+    Сверяет часовой пояс базы и приложения.
+
+    Даты-строки ставят двое: база через server_default (зона зашита миграцией)
+    и код через app_now_str() (зона из APP_TZ). Если их развести, в одной
+    колонке снова окажутся значения, различающиеся на несколько часов — ровно
+    та беда, которую разбирала миграция e5c9d4a71b38. Проверка дешёвая, а
+    заметить расхождение потом по данным очень трудно.
+
+    Не роняет приложение: перекос по времени — повод для громкого предупреждения,
+    но не для отказа обслуживать людей.
+    """
+    conn = get_db()
+    try:
+        c = conn.cursor()
+        c.execute(
+            "SELECT column_default FROM information_schema.columns "
+            "WHERE table_name='posts' AND column_name='created_at'"
+        )
+        row = c.fetchone()
+        expr = row and row.get("column_default")
+        if not expr:
+            return True
+        c.execute(f"SELECT {expr} AS db_now")  # noqa: S608 — выражение из схемы, не из ввода
+        db_now = c.fetchone()["db_now"]
+    finally:
+        conn.close()
+
+    fmt = "%Y-%m-%dT%H:%M"
+    drift = abs(
+        (datetime.datetime.strptime(db_now, fmt)
+         - datetime.datetime.strptime(app_now_str(), fmt)).total_seconds()
+    ) / 60
+    if drift > 5:
+        print(
+            f"⚠️   база и приложение расходятся во времени на {drift:.0f} мин: "
+            f"база пишет {db_now}, приложение считает {app_now_str()}. "
+            f"Проверьте APP_TZ (сейчас {APP_TZ}) и server_default дат — "
+            "иначе в одной колонке снова окажутся разные часовые пояса."
+        )
+        return False
+    print(f"🕒  время согласовано: {APP_TZ}, сейчас {db_now}")
+    return True
+
+
 def check_upload_storage():
     """
     Говорит, куда реально легли загрузки, и проверяет, что туда можно писать.
@@ -381,6 +430,10 @@ def startup():
     except Exception as e:
         print(f"❌  проблема с каталогом загрузок: {e}")
         raise
+    try:
+        check_time_alignment()
+    except Exception as e:
+        print(f"⚠️   не удалось сверить время базы и приложения: {e}")
     scheduler.start(app)
     print("✅  MediaHub API запущен!  →  http://localhost:8000")
 
