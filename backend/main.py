@@ -9,9 +9,9 @@ import os
 import random
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from alembic import command
 from alembic.config import Config
@@ -19,6 +19,8 @@ from utils import (
     DATABASE_URL,
     SECRET_PREFIX,
     UPLOAD_DIR,
+    UPLOAD_NAME_RE,
+    check_upload_signature,
     encrypt_secret,
     get_db,
     hash_password,
@@ -348,4 +350,24 @@ def startup():
     print("✅  MediaHub API запущен!  →  http://localhost:8000")
 
 
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+@app.get("/uploads/{filename}")
+def serve_upload(filename: str, exp: str | None = None, sig: str | None = None):
+    """
+    Раздача загрузок по подписанной ссылке.
+
+    Раньше здесь стоял StaticFiles без единой проверки: кто знал URL, тот
+    скачивал файл, и медиа закрытых групп были фактически публичны. Заголовок
+    авторизации к <img src="..."> не приложить, поэтому право доступа несёт
+    подпись в самой ссылке — её выдаёт API тому, кто уже видит содержащую
+    запись, и живёт она ограниченное время.
+    """
+    if not UPLOAD_NAME_RE.match(filename):
+        raise HTTPException(404, "Файл не найден")
+    check_upload_signature(filename, exp, sig)
+
+    path = os.path.realpath(os.path.join(UPLOAD_DIR, filename))
+    # Подпись считается по имени, но выход за каталог проверяем всё равно:
+    # одна ошибка в регулярке не должна открывать файловую систему.
+    if not path.startswith(os.path.realpath(UPLOAD_DIR) + os.sep) or not os.path.isfile(path):
+        raise HTTPException(404, "Файл не найден")
+    return FileResponse(path)

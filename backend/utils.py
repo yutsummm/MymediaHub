@@ -4,8 +4,10 @@ MediaHub — shared utilities and helpers
 
 import base64
 import hashlib
+import hmac
 import json
 import os
+import re
 import secrets
 import time
 from datetime import datetime, timedelta
@@ -41,6 +43,11 @@ def row_to_dict(row):
             d[key] = [] if key != "tg_message_ids" else []
     if "tg_message_ids" in d and not isinstance(d["tg_message_ids"], list):
         d["tg_message_ids"] = []
+    # Ссылки на файлы уходят наружу подписанными: /uploads отдаёт только по
+    # действующей подписи. Через row_to_dict проходят все посты, поэтому одна
+    # точка закрывает их целиком.
+    if "media" in d:
+        d["media"] = sign_media_list(d["media"])
     return d
 
 
@@ -141,6 +148,106 @@ def decrypt_secret(value: str | None) -> str | None:
             "JWT_SECRET или TOKEN_ENCRYPTION_KEY — переподключите интеграцию "
             "в настройках.",
         )
+
+
+# ── Подписанные ссылки на загрузки ───────────────────────────────────────────
+# /uploads раздавался StaticFiles без всякой проверки: кто знает URL, тот качает.
+# Медиа закрытых групп были фактически публичны.
+#
+# Заголовок Authorization к <img src="..."> не приложишь, поэтому доступ даёт
+# подпись в самой ссылке: сервер подписывает путь тому, кто уже имеет право
+# видеть содержащую запись, и подпись живёт ограниченное время. Ссылка,
+# утёкшая наружу, протухает сама.
+
+UPLOAD_URL_TTL = int(os.getenv("UPLOAD_URL_TTL", str(12 * 3600)))
+UPLOAD_NAME_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def _upload_key() -> bytes:
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+    return HKDF(
+        algorithm=hashes.SHA256(), length=32, salt=b"mediahub.secrets.v1",
+        info=b"upload-urls",
+    ).derive(JWT_SECRET.encode())
+
+
+def _upload_signature(filename: str, expires: int) -> str:
+    msg = f"{filename}:{expires}".encode()
+    return hmac.new(_upload_key(), msg, hashlib.sha256).hexdigest()[:32]
+
+
+def upload_filename(url: str) -> str:
+    """Имя файла из ссылки на загрузку, без подписи и каталогов."""
+    return os.path.basename((url or "").split("?", 1)[0])
+
+
+def strip_upload_signature(url: str | None) -> str | None:
+    """
+    Убирает подпись перед записью в базу. Фронт присылает медиа обратно ровно в
+    том виде, в каком получил, — если не срезать, в базу лягут ссылки с давно
+    истёкшей подписью, и та же картинка перестанет открываться.
+    """
+    if not url or "?" not in url:
+        return url
+    base = url.split("?", 1)[0]
+    return base if base.startswith("/uploads/") else url
+
+
+def sign_upload_url(url: str | None) -> str | None:
+    """Подписывает ссылку на выдачу наружу. Чужие URL не трогает."""
+    if not url:
+        return url
+    base = url.split("?", 1)[0]
+    if not base.startswith("/uploads/"):
+        return url
+    name = os.path.basename(base)
+    if not UPLOAD_NAME_RE.match(name):
+        return url
+    expires = int(time.time()) + UPLOAD_URL_TTL
+    return f"/uploads/{name}?exp={expires}&sig={_upload_signature(name, expires)}"
+
+
+def sign_media_list(media) -> list:
+    """Подписывает ссылки во всём списке медиа (посты, материалы волонтёров)."""
+    if not isinstance(media, list):
+        return media
+    signed = []
+    for item in media:
+        if isinstance(item, dict) and item.get("url"):
+            item = {**item, "url": sign_upload_url(item["url"])}
+        signed.append(item)
+    return signed
+
+
+def media_for_storage(media) -> str:
+    """
+    JSON списка медиа для записи в базу — с вычищенными подписями.
+    Единственная точка, через которую медиа должно попадать в posts.media и
+    volunteer_media.media.
+    """
+    items = []
+    for item in media or []:
+        d = item if isinstance(item, dict) else item.dict()
+        if d.get("url"):
+            d = {**d, "url": strip_upload_signature(d["url"])}
+        items.append(d)
+    return json.dumps(items)
+
+
+def check_upload_signature(filename: str, expires: str | None, signature: str | None) -> None:
+    """Пускает к файлу только по действующей подписи. Иначе — 403/410."""
+    if not expires or not signature:
+        raise HTTPException(403, "Ссылка на файл должна быть подписана")
+    try:
+        expires_at = int(expires)
+    except ValueError:
+        raise HTTPException(403, "Некорректная подпись ссылки")
+    if not hmac.compare_digest(_upload_signature(filename, expires_at), signature):
+        raise HTTPException(403, "Некорректная подпись ссылки")
+    if expires_at < int(time.time()):
+        raise HTTPException(410, "Срок действия ссылки на файл истёк")
 
 
 def decrypt_row_secret(row, field: str) -> dict | None:
@@ -623,7 +730,7 @@ def tg_get_chat_title(bot_token: str, chat_id: str) -> str:
 
 
 def _resolve_media_bytes(item: dict, backend_base: str) -> tuple[bytes, str]:
-    fname = os.path.basename(item["url"])
+    fname = upload_filename(item["url"])
     fpath = os.path.join(UPLOAD_DIR, fname)
     if os.path.exists(fpath):
         with open(fpath, "rb") as f:

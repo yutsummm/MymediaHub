@@ -12,6 +12,7 @@ from utils import (
     MAX_VIDEO_SIZE,
     UPLOAD_DIR,
     get_current_user_id,
+    sign_upload_url,
 )
 
 router = APIRouter()
@@ -49,4 +50,10 @@ async def upload_file(
         file_type = "doc"
     else:
         file_type = "image"
-    return {"url": f"/uploads/{filename}", "type": file_type, "filename": file.filename or filename}
+    # Ссылку отдаём подписанной, чтобы предпросмотр в редакторе открылся сразу.
+    # В базу она попадёт уже без подписи — через media_for_storage.
+    return {
+        "url": sign_upload_url(f"/uploads/{filename}"),
+        "type": file_type,
+        "filename": file.filename or filename,
+    }

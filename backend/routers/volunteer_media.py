@@ -2,7 +2,13 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from utils import get_current_user_id, get_db, require_group_member
+from utils import (
+    get_current_user_id,
+    get_db,
+    media_for_storage,
+    require_group_member,
+    sign_media_list,
+)
 
 router = APIRouter()
 
@@ -48,6 +54,8 @@ def get_volunteer_media(
             d["media"] = json.loads(d["media"]) if isinstance(d["media"], str) else d["media"]
         except Exception:
             d["media"] = []
+        # Ссылки наружу — только подписанные: /uploads без подписи не отдаёт
+        d["media"] = sign_media_list(d["media"])
         result.append(d)
     return {"items": result, "total": total}
 
@@ -70,7 +78,7 @@ def create_volunteer_media(gid: int, body: dict, user_id: int = Depends(get_curr
         raise HTTPException(400, "Добавьте хотя бы один файл")
     c.execute(
         "INSERT INTO volunteer_media (user_id, group_id, event_name, media) VALUES (%s, %s, %s, %s) RETURNING id",
-        (user_id, gid, event_name, json.dumps(media)),
+        (user_id, gid, event_name, media_for_storage(media)),
     )
     vid = c.fetchone()["id"]
     conn.commit()
@@ -82,6 +90,7 @@ def create_volunteer_media(gid: int, body: dict, user_id: int = Depends(get_curr
         d["media"] = json.loads(d["media"]) if isinstance(d["media"], str) else d["media"]
     except Exception:
         d["media"] = []
+    d["media"] = sign_media_list(d["media"])
     return d
 
 
@@ -128,4 +137,5 @@ def update_volunteer_media_status(gid: int, vid: int, body: dict, user_id: int =
         d["media"] = json.loads(d["media"]) if isinstance(d["media"], str) else d["media"]
     except Exception:
         d["media"] = []
+    d["media"] = sign_media_list(d["media"])
     return d

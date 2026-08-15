@@ -13,12 +13,14 @@ from utils import (
     decrypt_row_secret,
     get_current_user_id,
     get_db,
+    media_for_storage,
     posts_scope,
     require_admin,
     require_group_member,
     require_post_access,
     row_to_dict,
     tg_send_post,
+    upload_filename,
     vk_upload_doc_to_wall,
     vk_upload_photo_to_wall,
     vk_upload_video_to_wall,
@@ -81,7 +83,7 @@ def create_post(body: PostCreate, user_id: int = Depends(get_current_user_id)):
         (body.title, body.content, body.status, json.dumps(body.platforms),
          json.dumps(body.tags), body.scheduled_at, body.location_address,
          body.location_lat, body.location_lng, user_id, body.template_type,
-         json.dumps([m.dict() for m in body.media])),
+         media_for_storage(body.media)),
     )
     pid = c.fetchone()["id"]
     conn.commit()
@@ -133,7 +135,7 @@ def update_post(post_id: int, body: PostUpdate, user_id: int = Depends(get_curre
         params.append(body.scheduled_at)
     if body.media is not None:
         updates.append("media=%s")
-        params.append(json.dumps([m.dict() for m in body.media]))
+        params.append(media_for_storage(body.media))
     if body.location_address is not None:
         updates.append("location_address=%s")
         params.append(body.location_address)
@@ -194,7 +196,7 @@ def publish_post(post_id: int, user_id: int = Depends(get_current_user_id)):
                     item_type = item.get("type")
                     if item_type not in ("image", "video", "doc"):
                         continue
-                    fname = os.path.basename(item["url"])
+                    fname = upload_filename(item["url"])
                     orig_name = item.get("filename") or fname
                     fpath = os.path.join(UPLOAD_DIR, fname)
                     try:
@@ -358,7 +360,7 @@ def create_group_post(gid: int, body: PostCreate, user_id: int = Depends(get_cur
         (body.title, body.content, body.status, json.dumps(body.platforms),
          json.dumps(body.tags), body.scheduled_at, body.location_address,
          body.location_lat, body.location_lng, user_id, body.template_type,
-         json.dumps([m.dict() for m in body.media]), gid),
+         media_for_storage(body.media), gid),
     )
     pid = c.fetchone()["id"]
     conn.commit()
@@ -418,7 +420,7 @@ def update_group_post(gid: int, post_id: int, body: PostUpdate, user_id: int = D
         params.append(body.scheduled_at)
     if body.media is not None:
         updates.append("media=%s")
-        params.append(json.dumps([m.dict() for m in body.media]))
+        params.append(media_for_storage(body.media))
     if body.location_address is not None:
         updates.append("location_address=%s")
         params.append(body.location_address)
@@ -492,7 +494,7 @@ def publish_group_post(gid: int, post_id: int, user_id: int = Depends(get_curren
                     item_type = item.get("type")
                     if item_type not in ("image", "video", "doc"):
                         continue
-                    fname = os.path.basename(item["url"])
+                    fname = upload_filename(item["url"])
                     orig_name = item.get("filename") or fname
                     fpath = os.path.join(UPLOAD_DIR, fname)
                     try:
