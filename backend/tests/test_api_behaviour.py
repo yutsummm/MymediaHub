@@ -199,24 +199,21 @@ def test_analytics_summary_shape(client, admin_token):
         assert key in body
 
 
-def test_platform_stats_hide_numbers_for_telegram(client, admin_token):
+def test_platform_stats_hide_numbers_without_data(client, admin_token):
     """
-    Колонки views/reactions одни на все площадки и заполняются только синхронизацией
-    ВК. Раньше строка Telegram показывала эти же числа, выдавая вконтактовские
-    просмотры за телеграмные. Теперь по таким площадкам должно быть null.
+    Пока по площадке ничего не собрано, показывать нечего: раньше строка Telegram
+    показывала вконтактовские числа, выдавая их за телеграмные. Признак теперь
+    считается по данным, а не по списку площадок.
     """
     stats = client.get("/api/analytics/summary", headers=auth(admin_token)).json()["platform_stats"]
-    by_platform = {p["platform"]: p for p in stats}
-
-    assert by_platform["vk"]["stats_available"] is True
-    assert isinstance(by_platform["vk"]["views"], int)
-
-    tg = by_platform["telegram"]
-    assert tg["stats_available"] is False
-    assert tg["views"] is None, "по Telegram нельзя показывать числа из VK"
-    assert tg["reactions"] is None
-    # Количество публикаций известно достоверно и остаётся числом
-    assert isinstance(tg["count"], int)
+    for row in stats:
+        if row["collected"]:
+            continue
+        assert row["stats_available"] is False
+        assert row["views"] is None, f"по {row['platform']} нельзя показывать чужие числа"
+        assert row["reactions"] is None
+        # Количество публикаций известно достоверно и остаётся числом
+        assert isinstance(row["count"], int)
 
 
 def test_top_posts_expose_vk_post_id(client, admin_token):

@@ -11,23 +11,47 @@ from utils import app_now, get_current_user_id, get_db, posts_scope, require_gro
 
 router = APIRouter()
 
-# Колонки views/reactions/comments/shares у поста одни на все платформы, и заполняет
-# их только синхронизация ВКонтакте (sync-vk-stats). Для остальных платформ цифр нет:
-# Telegram Bot API не отдаёт просмотры сообщений вообще, а счётчики реакций доступны
-# лишь как входящие апдейты в момент изменения — запросить их для старого поста нельзя.
-# Поэтому по не-VK платформам отдаём None («нет данных»), а не 0 и не чужие числа.
-PLATFORMS_WITH_STATS = {"vk"}
-
-
-def _platform_row(platform: str, count: int, views, reactions, label: str | None = None) -> dict:
-    known = platform in PLATFORMS_WITH_STATS
+# Статистика лежит по площадкам отдельно (post_stats), поэтому «есть ли цифры»
+# больше не захардкожено, а видно по данным: если по площадке нет ни одной
+# собранной строки, отдаём None («нет данных»), а не 0 и не чужие числа. Как
+# только сбор по площадке появится, признак переключится сам.
+def _platform_row(platform: str, count: int, collected: int, views, reactions,
+                  label: str | None = None) -> dict:
+    known = bool(collected)
     return {
         "platform": label or platform,
         "count": count or 0,
+        "collected": collected or 0,
         "views": (views or 0) if known else None,
         "reactions": (reactions or 0) if known else None,
         "stats_available": known,
     }
+
+
+# Сумма по всем площадкам живёт в представлении post_totals (см. миграцию
+# f4b2e8c15d93) — иначе одинаковый подзапрос разъехался бы по полутора десяткам мест.
+TOTALS = "posts JOIN post_totals t ON t.post_id = posts.id"
+
+
+def _platform_stats(c, where: str, params: list, label_upper: bool = False) -> list[dict]:
+    """Разбивка по площадкам: сколько постов ушло и что по ним собрано."""
+    rows = []
+    for pl in ("vk", "telegram"):
+        c.execute(
+            f"SELECT COUNT(*) cnt FROM posts WHERE platforms LIKE %s AND {where}",
+            [f'%"{pl}"%'] + list(params),
+        )
+        count = c.fetchone()["cnt"]
+        c.execute(
+            "SELECT COUNT(*) collected, SUM(s.views) v, SUM(s.reactions) r "
+            "FROM post_stats s JOIN posts ON posts.id = s.post_id "
+            f"WHERE s.platform=%s AND {where}",
+            [pl] + list(params),
+        )
+        got = c.fetchone()
+        rows.append(_platform_row(pl, count, got["collected"], got["v"], got["r"],
+                                  label=pl.upper() if label_upper else None))
+    return rows
 
 
 def _build_workbook(dt_start, dt_end, summary: dict, timeline, pl_stats, top_posts):
@@ -157,27 +181,19 @@ def analytics_summary(user_id: int = Depends(get_current_user_id)):
     c.execute(f"SELECT COUNT(*) FROM posts WHERE {scope} AND status='draft'", sp)
     drafts = c.fetchone()["count"]
     c.execute(
-        "SELECT SUM(views) v,SUM(reactions) r,SUM(comments) c,SUM(shares) sh FROM posts "
+        "SELECT SUM(t.views) v,SUM(t.reactions) r,SUM(t.comments) c,SUM(t.shares) sh FROM " + TOTALS + " "
         f"WHERE {scope} AND status='published'",
         sp,
     )
     s = c.fetchone()
     c.execute(
-        "SELECT id,title,views,reactions,comments,shares,published_at,vk_post_id FROM posts "
+        "SELECT id,title,t.views,t.reactions,t.comments,t.shares,published_at,vk_post_id FROM " + TOTALS + " "
         f"WHERE {scope} AND status='published' "
-        "ORDER BY (views+reactions*3+comments*2+shares*4) DESC LIMIT 5",
+        "ORDER BY (t.views+t.reactions*3+t.comments*2+t.shares*4) DESC LIMIT 5",
         sp,
     )
     top = c.fetchall()
-    pl_stats = []
-    for pl in ["vk", "telegram"]:
-        c.execute(
-            "SELECT COUNT(*) cnt,SUM(views) v,SUM(reactions) r FROM posts "
-            f"WHERE {scope} AND platforms LIKE %s AND status='published'",
-            sp + [f'%"{pl}"%'],
-        )
-        ps = c.fetchone()
-        pl_stats.append(_platform_row(pl, ps["cnt"], ps["v"], ps["r"]))
+    pl_stats = _platform_stats(c, f"{scope} AND status='published'", sp)
     conn.close()
     total_views = s["v"] or 0
     eng = round(((s["r"] or 0) + (s["c"] or 0)) / max(total_views, 1) * 100, 1)
@@ -204,7 +220,7 @@ def analytics_timeline(period: str = "month", user_id: int = Depends(get_current
         day = now - timedelta(days=i)
         ds = day.strftime("%Y-%m-%d")
         c.execute(
-            "SELECT SUM(views) v, SUM(reactions) r, COUNT(*) p FROM posts "
+            "SELECT SUM(t.views) v, SUM(t.reactions) r, COUNT(*) p FROM " + TOTALS + " "
             f"WHERE {scope} AND published_at LIKE %s",
             sp + [ds + "%"],
         )
@@ -251,7 +267,7 @@ def analytics_export(
     )
     total = c.fetchone()["count"]
     c.execute(
-        f"SELECT SUM(views) v,SUM(reactions) r,SUM(comments) cm,SUM(shares) sh FROM posts WHERE {date_filter}",
+        f"SELECT SUM(t.views) v,SUM(t.reactions) r,SUM(t.comments) cm,SUM(t.shares) sh FROM {TOTALS} WHERE {date_filter}",
         df_params,
     )
     s = c.fetchone()
@@ -264,25 +280,18 @@ def analytics_export(
         day = dt_start + timedelta(days=i)
         ds = day.strftime("%Y-%m-%d")
         c.execute(
-            "SELECT SUM(views) v, SUM(reactions) r, COUNT(*) p FROM posts "
+            "SELECT SUM(t.views) v, SUM(t.reactions) r, COUNT(*) p FROM " + TOTALS + " "
             f"WHERE {scope} AND published_at LIKE %s",
             sp + [ds + "%"],
         )
         row = c.fetchone()
         timeline.append({"date": ds, "label": day.strftime("%d.%m"), "views": row["v"] or 0, "reactions": row["r"] or 0, "posts": row["p"] or 0})
 
-    pl_stats = []
-    for pl in ["vk", "telegram"]:
-        c.execute(
-            f"SELECT COUNT(*) cnt,SUM(views) v,SUM(reactions) r FROM posts WHERE platforms LIKE %s AND {date_filter}",
-            [f'%"{pl}"%'] + df_params,
-        )
-        ps = c.fetchone()
-        pl_stats.append(_platform_row(pl, ps["cnt"], ps["v"], ps["r"], label=pl.upper()))
+    pl_stats = _platform_stats(c, date_filter, df_params, label_upper=True)
 
     c.execute(
-        f"SELECT title,views,reactions,comments,shares,published_at FROM posts WHERE {date_filter} "
-        "ORDER BY (views+reactions*3+comments*2+shares*4) DESC LIMIT 10",
+        f"SELECT title,t.views,t.reactions,t.comments,t.shares,published_at FROM {TOTALS} WHERE {date_filter} "
+        "ORDER BY (t.views+t.reactions*3+t.comments*2+t.shares*4) DESC LIMIT 10",
         df_params,
     )
     top_posts = c.fetchall()
@@ -325,23 +334,15 @@ def group_analytics_summary(gid: int, user_id: int = Depends(get_current_user_id
     scheduled = c.fetchone()["count"]
     c.execute("SELECT COUNT(*) FROM posts WHERE group_id=%s AND status='draft'", (gid,))
     drafts = c.fetchone()["count"]
-    c.execute("SELECT SUM(views) v,SUM(reactions) r,SUM(comments) c,SUM(shares) sh FROM posts WHERE group_id=%s AND status='published'", (gid,))
+    c.execute(f"SELECT SUM(t.views) v,SUM(t.reactions) r,SUM(t.comments) c,SUM(t.shares) sh FROM {TOTALS} WHERE group_id=%s AND status='published'", (gid,))
     s = c.fetchone()
     c.execute(
-        "SELECT id,title,views,reactions,comments,shares,published_at,vk_post_id FROM posts "
-        "WHERE group_id=%s AND status='published' ORDER BY (views+reactions*3+comments*2+shares*4) DESC LIMIT 5",
+        "SELECT id,title,t.views,t.reactions,t.comments,t.shares,published_at,vk_post_id FROM " + TOTALS + " "
+        "WHERE group_id=%s AND status='published' ORDER BY (t.views+t.reactions*3+t.comments*2+t.shares*4) DESC LIMIT 5",
         (gid,),
     )
     top = c.fetchall()
-    pl_stats = []
-    for pl in ["vk", "telegram"]:
-        c.execute(
-            "SELECT COUNT(*) cnt,SUM(views) v,SUM(reactions) r FROM posts "
-            "WHERE group_id=%s AND platforms LIKE %s AND status='published'",
-            (gid, f'%"{pl}"%'),
-        )
-        ps = c.fetchone()
-        pl_stats.append(_platform_row(pl, ps["cnt"], ps["v"], ps["r"]))
+    pl_stats = _platform_stats(c, "group_id=%s AND status='published'", [gid])
     conn.close()
     total_views = s["v"] or 0
     eng = round(((s["r"] or 0) + (s["c"] or 0)) / max(total_views, 1) * 100, 1)
@@ -368,7 +369,7 @@ def group_analytics_timeline(gid: int, period: str = "month", user_id: int = Dep
         day = now - timedelta(days=i)
         ds = day.strftime("%Y-%m-%d")
         c.execute(
-            "SELECT SUM(views) v, SUM(reactions) r, COUNT(*) p FROM posts WHERE group_id=%s AND published_at LIKE %s",
+            f"SELECT SUM(t.views) v, SUM(t.reactions) r, COUNT(*) p FROM {TOTALS} WHERE group_id=%s AND published_at LIKE %s",
             (gid, ds + "%"),
         )
         row = c.fetchone()
@@ -410,7 +411,7 @@ def group_analytics_export(
     c.execute("SELECT COUNT(*) FROM posts WHERE group_id=%s AND published_at >= %s AND published_at < %s", (gid, start_str, end_next))
     total = c.fetchone()["count"]
     c.execute(
-        f"SELECT SUM(views) v,SUM(reactions) r,SUM(comments) cm,SUM(shares) sh FROM posts WHERE {date_filter}",
+        f"SELECT SUM(t.views) v,SUM(t.reactions) r,SUM(t.comments) cm,SUM(t.shares) sh FROM {TOTALS} WHERE {date_filter}",
         (gid, start_str, end_next),
     )
     s = c.fetchone()
@@ -423,24 +424,18 @@ def group_analytics_export(
         day = dt_start + timedelta(days=i)
         ds = day.strftime("%Y-%m-%d")
         c.execute(
-            "SELECT SUM(views) v, SUM(reactions) r, COUNT(*) p FROM posts WHERE group_id=%s AND published_at LIKE %s",
+            f"SELECT SUM(t.views) v, SUM(t.reactions) r, COUNT(*) p FROM {TOTALS} WHERE group_id=%s AND published_at LIKE %s",
             (gid, ds + "%"),
         )
         row = c.fetchone()
         timeline.append({"date": ds, "label": day.strftime("%d.%m"), "views": row["v"] or 0, "reactions": row["r"] or 0, "posts": row["p"] or 0})
 
-    pl_stats = []
-    for pl in ["vk", "telegram"]:
-        c.execute(
-            f"SELECT COUNT(*) cnt,SUM(views) v,SUM(reactions) r FROM posts WHERE group_id=%s AND platforms LIKE %s AND {date_filter}",
-            (gid, f'%"{pl}"%', start_str, end_next),
-        )
-        ps = c.fetchone()
-        pl_stats.append(_platform_row(pl, ps["cnt"], ps["v"], ps["r"], label=pl.upper()))
+    pl_stats = _platform_stats(c, f"group_id=%s AND {date_filter}", [gid, start_str, end_next],
+                               label_upper=True)
 
     c.execute(
-        f"SELECT title,views,reactions,comments,shares,published_at FROM posts WHERE {date_filter} "
-        "ORDER BY (views+reactions*3+comments*2+shares*4) DESC LIMIT 10",
+        f"SELECT title,t.views,t.reactions,t.comments,t.shares,published_at FROM {TOTALS} WHERE {date_filter} "
+        "ORDER BY (t.views+t.reactions*3+t.comments*2+t.shares*4) DESC LIMIT 10",
         (gid, start_str, end_next),
     )
     top_posts = c.fetchall()

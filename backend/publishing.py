@@ -10,6 +10,7 @@ import os
 
 import requests as http_requests
 
+from stats import serialize_post
 from utils import (
     UPLOAD_DIR,
     app_now_str,
@@ -110,8 +111,7 @@ def perform_publish(conn, post_row, group_id: int | None = None) -> dict:
     title = post.get("title") or "без названия"
 
     c.execute(
-        "UPDATE posts SET status='published', published_at=%s, "
-        "views=0, reactions=0, comments=0, shares=0 WHERE id=%s",
+        "UPDATE posts SET status='published', published_at=%s WHERE id=%s",
         (app_now_str(), post_id),
     )
     conn.commit()
@@ -187,7 +187,7 @@ def perform_publish(conn, post_row, group_id: int | None = None) -> dict:
     conn.commit()
 
     c.execute("SELECT * FROM posts WHERE id=%s", (post_id,))
-    result = row_to_dict(c.fetchone())
+    result = serialize_post(conn, c.fetchone())
     if vk_post_id is not None:
         result["vk_post_id"] = vk_post_id
     if vk_error is not None:

@@ -16,6 +16,11 @@ import traceback
 from datetime import timedelta
 
 from publishing import perform_publish
+from telegram_stats import (
+    TELEGRAM_POLL_INTERVAL,
+    TELEGRAM_STATS_ENABLED,
+    collect_telegram_stats,
+)
 from utils import app_now, get_db
 
 SCHEDULER_ENABLED = os.getenv("SCHEDULER_ENABLED", "1").strip().lower() not in ("0", "false", "no")
@@ -174,6 +179,20 @@ async def scheduler_loop():
         await asyncio.sleep(SCHEDULER_INTERVAL)
 
 
+async def telegram_stats_loop():
+    """
+    Отдельный такт: реакции Telegram нельзя запросить задним числом, их надо
+    вычитывать из потока апдейтов. Но делать это каждую минуту незачем — у
+    Telegram апдейты живут около суток.
+    """
+    while True:
+        try:
+            await asyncio.to_thread(collect_telegram_stats)
+        except Exception:
+            traceback.print_exc(file=sys.stderr)
+        await asyncio.sleep(TELEGRAM_POLL_INTERVAL)
+
+
 def start(app) -> None:
     if not SCHEDULER_ENABLED:
         print("⏰  планировщик отключён (SCHEDULER_ENABLED=0)")
@@ -184,3 +203,6 @@ def start(app) -> None:
         traceback.print_exc(file=sys.stderr)
     app.state.scheduler_task = asyncio.create_task(scheduler_loop())
     print(f"⏰  планировщик запущен, проверка каждые {SCHEDULER_INTERVAL} с")
+    if TELEGRAM_STATS_ENABLED:
+        app.state.telegram_stats_task = asyncio.create_task(telegram_stats_loop())
+        print(f"📊  сбор реакций Telegram запущен, раз в {TELEGRAM_POLL_INTERVAL} с")

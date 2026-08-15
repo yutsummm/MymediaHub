@@ -22,10 +22,14 @@ export interface Post {
   tags: string[]
   scheduled_at: string | null
   published_at: string | null
+  /** сумма по всем площадкам, где статистика собрана */
   views: number
   reactions: number
   comments: number
   shares: number
+  /** разбивка по площадкам; пусто — по посту ничего не собрано */
+  stats?: PostPlatformStat[]
+  publish_error?: string | null
   author_id: number
   author_name?: string
   template_type: string | null
@@ -79,10 +83,24 @@ export interface AnalyticsSummary {
   platform_stats: PlatformStat[]
 }
 
+export interface PostPlatformStat {
+  platform: string
+  /** null — по этой площадке счётчик не собирали (ноль означал бы «собрали, там ноль») */
+  views: number | null
+  reactions: number | null
+  comments: number | null
+  shares: number | null
+  updated_at: string | null
+  available: boolean
+}
+
 export interface PlatformStat {
   platform: string
+  /** сколько постов ушло на площадку */
   count: number
-  /** null — статистика по этой площадке не собирается (см. stats_available) */
+  /** по скольким из них статистика собрана */
+  collected: number
+  /** null — по этой площадке данных нет (см. stats_available) */
   views: number | null
   reactions: number | null
   stats_available: boolean

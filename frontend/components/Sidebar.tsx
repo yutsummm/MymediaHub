@@ -84,6 +84,14 @@ const NAV_ICONS: Record<string, React.ReactNode> = {
     </svg>
   ),
   /* Микшер со скруглёнными ручками — «управление» */
+  users: (
+    <svg {...S}>
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+      <circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+      <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>
+  ),
   settings: (
     <svg {...S}>
       <line x1="4" y1="21" x2="4" y2="14"/>
@@ -130,6 +138,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   {
     label: 'Управление',
     items: [
+      { href: '/users',    icon: 'users',    label: 'Пользователи', roles: ['admin'] },
       { href: '/settings', icon: 'settings', label: 'Настройки' },
     ],
   },

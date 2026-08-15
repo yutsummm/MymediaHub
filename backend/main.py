@@ -261,9 +261,11 @@ def seed_db():
             published_at = dt.strftime("%Y-%m-%dT%H:%M") if status == "published" else None
             created_at = (now + datetime.timedelta(days=days - 1)).strftime("%Y-%m-%dT%H:%M")
             c.execute(
-                "INSERT INTO posts (title,content,status,platforms,tags,scheduled_at,published_at,views,reactions,comments,shares,author_id,template_type,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                "INSERT INTO posts (title,content,status,platforms,tags,scheduled_at,"
+                "published_at,author_id,template_type,created_at) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (title, content, status, json.dumps(platforms), json.dumps(tags),
-                 scheduled_at, published_at, 0, 0, 0, 0, random.choice([1, 2]), tmpl, created_at),
+                 scheduled_at, published_at, random.choice([1, 2]), tmpl, created_at),
             )
 
         c.executemany(
@@ -333,6 +335,58 @@ def encrypt_existing_secrets():
     conn.close()
     if encrypted:
         print(f"🔒  зашифровано токенов интеграций: {encrypted}")
+
+
+def ensure_admin_exists() -> bool:
+    """
+    Следит, что в системе есть администратор, который может войти.
+
+    Глобальную роль назначает только другой администратор, а регистрация всем
+    выдаёт editor. Значит, стоит остаться без рабочего админа — и назначить
+    нового будет физически некем: управление пользователями закроется навсегда.
+    Посевной admin@mediahub.ru эту роль не спасает, у него пустой пароль.
+
+    BOOTSTRAP_ADMIN_EMAIL — способ выбраться: указываете почту существующего
+    пользователя, при старте он получает роль admin. Операция идемпотентная,
+    после неё переменную можно убрать.
+    """
+    conn = get_db()
+    try:
+        c = conn.cursor()
+        bootstrap = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "").strip().lower()
+        if bootstrap:
+            c.execute(
+                "UPDATE users SET role='admin' WHERE email=%s AND role <> 'admin' RETURNING id",
+                (bootstrap,),
+            )
+            promoted = c.fetchone()
+            conn.commit()
+            if promoted:
+                print(f"👑  {bootstrap} назначен администратором (BOOTSTRAP_ADMIN_EMAIL)")
+            else:
+                c.execute("SELECT 1 FROM users WHERE email=%s", (bootstrap,))
+                if not c.fetchone():
+                    print(
+                        f"⚠️   BOOTSTRAP_ADMIN_EMAIL={bootstrap}: такого пользователя нет. "
+                        "Сначала зарегистрируйтесь этой почтой."
+                    )
+
+        c.execute(
+            "SELECT COUNT(*) FILTER (WHERE password_hash IS NOT NULL) AS usable, "
+            "       COUNT(*) AS total FROM users WHERE role='admin'"
+        )
+        row = c.fetchone()
+    finally:
+        conn.close()
+
+    if row["usable"]:
+        return True
+    print(
+        "⚠️   нет ни одного администратора, который может войти "
+        f"(всего с ролью admin: {row['total']}). Назначить нового будет некому — "
+        "задайте BOOTSTRAP_ADMIN_EMAIL с почтой существующего пользователя."
+    )
+    return False
 
 
 def check_time_alignment() -> bool:
@@ -434,6 +488,10 @@ def startup():
         check_time_alignment()
     except Exception as e:
         print(f"⚠️   не удалось сверить время базы и приложения: {e}")
+    try:
+        ensure_admin_exists()
+    except Exception as e:
+        print(f"⚠️   не удалось проверить наличие администратора: {e}")
     scheduler.start(app)
     print("✅  MediaHub API запущен!  →  http://localhost:8000")
 

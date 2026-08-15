@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from models import AIEnhanceRequest, GenerateRequest, PostCreate, PostUpdate
 from publishing import perform_publish
+from stats import save_platform_stats, serialize_post, serialize_posts
 from utils import (
     _AI_PROMPTS,
     app_now_str,
@@ -18,7 +19,6 @@ from utils import (
     require_admin,
     require_group_member,
     require_post_access,
-    row_to_dict,
 )
 
 router = APIRouter()
@@ -62,8 +62,9 @@ def get_posts(
     rows = c.fetchall()
     c.execute(f"SELECT COUNT(*) FROM posts p WHERE {scope_sql}", scope_params)
     total = c.fetchone()["count"]
+    result = serialize_posts(conn, rows)
     conn.close()
-    return {"posts": [row_to_dict(r) for r in rows], "total": total}
+    return {"posts": result, "total": total}
 
 
 @router.post("/api/posts")
@@ -83,8 +84,9 @@ def create_post(body: PostCreate, user_id: int = Depends(get_current_user_id)):
     conn.commit()
     c.execute("SELECT * FROM posts WHERE id=%s", (pid,))
     row = c.fetchone()
+    result = serialize_post(conn, row)
     conn.close()
-    return row_to_dict(row)
+    return result
 
 
 @router.get("/api/posts/{post_id}")
@@ -97,10 +99,11 @@ def get_post(post_id: int, user_id: int = Depends(get_current_user_id)):
         (post_id,),
     )
     row = c.fetchone()
+    result = serialize_post(conn, row)
     conn.close()
     if not row:
         raise HTTPException(404, "Пост не найден")
-    return row_to_dict(row)
+    return result
 
 
 @router.put("/api/posts/{post_id}")
@@ -145,8 +148,9 @@ def update_post(post_id: int, body: PostUpdate, user_id: int = Depends(get_curre
         conn.commit()
     c.execute("SELECT * FROM posts WHERE id=%s", (post_id,))
     row = c.fetchone()
+    result = serialize_post(conn, row)
     conn.close()
-    return row_to_dict(row)
+    return result
 
 
 @router.delete("/api/posts/{post_id}")
@@ -206,8 +210,9 @@ def get_group_posts(
     rows = c.fetchall()
     c.execute("SELECT COUNT(*) FROM posts WHERE group_id=%s", (gid,))
     total = c.fetchone()["count"]
+    result = serialize_posts(conn, rows)
     conn.close()
-    return {"posts": [row_to_dict(r) for r in rows], "total": total}
+    return {"posts": result, "total": total}
 
 
 @router.post("/api/groups/{gid}/posts")
@@ -231,8 +236,9 @@ def create_group_post(gid: int, body: PostCreate, user_id: int = Depends(get_cur
     conn.commit()
     c.execute("SELECT * FROM posts WHERE id=%s", (pid,))
     row = c.fetchone()
+    result = serialize_post(conn, row)
     conn.close()
-    return row_to_dict(row)
+    return result
 
 
 @router.get("/api/groups/{gid}/posts/{post_id}")
@@ -246,10 +252,11 @@ def get_group_post(gid: int, post_id: int, user_id: int = Depends(get_current_us
         (post_id, gid),
     )
     row = c.fetchone()
+    result = serialize_post(conn, row)
     conn.close()
     if not row:
         raise HTTPException(404, "Пост не найден")
-    return row_to_dict(row)
+    return result
 
 
 @router.put("/api/groups/{gid}/posts/{post_id}")
@@ -301,8 +308,9 @@ def update_group_post(gid: int, post_id: int, body: PostUpdate, user_id: int = D
         conn.commit()
     c.execute("SELECT * FROM posts WHERE id=%s", (post_id,))
     row = c.fetchone()
+    result = serialize_post(conn, row)
     conn.close()
-    return row_to_dict(row)
+    return result
 
 
 @router.delete("/api/groups/{gid}/posts/{post_id}")
@@ -398,12 +406,22 @@ def sync_vk_stats(user_id: int = Depends(get_current_user_id)):
                     reactions = vp.get("likes", {}).get("count", 0) if vp.get("likes") else 0
                     comments = vp.get("comments", {}).get("count", 0) if vp.get("comments") else 0
                     shares = vp.get("reposts", {}).get("count", 0) if vp.get("reposts") else 0
+                    # Пишем в строку площадки «vk»: общие колонки затирали бы
+                    # цифры Telegram, как только тот начнёт отдавать данные.
                     c.execute(
-                        "UPDATE posts SET views=%s, reactions=%s, comments=%s, shares=%s, vk_stats_updated_at=%s WHERE vk_post_id=%s AND status='published'",
-                        (views, reactions, comments, shares,
-                         app_now_str(), vp_id),
+                        "SELECT id FROM posts WHERE vk_post_id=%s AND status='published'",
+                        (vp_id,),
                     )
-                    total_synced += 1
+                    for row in c.fetchall():
+                        save_platform_stats(
+                            conn, row["id"], "vk", views=views, reactions=reactions,
+                            comments=comments, shares=shares,
+                        )
+                        c.execute(
+                            "UPDATE posts SET vk_stats_updated_at=%s WHERE id=%s",
+                            (app_now_str(), row["id"]),
+                        )
+                        total_synced += 1
             except Exception:
                 continue
     conn.commit()
@@ -460,11 +478,19 @@ def group_sync_vk_stats(gid: int, user_id: int = Depends(get_current_user_id)):
                 comments = vp.get("comments", {}).get("count", 0) if vp.get("comments") else 0
                 shares = vp.get("reposts", {}).get("count", 0) if vp.get("reposts") else 0
                 c.execute(
-                    "UPDATE posts SET views=%s, reactions=%s, comments=%s, shares=%s, vk_stats_updated_at=%s WHERE vk_post_id=%s AND group_id=%s AND status='published'",
-                    (views, reactions, comments, shares,
-                     app_now_str(), vp_id, gid),
+                    "SELECT id FROM posts WHERE vk_post_id=%s AND group_id=%s AND status='published'",
+                    (vp_id, gid),
                 )
-                total_synced += 1
+                for row in c.fetchall():
+                    save_platform_stats(
+                        conn, row["id"], "vk", views=views, reactions=reactions,
+                        comments=comments, shares=shares,
+                    )
+                    c.execute(
+                        "UPDATE posts SET vk_stats_updated_at=%s WHERE id=%s",
+                        (app_now_str(), row["id"]),
+                    )
+                    total_synced += 1
         except Exception:
             continue
     conn.commit()
@@ -491,8 +517,9 @@ def get_calendar(
         scope_params + [start, end, start, end, start, end],
     )
     rows = c.fetchall()
+    result = serialize_posts(conn, rows)
     conn.close()
-    return [row_to_dict(r) for r in rows]
+    return result
 
 
 # ── Templates ─────────────────────────────────────────────────────────────────
