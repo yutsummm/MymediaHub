@@ -296,28 +296,31 @@ def test_group_context_is_passed_to_publisher(client, group_with_post, monkeypat
 
 # ── Время ────────────────────────────────────────────────────────────────────
 
-def test_due_check_uses_app_timezone(client, group_with_post, monkeypatch):
+def test_due_check_no_longer_depends_on_a_zone_setting(client, group_with_post, monkeypatch):
     """
-    scheduled_at приходит из браузера по местному времени, а контейнер и
-    Postgres на Railway живут в UTC. Красноярск на 7 часов впереди — при
-    сравнении с UTC пост уехал бы на эти самые 7 часов.
+    Раньше срок хранился строкой без зоны, и сравнение зависело от того, в
+    какой зоне считать «сейчас»: с UTC вместо Красноярска пост уезжал на семь
+    часов. Теперь в базе абсолютный момент — смена APP_TZ на это не влияет.
     """
     import utils
 
-    # Пост на «час назад» по Красноярску всё ещё в будущем по Гринвичу
-    when = at(timedelta(hours=-1))
-    pid = make_scheduled(client, group_with_post, when)
-
+    pid = make_scheduled(client, group_with_post, at(timedelta(minutes=-5)))
     monkeypatch.setattr(utils, "APP_TZ", "UTC")
-    assert scheduler.publish_due_posts() == 0, (
-        "по UTC этот пост ещё не созрел — значит сравнение действительно "
-        "идёт в заданной зоне, а не по времени контейнера"
+    assert scheduler.publish_due_posts() >= 1, (
+        "созревший пост обязан выйти независимо от настройки зоны"
     )
-
-    monkeypatch.setattr(utils, "APP_TZ", "Asia/Krasnoyarsk")
-    scheduler.publish_due_posts()
     drain_publish_queue()
     assert post_row(pid)["status"] == "published"
+
+
+def test_scheduled_moment_is_absolute(client, group_with_post):
+    """
+    Человек назначает местное время, а хранится момент. Пост, назначенный на
+    час вперёд, не должен считаться созревшим ни при какой зоне.
+    """
+    pid = make_scheduled(client, group_with_post, at(timedelta(hours=1)))
+    assert scheduler.publish_due_posts() == 0
+    assert post_row(pid)["status"] == "scheduled"
 
 
 def test_unknown_timezone_falls_back(monkeypatch):

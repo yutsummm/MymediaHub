@@ -11,7 +11,7 @@ import os
 import re
 import secrets
 import time
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from math import asin, cos, radians, sin, sqrt
 
 import bcrypt
@@ -20,6 +20,7 @@ import psycopg2.extras
 import requests as http_requests
 from fastapi import Header, HTTPException
 from jose import JWTError, jwt
+from psycopg2.extras import Json
 
 # ── DB ───────────────────────────────────────────────────────────────────────
 
@@ -29,21 +30,44 @@ def get_db():
     return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
 
 
+JSON_FIELDS = ("platforms", "tags", "media", "tg_message_ids")
+# Поля, которые наружу отдаются строкой «YYYY-MM-DDTHH:MM»: в базе они
+# timestamptz, но интерфейс ждёт прежний формат.
+DATE_FIELDS = (
+    "created_at", "scheduled_at", "published_at", "vk_stats_updated_at",
+    "joined_at", "connected_at", "updated_at", "finished_at",
+)
+
+
+def as_json_list(value) -> list:
+    """
+    Значение JSON-колонки списком.
+
+    Колонки теперь jsonb, и psycopg2 отдаёт готовые list/dict. Разбор строки
+    оставлен для значений, записанных до перевода типа, и для случая, когда
+    в колонке оказалось не то, что ожидали.
+    """
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, list) else []
+        except (TypeError, ValueError):
+            return []
+    return []
+
+
 def row_to_dict(row):
     if row is None:
         return None
     d = dict(row)
     d.pop("password_hash", None)
-    for key in ("platforms", "tags", "media", "tg_message_ids"):
-        if key in d and isinstance(d[key], str):
-            try:
-                d[key] = json.loads(d[key])
-            except Exception:
-                d[key] = [] if key != "tg_message_ids" else []
-        elif key not in d:
-            d[key] = [] if key != "tg_message_ids" else []
-    if "tg_message_ids" in d and not isinstance(d["tg_message_ids"], list):
-        d["tg_message_ids"] = []
+    for key in JSON_FIELDS:
+        d[key] = as_json_list(d.get(key))
+    for key in DATE_FIELDS:
+        if key in d:
+            d[key] = fmt_dt(d[key])
     # Ссылки на файлы уходят наружу подписанными: /uploads отдаёт только по
     # действующей подписи. Через row_to_dict проходят все посты, поэтому одна
     # точка закрывает их целиком.
@@ -72,9 +96,56 @@ def app_now() -> datetime:
         return datetime.now()
 
 
+DATE_FORMAT = "%Y-%m-%dT%H:%M"
+
+
 def app_now_str() -> str:
-    """«Сейчас» в том же формате, в каком даты лежат в базе."""
-    return app_now().strftime("%Y-%m-%dT%H:%M")
+    """«Сейчас» в том формате, в котором даты уходят наружу."""
+    return app_now().strftime(DATE_FORMAT)
+
+
+def fmt_dt(value) -> str | None:
+    """
+    Дата наружу: «YYYY-MM-DDTHH:MM» в зоне приложения.
+
+    В базе теперь timestamptz, но договор с интерфейсом не меняем — формат
+    хранения и формат выдачи это разные вещи.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        return value[:16]
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        local = value.astimezone(ZoneInfo(APP_TZ))
+    except (ZoneInfoNotFoundError, ValueError):
+        local = value
+    return local.strftime(DATE_FORMAT)
+
+
+def parse_dt(value):
+    """
+    Дата из запроса. Приходит без зоны («2026-08-16T18:00») и означает местное
+    время — именно его человек видит в браузере.
+    """
+    if value is None or value == "":
+        return None
+    if not isinstance(value, str):
+        return value
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    text = value.strip().replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        try:
+            parsed = parsed.replace(tzinfo=ZoneInfo(APP_TZ))
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+    return parsed
 
 
 # ── Password helpers ─────────────────────────────────────────────────────────
@@ -98,20 +169,161 @@ if not JWT_SECRET:
 JWT_ALGORITHM = "HS256"
 
 
-def create_token(user_id: int) -> str:
-    expire = datetime.utcnow() + timedelta(hours=72)
-    return jwt.encode({"sub": str(user_id), "exp": expire}, JWT_SECRET, algorithm=JWT_ALGORITHM)
+TOKEN_TTL = timedelta(hours=int(os.getenv("TOKEN_TTL_HOURS", "72")))
+# Отметку «был активен» пишем не на каждом запросе: это запись в базу на каждое
+# обращение ради поля, которое никто не читает чаще раза в минуту.
+SESSION_TOUCH_INTERVAL = timedelta(minutes=5)
+
+
+def create_token(user_id: int, request=None, conn=None) -> str:
+    """
+    Выдаёт токен и заводит под него сессию.
+
+    Без сессии токен нельзя было отозвать ничем: выход существовал только на
+    клиенте, а сам токен оставался действительным до 72 часов.
+    """
+    jti = secrets.token_urlsafe(24)
+    expire = datetime.now(UTC) + TOKEN_TTL
+    own_conn = conn is None
+    conn = conn or get_db()
+    try:
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO sessions (jti, user_id, expires_at, ip, user_agent) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (jti, user_id, expire,
+             client_ip(request) if request else None,
+             (request.headers.get("user-agent") if request else None) or None),
+        )
+        conn.commit()
+    finally:
+        if own_conn:
+            conn.close()
+    return jwt.encode(
+        {"sub": str(user_id), "exp": expire, "jti": jti}, JWT_SECRET, algorithm=JWT_ALGORITHM
+    )
+
+
+def revoke_session(jti: str, reason: str, conn=None) -> bool:
+    own_conn = conn is None
+    conn = conn or get_db()
+    try:
+        c = conn.cursor()
+        c.execute(
+            "UPDATE sessions SET revoked_at=NOW(), revoked_reason=%s "
+            "WHERE jti=%s AND revoked_at IS NULL RETURNING jti",
+            (reason, jti),
+        )
+        revoked = c.fetchone() is not None
+        conn.commit()
+    finally:
+        if own_conn:
+            conn.close()
+    return revoked
+
+
+def revoke_user_sessions(user_id: int, reason: str, conn=None, except_jti: str | None = None) -> int:
+    """
+    Гасит все токены пользователя.
+
+    Зовётся при смене пароля: раньше сброс пароля не мешал тому, кто уже увёл
+    токен, работать с аккаунтом дальше.
+    """
+    own_conn = conn is None
+    conn = conn or get_db()
+    try:
+        c = conn.cursor()
+        c.execute(
+            "UPDATE sessions SET revoked_at=NOW(), revoked_reason=%s "
+            "WHERE user_id=%s AND revoked_at IS NULL "
+            "  AND (%s::text IS NULL OR jti <> %s) RETURNING jti",
+            (reason, user_id, except_jti, except_jti),
+        )
+        count = len(c.fetchall())
+        conn.commit()
+    finally:
+        if own_conn:
+            conn.close()
+    return count
+
+
+def list_sessions(user_id: int, conn=None) -> list[dict]:
+    own_conn = conn is None
+    conn = conn or get_db()
+    try:
+        c = conn.cursor()
+        c.execute(
+            "SELECT jti, created_at, last_seen_at, expires_at, ip, user_agent "
+            "FROM sessions WHERE user_id=%s AND revoked_at IS NULL AND expires_at > NOW() "
+            "ORDER BY created_at DESC",
+            (user_id,),
+        )
+        return [dict(r) for r in c.fetchall()]
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def purge_sessions() -> int:
+    """Просроченные сессии не нужны: подпись всё равно уже недействительна."""
+    conn = get_db()
+    try:
+        c = conn.cursor()
+        c.execute("DELETE FROM sessions WHERE expires_at < NOW() - INTERVAL '7 days' RETURNING jti")
+        removed = len(c.fetchall())
+        conn.commit()
+    finally:
+        conn.close()
+    return removed
+
+
+def _session_is_active(jti: str) -> tuple[bool, int | None]:
+    conn = get_db()
+    try:
+        c = conn.cursor()
+        c.execute(
+            "SELECT user_id, revoked_at, expires_at, last_seen_at FROM sessions WHERE jti=%s",
+            (jti,),
+        )
+        row = c.fetchone()
+        if not row or row["revoked_at"] is not None:
+            return False, None
+        # Подпись и срок в базе должны сходиться; расходятся — доверяем базе
+        if row["expires_at"] <= datetime.now(row["expires_at"].tzinfo):
+            return False, None
+        last = row["last_seen_at"]
+        if last is None or datetime.now(last.tzinfo) - last > SESSION_TOUCH_INTERVAL:
+            c.execute("UPDATE sessions SET last_seen_at=NOW() WHERE jti=%s", (jti,))
+            conn.commit()
+        return True, row["user_id"]
+    finally:
+        conn.close()
 
 
 def get_current_user_id(authorization: str = Header(None)) -> int:
+    return current_session(authorization)[0]
+
+
+def current_session(authorization: str = Header(None)) -> tuple[int, str | None]:
+    """(id пользователя, идентификатор сессии). Второе нужно ручке выхода."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Требуется авторизация")
     try:
         token = authorization.split(" ", 1)[1]
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        return int(payload["sub"])
+        user_id = int(payload["sub"])
     except (JWTError, KeyError, ValueError, IndexError):
         raise HTTPException(401, "Недействительный токен")
+
+    jti = payload.get("jti")
+    if not jti:
+        # Токены, выданные до появления сессий. Отозвать их нельзя, поэтому и
+        # принимать не будем: пусть человек войдёт заново.
+        raise HTTPException(401, "Сессия устарела, войдите заново")
+    active, session_user = _session_is_active(jti)
+    if not active or session_user != user_id:
+        raise HTTPException(401, "Сессия завершена, войдите заново")
+    return user_id, jti
 
 
 # ── Шифрование секретов в базе ───────────────────────────────────────────────
@@ -247,7 +459,7 @@ def sign_media_list(media) -> list:
     return signed
 
 
-def media_for_storage(media) -> str:
+def media_for_storage(media) -> Json:
     """
     JSON списка медиа для записи в базу — с вычищенными подписями.
     Единственная точка, через которую медиа должно попадать в posts.media и
@@ -259,7 +471,8 @@ def media_for_storage(media) -> str:
         if d.get("url"):
             d = {**d, "url": strip_upload_signature(d["url"])}
         items.append(d)
-    return json.dumps(items)
+    # Json-обёртка psycopg2: колонка теперь jsonb, а не строка
+    return Json(items)
 
 
 def check_upload_signature(filename: str, expires: str | None, signature: str | None) -> None:
@@ -508,7 +721,7 @@ def check_invite_usable(token: str, conn) -> dict:
     link = c.fetchone()
     if not link:
         raise HTTPException(404, "Ссылка приглашения не найдена")
-    if datetime.fromisoformat(link["expires_at"].rstrip("Z")) < datetime.utcnow():
+    if link["expires_at"] < datetime.now(UTC):
         raise HTTPException(410, "Ссылка приглашения истекла")
     if link["max_uses"] is not None and link["used_count"] >= link["max_uses"]:
         raise HTTPException(410, "Лимит использований ссылки исчерпан")

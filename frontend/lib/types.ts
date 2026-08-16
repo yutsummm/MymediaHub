@@ -230,3 +230,13 @@ export interface PageMeta {
   offset: number
   has_more: boolean
 }
+
+/** Активный вход в аккаунт */
+export interface SessionInfo {
+  created_at: string
+  last_seen_at: string | null
+  expires_at: string
+  ip: string | null
+  user_agent: string | null
+  current: boolean
+}

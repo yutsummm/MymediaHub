@@ -93,6 +93,13 @@ export const api = {
     }>('/api/auth/verify-email', { method: 'POST', body: body({ email, code }) }),
   resendCode: (email: string) =>
     req<{ status: string }>('/api/auth/resend-code', { method: 'POST', body: body({ email }) }),
+  // Настоящий выход: гасит токен на сервере. Раньше выход был только на
+  // клиенте — приложение забывало токен, а сам токен жил ещё до 72 часов.
+  logout: () => req<{ status: string }>('/api/auth/logout', { method: 'POST' }),
+  logoutEverywhere: () =>
+    req<{ status: string; sessions_revoked: number }>('/api/auth/logout-all', { method: 'POST' }),
+  getSessions: () =>
+    req<{ sessions: import('./types').SessionInfo[] }>('/api/auth/sessions'),
   forgotPassword: (email: string) =>
     req<{ status: string }>('/api/auth/forgot-password', {
       method: 'POST', body: body({ email }),

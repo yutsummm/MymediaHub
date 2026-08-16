@@ -153,7 +153,7 @@ def test_database_stores_url_without_signature(client, group_with_post):
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT media FROM posts WHERE id=%s", (pid,))
-    stored = json.loads(c.fetchone()["media"])
+    stored = c.fetchone()["media"]  # jsonb: psycopg2 отдаёт готовый список
     conn.close()
 
     assert stored[0]["url"] == f"/uploads/{upload_filename(media['url'])}"
@@ -186,7 +186,7 @@ def test_resaving_post_does_not_accumulate_signatures(client, group_with_post):
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT media FROM posts WHERE id=%s", (pid,))
-    stored = json.loads(c.fetchone()["media"])
+    stored = c.fetchone()["media"]  # jsonb: psycopg2 отдаёт готовый список
     conn.close()
     assert stored[0]["url"] == f"/uploads/{upload_filename(media['url'])}"
     assert client.get(

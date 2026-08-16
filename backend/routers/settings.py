@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from models import TgSettingsSave, VkOAuthExchange, VkSettingsSave
 from utils import (
-    app_now_str,
+    app_now,
     encrypt_secret,
     get_current_user_id,
     get_db,
@@ -103,7 +103,7 @@ def _tg_chat_title(bot_token: str, chat_id: str) -> str:
 def _save_vk(conn, gid: int | None, group_id: str, access_token: str) -> dict:
     clean_id = group_id.lstrip("-")
     group_name = _vk_group_name(access_token, group_id)
-    now = app_now_str()
+    now = app_now()
     _upsert(conn, "vk_settings", gid, {
         "group_id": clean_id,
         "access_token": encrypt_secret(access_token),
@@ -115,7 +115,7 @@ def _save_vk(conn, gid: int | None, group_id: str, access_token: str) -> dict:
 
 def _save_tg(conn, gid: int | None, bot_token: str, chat_id: str) -> dict:
     chat_title = _tg_chat_title(bot_token, chat_id)
-    now = app_now_str()
+    now = app_now()
     _upsert(conn, "tg_settings", gid, {
         "bot_token": encrypt_secret(bot_token),
         "chat_id": chat_id,

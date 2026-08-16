@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect } from 'react'
 import type { User } from '@/lib/types'
-import { setTokenGetter, setUnauthorizedHandler } from '@/lib/api'
+import { api, setTokenGetter, setUnauthorizedHandler } from '@/lib/api'
 
 interface AuthCtx {
   user: User | null
@@ -32,7 +32,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setTokenGetter(() => token)
-    setUnauthorizedHandler(logout)
+    // Сервер уже отверг токен — гасить его повторно незачем, а вызов api.logout()
+    // получил бы очередной 401 и снова позвал этот же обработчик.
+    setUnauthorizedHandler(clearLocalSession)
   }, [token])
 
   const login = (u: User, t: string) => {
@@ -42,11 +44,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('mediahub_token', t)
   }
 
-  const logout = () => {
+  const clearLocalSession = () => {
     setUser(null)
     setToken(null)
     localStorage.removeItem('mediahub_user')
     localStorage.removeItem('mediahub_token')
+  }
+
+  const logout = () => {
+    // Сначала гасим токен на сервере — иначе он остаётся действительным ещё
+    // до 72 часов, и «выход» защищает только от того, кто сидит за этим же
+    // браузером. Ответа не ждём: локально выходим в любом случае.
+    api.logout().catch(() => {})
+    clearLocalSession()
   }
 
   const getToken = () => token

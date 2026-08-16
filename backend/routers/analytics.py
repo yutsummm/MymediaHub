@@ -38,8 +38,8 @@ def _platform_stats(c, where: str, params: list, label_upper: bool = False) -> l
     rows = []
     for pl in ("vk", "telegram"):
         c.execute(
-            f"SELECT COUNT(*) cnt FROM posts WHERE platforms LIKE %s AND {where}",
-            [f'%"{pl}"%'] + list(params),
+            f"SELECT COUNT(*) cnt FROM posts WHERE platforms ? %s AND {where}",
+            [pl] + list(params),
         )
         count = c.fetchone()["cnt"]
         c.execute(
@@ -216,8 +216,8 @@ def _timeline(c, where: str, params: list, days: list) -> list[dict]:
         ds = day.strftime("%Y-%m-%d")
         c.execute(
             f"SELECT SUM(t.views) v, SUM(t.reactions) r, COUNT(*) p "
-            f"FROM {TOTALS} WHERE {where} AND published_at LIKE %s",
-            params + [ds + "%"],
+            f"FROM {TOTALS} WHERE {where} AND published_at::date = %s::date",
+            params + [ds],
         )
         row = c.fetchone()
         result.append({

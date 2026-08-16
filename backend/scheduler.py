@@ -37,11 +37,10 @@ MAX_DELAY_MINUTES = int(os.getenv("SCHEDULER_MAX_DELAY_MINUTES", "120"))
 PUBLISH_POLL_INTERVAL = int(os.getenv("PUBLISH_POLL_SECONDS", "3"))
 
 
-def _window() -> tuple[str, str]:
+def _window() -> tuple[object, object]:
     """Границы «созревших, но ещё не протухших»: (не раньше, не позже)."""
     now = app_now()
-    fmt = "%Y-%m-%dT%H:%M"
-    return (now - timedelta(minutes=MAX_DELAY_MINUTES)).strftime(fmt), now.strftime(fmt)
+    return now - timedelta(minutes=MAX_DELAY_MINUTES), now
 
 
 def claim_due_post(conn):
@@ -66,7 +65,7 @@ def claim_due_post(conn):
         "WHERE id = ("
         "  SELECT id FROM posts "
         "  WHERE status='scheduled' AND publish_attempts = 0 "
-        "        AND scheduled_at IS NOT NULL AND scheduled_at <> '' "
+        "        AND scheduled_at IS NOT NULL "
         "        AND scheduled_at <= %s AND scheduled_at >= %s "
         "  ORDER BY scheduled_at "
         "  FOR UPDATE SKIP LOCKED "
@@ -92,7 +91,7 @@ def flag_missed_posts() -> int:
     c = conn.cursor()
     c.execute(
         "UPDATE posts SET publish_error=%s "
-        "WHERE status='scheduled' AND scheduled_at IS NOT NULL AND scheduled_at <> '' "
+        "WHERE status='scheduled' AND scheduled_at IS NOT NULL "
         "      AND scheduled_at < %s AND publish_error IS NULL "
         "RETURNING id",
         (f"Срок публикации пропущен больше чем на {MAX_DELAY_MINUTES} мин. "

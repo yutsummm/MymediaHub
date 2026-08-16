@@ -4,9 +4,9 @@ import re
 import smtplib
 import sys
 import traceback
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from models import (
     ForgotPasswordRequest,
@@ -21,9 +21,13 @@ from utils import (
     check_rate_limit,
     client_ip,
     create_token,
+    current_session,
     get_db,
     hash_password,
+    list_sessions,
     redeem_invite,
+    revoke_session,
+    revoke_user_sessions,
     row_to_dict,
     send_reset_email,
     send_verification_email,
@@ -36,7 +40,7 @@ router = APIRouter()
 VERIFICATION_TTL = timedelta(minutes=15)
 
 
-def _issue_session(c, uid: int) -> dict:
+def _issue_session(c, uid: int, request=None) -> dict:
     """Ответ, который ждёт фронт после успешного входа: пользователь, токен, группы."""
     c.execute("SELECT * FROM users WHERE id=%s", (uid,))
     user = c.fetchone()
@@ -46,7 +50,7 @@ def _issue_session(c, uid: int) -> dict:
         (uid,),
     )
     groups = [dict(r) for r in c.fetchall()]
-    return {"user": row_to_dict(user), "token": create_token(uid), "groups": groups}
+    return {"user": row_to_dict(user), "token": create_token(uid, request, c.connection), "groups": groups}
 
 
 def _validate_password(password: str) -> None:
@@ -92,7 +96,7 @@ def login(req: LoginRequest, request: Request = None):
     if not ph or not verify_password(req.password, ph):
         conn.close()
         raise HTTPException(401, "Неверный пароль")
-    session = _issue_session(c, user["id"])
+    session = _issue_session(c, user["id"], request)
     conn.close()
     return session
 
@@ -160,7 +164,7 @@ def register(req: RegisterRequest, request: Request = None):
             name,
             hash_password(req.password),
             code,
-            datetime.utcnow() + VERIFICATION_TTL,
+            datetime.now(UTC) + VERIFICATION_TTL,
             req.invite_token.strip() if req.invite_token else None,
         ),
     )
@@ -185,7 +189,7 @@ def verify_email(req: VerifyEmailRequest, request: Request = None):
     if not pending:
         conn.close()
         raise HTTPException(400, "Заявка не найдена. Зарегистрируйтесь заново")
-    if datetime.utcnow() > pending["expires_at"]:
+    if datetime.now(UTC) > pending["expires_at"]:
         c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
         conn.commit()
         conn.close()
@@ -226,7 +230,7 @@ def verify_email(req: VerifyEmailRequest, request: Request = None):
             invite_error = e.detail
     c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
     conn.commit()
-    session = _issue_session(c, uid)
+    session = _issue_session(c, uid, request)
     conn.close()
     return {**session, "invite_error": invite_error}
 
@@ -246,12 +250,45 @@ def resend_code(req: ResendCodeRequest, request: Request = None):
     code = str(random.randint(100000, 999999))
     c.execute(
         "UPDATE email_verifications SET code=%s, expires_at=%s WHERE email=%s",
-        (code, datetime.utcnow() + VERIFICATION_TTL, email),
+        (code, datetime.now(UTC) + VERIFICATION_TTL, email),
     )
     conn.commit()
     _send_code_or_drop(conn, email, code)
     conn.close()
     return {"status": "code_sent", "email": email}
+
+
+@router.post("/api/auth/logout")
+def logout(session: tuple = Depends(current_session)):
+    """
+    Настоящий выход: гасит токен на сервере.
+
+    Раньше выход был только на клиенте — приложение забывало токен, а сам токен
+    оставался действительным ещё до 72 часов.
+    """
+    _, jti = session
+    revoke_session(jti, "выход")
+    return {"status": "ok"}
+
+
+@router.post("/api/auth/logout-all")
+def logout_everywhere(session: tuple = Depends(current_session)):
+    """Погасить все токены — если есть подозрение, что токен увели."""
+    user_id, jti = session
+    revoked = revoke_user_sessions(user_id, "выход на всех устройствах", except_jti=jti)
+    return {"status": "ok", "sessions_revoked": revoked}
+
+
+@router.get("/api/auth/sessions")
+def my_sessions(session: tuple = Depends(current_session)):
+    """Активные входы: человек должен видеть, откуда в его аккаунт заходят."""
+    user_id, jti = session
+    sessions = list_sessions(user_id)
+    for item in sessions:
+        item["current"] = item["jti"] == jti
+        # Идентификатор наружу не отдаём: он равносилен ссылке на сессию
+        item.pop("jti", None)
+    return {"sessions": sessions}
 
 
 @router.post("/api/auth/forgot-password")
@@ -268,7 +305,7 @@ def forgot_password(req: ForgotPasswordRequest, request: Request = None):
         return {"status": "code_sent"}
     c.execute("DELETE FROM password_resets WHERE email=%s", (email,))
     code = str(random.randint(100000, 999999))
-    expires_at = datetime.utcnow() + timedelta(minutes=15)
+    expires_at = datetime.now(UTC) + timedelta(minutes=15)
     c.execute(
         "INSERT INTO password_resets (email, code, expires_at) VALUES (%s, %s, %s)",
         (email, code, expires_at),
@@ -298,7 +335,7 @@ def reset_password(req: ResetPasswordRequest, request: Request = None):
     if not row:
         conn.close()
         raise HTTPException(400, "Код не найден. Запросите сброс пароля заново")
-    if datetime.utcnow() > row["expires_at"]:
+    if datetime.now(UTC) > row["expires_at"]:
         c.execute("DELETE FROM password_resets WHERE email=%s", (email,))
         conn.commit()
         conn.close()
@@ -307,10 +344,14 @@ def reset_password(req: ResetPasswordRequest, request: Request = None):
         conn.close()
         raise HTTPException(400, "Неверный код подтверждения")
     c.execute(
-        "UPDATE users SET password_hash=%s WHERE email=%s",
+        "UPDATE users SET password_hash=%s WHERE email=%s RETURNING id",
         (hash_password(req.new_password), email),
     )
+    changed = c.fetchone()
     c.execute("DELETE FROM password_resets WHERE email=%s", (email,))
     conn.commit()
+    # Смена пароля обязана гасить старые токены: иначе тот, кто увёл токен,
+    # продолжит работать с аккаунтом, а человек будет думать, что защитился.
+    revoked = revoke_user_sessions(changed["id"], "смена пароля", conn) if changed else 0
     conn.close()
-    return {"status": "ok"}
+    return {"status": "ok", "sessions_revoked": revoked}

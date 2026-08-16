@@ -24,6 +24,7 @@ import os
 import sys
 
 import requests as http_requests
+from psycopg2.extras import Json
 
 from stats import save_platform_stats
 from utils import decrypt_secret, get_db
@@ -70,29 +71,23 @@ def _match_post(c, chat_id: str, message_id: int, workspace_id) -> int | None:
     """
     Ищет пост по идентификатору сообщения.
 
-    tg_message_ids хранится JSON-строкой, поэтому ищем вхождение числа и
-    подтверждаем разбором — LIKE по «12» иначе поймал бы и «123».
+    Через jsonb-содержание (@>), а не LIKE по строке: раньше апдейт про
+    сообщение 12 совпадал бы и с постом, где лежит 123, и это приходилось
+    отсеивать разбором списка в Python.
     """
     if workspace_id is None:
         c.execute(
-            "SELECT id, tg_message_ids FROM posts "
-            "WHERE tg_message_ids LIKE %s AND status='published'",
-            (f"%{message_id}%",),
+            "SELECT id FROM posts WHERE tg_message_ids @> %s AND status='published'",
+            (Json([message_id]),),
         )
     else:
         c.execute(
-            "SELECT id, tg_message_ids FROM posts "
-            "WHERE tg_message_ids LIKE %s AND group_id=%s AND status='published'",
-            (f"%{message_id}%", workspace_id),
+            "SELECT id FROM posts WHERE tg_message_ids @> %s "
+            "AND group_id=%s AND status='published'",
+            (Json([message_id]), workspace_id),
         )
-    for row in c.fetchall():
-        try:
-            ids = json.loads(row["tg_message_ids"] or "[]")
-        except (TypeError, ValueError):
-            continue
-        if message_id in ids:
-            return row["id"]
-    return None
+    row = c.fetchone()
+    return row["id"] if row else None
 
 
 def collect_for_settings(conn, settings: dict) -> int:

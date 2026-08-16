@@ -5,7 +5,7 @@
 """
 import pytest
 
-from utils import get_current_user_id
+from utils import current_session, get_current_user_id
 
 # (метод, путь) — единственные ручки, работающие без авторизации.
 PUBLIC_ROUTES = {
@@ -20,8 +20,13 @@ PUBLIC_ROUTES = {
 }
 
 
+# current_session — та же авторизация, только отдаёт ещё и идентификатор сессии:
+# он нужен ручкам выхода, чтобы погасить именно этот токен.
+AUTH_DEPENDENCIES = (get_current_user_id, current_session)
+
+
 def _uses_auth(dependant) -> bool:
-    if dependant.call is get_current_user_id:
+    if dependant.call in AUTH_DEPENDENCIES:
         return True
     return any(_uses_auth(d) for d in dependant.dependencies)
 

@@ -1,8 +1,8 @@
-import json
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from utils import (
+    as_json_list,
     get_current_user_id,
     get_db,
     media_for_storage,
@@ -53,12 +53,7 @@ def get_volunteer_media(
     result = []
     for r in rows:
         d = dict(r)
-        try:
-            d["media"] = json.loads(d["media"]) if isinstance(d["media"], str) else d["media"]
-        except Exception:
-            d["media"] = []
-        # Ссылки наружу — только подписанные: /uploads без подписи не отдаёт
-        d["media"] = sign_media_list(d["media"])
+        d["media"] = sign_media_list(as_json_list(d["media"]))
         result.append(d)
     return {"items": result, **page_meta(total, limit, offset)}
 
@@ -89,11 +84,7 @@ def create_volunteer_media(gid: int, body: dict, user_id: int = Depends(get_curr
     row = c.fetchone()
     conn.close()
     d = dict(row)
-    try:
-        d["media"] = json.loads(d["media"]) if isinstance(d["media"], str) else d["media"]
-    except Exception:
-        d["media"] = []
-    d["media"] = sign_media_list(d["media"])
+    d["media"] = sign_media_list(as_json_list(d["media"]))
     return d
 
 
@@ -136,9 +127,5 @@ def update_volunteer_media_status(gid: int, vid: int, body: dict, user_id: int =
     if not row:
         raise HTTPException(404, "Медиа не найдено")
     d = dict(row)
-    try:
-        d["media"] = json.loads(d["media"]) if isinstance(d["media"], str) else d["media"]
-    except Exception:
-        d["media"] = []
-    d["media"] = sign_media_list(d["media"])
+    d["media"] = sign_media_list(as_json_list(d["media"]))
     return d

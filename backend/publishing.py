@@ -5,15 +5,15 @@
 появлением планировщика появилась бы третья копия. Здесь всё в одном месте:
 и ручки, и автопубликация зовут perform_publish.
 """
-import json
 import os
 
 import requests as http_requests
+from psycopg2.extras import Json
 
 from stats import serialize_post
 from utils import (
     UPLOAD_DIR,
-    app_now_str,
+    app_now,
     decrypt_row_secret,
     row_to_dict,
     tg_send_post,
@@ -112,7 +112,7 @@ def perform_publish(conn, post_row, group_id: int | None = None) -> dict:
 
     c.execute(
         "UPDATE posts SET status='published', published_at=%s WHERE id=%s",
-        (app_now_str(), post_id),
+        (app_now(), post_id),
     )
     conn.commit()
 
@@ -176,7 +176,7 @@ def perform_publish(conn, post_row, group_id: int | None = None) -> dict:
     if tg_message_ids:
         c.execute(
             "UPDATE posts SET tg_message_ids=%s WHERE id=%s",
-            (json.dumps(tg_message_ids), post_id),
+            (Json(tg_message_ids), post_id),
         )
     # Ошибку храним в самом посте: уведомление можно смахнуть и не найти причину
     problems = [p for p in (vk_error, tg_error) if p]

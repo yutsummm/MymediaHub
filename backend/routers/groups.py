@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -181,7 +181,8 @@ def create_invite_link(gid: int, req: InviteLinkCreate, user_id: int = Depends(g
         conn.close()
         raise HTTPException(400, f"Недопустимая роль в группе. Допустимы: {', '.join(GROUP_ROLES)}")
     token = uuid.uuid4().hex
-    expires_at = (datetime.utcnow() + timedelta(hours=req.expires_hours)).isoformat() + "Z"
+    # Колонка теперь timestamptz — строку с «Z» собирать незачем
+    expires_at = datetime.now(UTC) + timedelta(hours=req.expires_hours)
     c.execute(
         "INSERT INTO invite_links (group_id, token, role, created_by, expires_at, max_uses) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
         (gid, token, req.role, user_id, expires_at, req.max_uses),

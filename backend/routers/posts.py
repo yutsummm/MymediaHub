@@ -1,15 +1,16 @@
-import json
 import os
 
 import requests as http_requests
 from fastapi import APIRouter, Depends, HTTPException, Query
+from psycopg2.extras import Json
 
 from models import AIEnhanceRequest, GenerateRequest, PostCreate, PostUpdate
 from publish_queue import enqueue, get_job, job_for_post
 from stats import save_platform_stats, serialize_post, serialize_posts
 from utils import (
     _AI_PROMPTS,
-    app_now_str,
+    app_now,
+    as_json_list,
     check_rate_limit,
     decrypt_row_secret,
     get_current_user_id,
@@ -17,6 +18,7 @@ from utils import (
     media_for_storage,
     page_meta,
     paging,
+    parse_dt,
     posts_scope,
     require_admin,
     require_group_member,
@@ -54,18 +56,23 @@ def get_posts(
         query += " AND p.status=%s"
         params.append(status)
     if platform:
-        query += " AND p.platforms LIKE %s"
-        params.append(f'%"{platform}"%')
+        # jsonb-оператор вместо LIKE '%"vk"%': идёт по GIN-индексу и не может
+        # совпасть с подстрокой внутри чужого значения.
+        query += " AND p.platforms ? %s"
+        params.append(platform)
     if tag:
-        query += " AND p.tags LIKE %s"
-        params.append(f'%"{tag}"%')
+        query += " AND p.tags ? %s"
+        params.append(tag)
     if date:
         # Раньше по дате фильтровал фронт, у себя, по уже загруженной странице.
         # С постраничной выдачей так нельзя: фильтр применялся бы к сотне
         # записей вместо всех, и «ничего не найдено» означало бы «нет на этой
         # странице». Условие то же, что рисовал фронт: первая заполненная из трёх дат.
-        query += " AND COALESCE(NULLIF(p.scheduled_at,''), NULLIF(p.published_at,''), p.created_at) LIKE %s"
-        params.append(f"{date}%")
+        # Настоящее сравнение дат вместо LIKE по строке: колонки теперь
+        # timestamptz, и «за такой-то день» — это интервал, а не префикс.
+        query += (" AND COALESCE(p.scheduled_at, p.published_at, p.created_at)::date"
+                  " = %s::date")
+        params.append(date)
 
     # Считаем по тем же фильтрам, что и выбираем, — иначе «показаны 1–20 из 250»
     # врёт при любом фильтре.
@@ -92,8 +99,8 @@ def create_post(body: PostCreate, user_id: int = Depends(get_current_user_id)):
         "INSERT INTO posts (title,content,status,platforms,tags,scheduled_at,"
         "location_address,location_lat,location_lng,author_id,template_type,media) "
         "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (body.title, body.content, body.status, json.dumps(body.platforms),
-         json.dumps(body.tags), body.scheduled_at, body.location_address,
+        (body.title, body.content, body.status, Json(body.platforms),
+         Json(body.tags), parse_dt(body.scheduled_at), body.location_address,
          body.location_lat, body.location_lng, user_id, body.template_type,
          media_for_storage(body.media)),
     )
@@ -140,13 +147,13 @@ def update_post(post_id: int, body: PostUpdate, user_id: int = Depends(get_curre
         params.append(body.status)
     if body.platforms is not None:
         updates.append("platforms=%s")
-        params.append(json.dumps(body.platforms))
+        params.append(Json(body.platforms))
     if body.tags is not None:
         updates.append("tags=%s")
-        params.append(json.dumps(body.tags))
+        params.append(Json(body.tags))
     if body.scheduled_at is not None:
         updates.append("scheduled_at=%s")
-        params.append(body.scheduled_at)
+        params.append(parse_dt(body.scheduled_at))
     if body.media is not None:
         updates.append("media=%s")
         params.append(media_for_storage(body.media))
@@ -224,14 +231,19 @@ def get_group_posts(
         query += " AND p.status=%s"
         params.append(status)
     if platform:
-        query += " AND p.platforms LIKE %s"
-        params.append(f'%"{platform}"%')
+        # jsonb-оператор вместо LIKE '%"vk"%': идёт по GIN-индексу и не может
+        # совпасть с подстрокой внутри чужого значения.
+        query += " AND p.platforms ? %s"
+        params.append(platform)
     if tag:
-        query += " AND p.tags LIKE %s"
-        params.append(f'%"{tag}"%')
+        query += " AND p.tags ? %s"
+        params.append(tag)
     if date:
-        query += " AND COALESCE(NULLIF(p.scheduled_at,''), NULLIF(p.published_at,''), p.created_at) LIKE %s"
-        params.append(f"{date}%")
+        # Настоящее сравнение дат вместо LIKE по строке: колонки теперь
+        # timestamptz, и «за такой-то день» — это интервал, а не префикс.
+        query += (" AND COALESCE(p.scheduled_at, p.published_at, p.created_at)::date"
+                  " = %s::date")
+        params.append(date)
 
     count_query = query.replace("SELECT p.*, u.name as author_name", "SELECT COUNT(*)", 1)
     count_params = list(params)
@@ -260,8 +272,8 @@ def create_group_post(gid: int, body: PostCreate, user_id: int = Depends(get_cur
         "INSERT INTO posts (title,content,status,platforms,tags,scheduled_at,"
         "location_address,location_lat,location_lng,author_id,template_type,media,group_id) "
         "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (body.title, body.content, body.status, json.dumps(body.platforms),
-         json.dumps(body.tags), body.scheduled_at, body.location_address,
+        (body.title, body.content, body.status, Json(body.platforms),
+         Json(body.tags), parse_dt(body.scheduled_at), body.location_address,
          body.location_lat, body.location_lng, user_id, body.template_type,
          media_for_storage(body.media), gid),
     )
@@ -316,13 +328,13 @@ def update_group_post(gid: int, post_id: int, body: PostUpdate, user_id: int = D
         params.append(body.status)
     if body.platforms is not None:
         updates.append("platforms=%s")
-        params.append(json.dumps(body.platforms))
+        params.append(Json(body.platforms))
     if body.tags is not None:
         updates.append("tags=%s")
-        params.append(json.dumps(body.tags))
+        params.append(Json(body.tags))
     if body.scheduled_at is not None:
         updates.append("scheduled_at=%s")
-        params.append(body.scheduled_at)
+        params.append(parse_dt(body.scheduled_at))
     if body.media is not None:
         updates.append("media=%s")
         params.append(media_for_storage(body.media))
@@ -478,7 +490,7 @@ def sync_vk_stats(user_id: int = Depends(get_current_user_id)):
                         )
                         c.execute(
                             "UPDATE posts SET vk_stats_updated_at=%s WHERE id=%s",
-                            (app_now_str(), row["id"]),
+                            (app_now(), row["id"]),
                         )
                         total_synced += 1
             except Exception:
@@ -547,7 +559,7 @@ def group_sync_vk_stats(gid: int, user_id: int = Depends(get_current_user_id)):
                     )
                     c.execute(
                         "UPDATE posts SET vk_stats_updated_at=%s WHERE id=%s",
-                        (app_now_str(), row["id"]),
+                        (app_now(), row["id"]),
                     )
                     total_synced += 1
         except Exception:
@@ -571,7 +583,9 @@ def get_calendar(
     c.execute(
         "SELECT id,title,status,platforms,tags,scheduled_at,published_at,created_at FROM posts "
         f"WHERE {scope_sql} AND ("
-        "(scheduled_at BETWEEN %s AND %s) OR (published_at BETWEEN %s AND %s) OR (created_at BETWEEN %s AND %s)) "
+        "(scheduled_at::date BETWEEN %s::date AND %s::date) "
+        " OR (published_at::date BETWEEN %s::date AND %s::date) "
+        " OR (created_at::date BETWEEN %s::date AND %s::date)) "
         "ORDER BY COALESCE(scheduled_at, published_at, created_at)",
         scope_params + [start, end, start, end, start, end],
     )
@@ -594,7 +608,7 @@ def get_templates(user_id: int = Depends(get_current_user_id)):
     for r in rows:
         d = dict(r)
         try:
-            d["fields"] = json.loads(d["fields"])
+            d["fields"] = as_json_list(d["fields"])
         except Exception:
             d["fields"] = []
         result.append(d)

@@ -10,7 +10,7 @@ NULL в счётчике означает «не собирали», ноль �
 принципиальная: именно из-за её отсутствия вконтактовские просмотры когда-то
 показывались как телеграмные.
 """
-from utils import app_now_str, row_to_dict
+from utils import app_now, row_to_dict
 
 # Площадки, по которым вообще ведётся учёт
 PLATFORMS = ("vk", "telegram")
@@ -35,7 +35,7 @@ def save_platform_stats(conn, post_id: int, platform: str, **counters) -> None:
         "ON CONFLICT (post_id, platform) DO UPDATE SET "
         + ", ".join(f"{col} = EXCLUDED.{col}" for col in columns)
         + ", updated_at = EXCLUDED.updated_at",
-        [post_id, platform, *[known[col] for col in columns], app_now_str()],
+        [post_id, platform, *[known[col] for col in columns], app_now()],
     )
 
 

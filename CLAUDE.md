@@ -11,7 +11,7 @@
 |---|---|
 | Backend | Python, FastAPI 0.111, uvicorn, psycopg2 (raw SQL, **без ORM**), pydantic |
 | БД | PostgreSQL 16 (локально через docker-compose), alembic для миграций |
-| Auth | JWT (python-jose, HS256, 72 ч), bcrypt для паролей |
+| Auth | JWT (python-jose, HS256, 72 ч) + отзываемые сессии в БД, bcrypt |
 | Frontend | Next.js 14 App Router, React 18, TypeScript, **CSS без фреймворка** (globals.css) |
 | Графики / карты | chart.js + react-chartjs-2, @pbe/react-yandex-maps |
 | Внешние сервисы | VK API (5.199), Telegram Bot API, Groq (`llama-3.1-8b-instant`), Brevo/SMTP |
@@ -52,12 +52,11 @@ frontend/
 `posts` (status: `draft` | `scheduled` | `published`; platforms/tags/media — JSON-строки),
 `templates` (4 сида: announcement, results, vacancy, grant), `notifications`,
 `post_stats` (статистика по паре пост+площадка), `publish_jobs` (очередь публикации),
-`rate_limits` (счётчики обращений),
+`rate_limits` (счётчики обращений), `sessions` (отзываемые токены),
 `vk_settings` / `tg_settings` (с `workspace_id` → groups), `volunteer_media`,
 `email_verifications` (заявки на регистрацию до подтверждения почты), `password_resets`.
 
-Даты в `posts`/`users` хранятся как **TEXT** в формате `YYYY-MM-DDTHH:MM`, не как timestamp,
-и все — в зоне `APP_TZ` (см. «Все человеческие даты» ниже).
+Даты — `timestamptz` (миграция `f1d4c8b73e29`). JSON-поля — `jsonb` (`e7a2b9f41c58`).
 
 ## Архитектурные особенности (важно помнить)
 
@@ -179,18 +178,35 @@ frontend/
   Просроченные больше чем на `SCHEDULER_MAX_DELAY_MINUTES` (120) не публикуются
   вовсе — `flag_missed_posts()` пишет причину в `posts.publish_error`.
   Выключается через `SCHEDULER_ENABLED=0`.
-- **Все «человеческие» даты — в одной зоне, `APP_TZ`** (по умолчанию `Asia/Krasnoyarsk`).
-  В коде время берётся только через `utils.app_now()` / `app_now_str()`, никаких
-  `datetime.now()`. В базе то же самое делают `server_default`:
-  `to_char(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Krasnoyarsk', ...)`.
-  Зона в дефолтах зашита миграцией `e5c9d4a71b38`, она же разово сдвинула
-  накопленные значения из UTC. **Зона в миграции и `APP_TZ` обязаны совпадать** —
-  расхождение ловит `check_time_alignment()` при старте (предупреждает, не роняет)
-  и тест `test_timezones.py`.
-  Не в этой зоне и трогать нельзя: `invite_links.expires_at`,
-  `password_resets.expires_at`, `email_verifications.expires_at` — это внутренние
-  пары «записали `utcnow` / сравнили с `utcnow`», согласованные сами с собой.
-- **Авторизация**: все `/api/*` требуют `Depends(get_current_user_id)`, кроме
+- **Даты — `timestamptz`, а не текст.** Раньше все «временные» поля лежали в TEXT
+  «YYYY-MM-DDTHH:MM»: ни зоны, ни арифметики, фильтры собирались строковыми
+  сравнениями (`published_at LIKE '2026-08-16%'`). Работало это только потому, что
+  лексикографический порядок такого формата совпадает с хронологическим.
+  Теперь в базе абсолютный момент, а зона применяется **только на выдаче**:
+  `row_to_dict` прогоняет `DATE_FIELDS` через `fmt_dt()` и отдаёт прежний формат —
+  договор с интерфейсом не менялся. Входящие даты читает `parse_dt()`: строка без
+  зоны означает местное время (его человек видит в браузере).
+  В коде «сейчас» — только `app_now()` (`APP_TZ`, по умолчанию `Asia/Krasnoyarsk`).
+  Расхождение зон теперь структурно невозможно; `check_time_alignment()` при старте
+  сверяет уже не зоны, а сами часы приложения и базы.
+- **JSON-поля — `jsonb`.** `platforms`, `tags`, `media`, `tg_message_ids`,
+  `templates.fields`. Раньше это был TEXT: приложение само делало `json.dumps` /
+  `json.loads`, а фильтры выглядели как `platforms LIKE '%"vk"%'` — такой шаблон
+  нельзя проиндексировать и он совпадает с подстрокой внутри чужого значения
+  (тег `vk-новости` находился по фильтру `vk`). Теперь `platforms ? 'vk'` и
+  `tg_message_ids @> '[123]'` по GIN-индексам. На запись — `psycopg2.extras.Json`,
+  на чтение psycopg2 отдаёт готовые списки (`as_json_list` страхует от мусора).
+- **Токен отзываемый.** У каждого JWT есть `jti`, которому соответствует строка
+  в `sessions`; `get_current_user_id` проверяет её на каждом запросе (точечный
+  поиск по первичному ключу). Раньше отозвать токен было нельзя ничем: выход
+  жил только на клиенте, а сам токен работал до 72 часов.
+  `POST auth/logout` гасит текущий токен, `auth/logout-all` — все остальные,
+  `GET auth/sessions` показывает активные входы. **Смена пароля гасит все
+  сессии** (`revoke_user_sessions`) — иначе сброс пароля не мешал тому, кто увёл
+  токен. Токены без `jti` (выданные до появления сессий) не принимаются.
+  Просроченные чистит `purge_sessions()`.
+- **Авторизация**: все `/api/*` требуют `Depends(get_current_user_id)` (или
+  `current_session` — то же самое плюс `jti` для ручек выхода), кроме
   `auth/login`, `auth/register`, `auth/verify-email`, `auth/resend-code`,
   `auth/forgot-password`, `auth/reset-password`,
   `GET /api/invites/{token}`, `GET /api/debug/smtp-test`. Групповые роуты проверяют
@@ -267,6 +283,9 @@ BACKEND_URL), `frontend/.env.local` (NEXT_PUBLIC_YANDEX_MAPS_KEY, опц. NEXT_P
 `test_endpoint_parity.py` стережёт, что глобальные и групповые ручки не разъезжаются.
 `test_publish_queue.py` стережёт, что ручка публикации отвечает сразу и не даёт дублей.
 `test_rate_limit_and_migrations.py` стережёт лимиты в базе и запуск миграций вне старта.
+`test_sessions.py` стережёт, что выход и смена пароля действительно гасят токен.
+`test_json_columns.py` стережёт типы jsonb, индексы и что фильтр не цепляется за подстроку.
+`test_timezones.py` стережёт типы дат и что формат выдачи наружу не изменился.
 
 ## Известные проблемы
 
@@ -301,6 +320,9 @@ BACKEND_URL), `frontend/.env.local` (NEXT_PUBLIC_YANDEX_MAPS_KEY, опц. NEXT_P
 18. ~~Публикация шла синхронно внутри HTTP-запроса.~~ Исправлено — очередь `publish_jobs`.
 19. ~~Миграции в startup-хуке.~~ Исправлено — `preDeployCommand` + блокировка.
 20. ~~Рейт-лимит в памяти процесса.~~ Исправлено — таблица `rate_limits`.
+21. ~~JWT нельзя было отозвать.~~ Исправлено — таблица `sessions`, настоящий выход.
+22. ~~Даты хранились как TEXT.~~ Исправлено — `timestamptz`.
+23. ~~JSON лежал в TEXT-колонках.~~ Исправлено — `jsonb` + GIN-индексы.
 
 Осталось нерешённым:
 
@@ -313,16 +335,18 @@ BACKEND_URL), `frontend/.env.local` (NEXT_PUBLIC_YANDEX_MAPS_KEY, опц. NEXT_P
 
 ## Даты в БД
 
-`posts.created_at / scheduled_at / published_at`, `users.created_at` и прочие «временные»
-поля — это **TEXT** в формате `YYYY-MM-DDTHH:MM`. Сортировка лексикографическая совпадает
-с хронологической, поэтому `ORDER BY` работает, но арифметика по датам — нет.
-Фильтры по периодам собираются строковыми сравнениями (`BETWEEN`, `LIKE 'YYYY-MM-DD%'`).
+Все «временные» поля — `timestamptz` (миграция `f1d4c8b73e29`). В базе лежит
+абсолютный момент, часовой пояс применяется только на границе с интерфейсом.
 
-Зоны в строке нет, поэтому единственная защита — договорённость: **все такие поля
-в `APP_TZ`**. Пишем их только через `app_now_str()` (код) и `server_default` с
-`AT TIME ZONE` (база). Любое новое место, где появляется дата, обязано брать время
-оттуда же — `datetime.now()` на Railway вернёт UTC и снова разведёт зоны.
+- **Наружу**: `row_to_dict` прогоняет `DATE_FIELDS` через `fmt_dt()` и отдаёт
+  прежний формат `YYYY-MM-DDTHH:MM` в `APP_TZ`. Формат хранения поменялся,
+  договор с интерфейсом — нет.
+- **Внутрь**: `parse_dt()`. Строка без зоны означает **местное** время: именно
+  его человек вводит в браузере. Строка с зоной берётся как есть.
+- **«Сейчас»**: только `app_now()`. `datetime.now()` на Railway вернёт UTC.
+- В SQL теперь можно нормально: `created_at > NOW() - INTERVAL '30 days'`,
+  `published_at::date = %s::date`. Строковые `LIKE 'YYYY-MM-DD%'` не нужны.
 
-Исключения, где зона другая и так и надо: `invite_links.expires_at`,
-`password_resets.expires_at`, `email_verifications.expires_at` — их пишет и читает
-`datetime.utcnow()`, обе стороны в UTC, трогать нельзя.
+`invite_links.expires_at`, `password_resets.expires_at` и
+`email_verifications.expires_at` тоже стали `timestamptz`; код сравнивает их
+с `datetime.now(timezone.utc)` — наивных дат в проекте больше нет.

@@ -4,7 +4,6 @@ FastAPI + PostgreSQL backend
 """
 
 import datetime
-import json
 import os
 import random
 
@@ -12,6 +11,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from psycopg2.extras import Json
 
 import scheduler
 from alembic import command
@@ -236,7 +236,7 @@ def seed_db():
             "INSERT INTO templates (name, type, description, fields, template_text) VALUES (%s, %s, %s, %s, %s)",
             [
                 ("Анонс мероприятия", "announcement", "Объявление о предстоящем событии",
-                 json.dumps([
+                 Json([
                      {"key": "event_name", "label": "Название мероприятия", "placeholder": "Хакатон «IT-Кубок»"},
                      {"key": "date", "label": "Дата и время", "placeholder": "25 апреля, 10:00"},
                      {"key": "location", "label": "Место проведения", "placeholder": "МЦ «Зеркало»"},
@@ -245,7 +245,7 @@ def seed_db():
                  ]),
                  "🔥 {event_name}\n\n📅 Дата: {date}\n📍 Место: {location}\n\n{description}\n\n👉 Успей зарегистрироваться! Контакт: {contact}\n\n#мероприятие #молодёжь #красноярск"),
                 ("Итоги события", "results", "Публикация результатов прошедшего мероприятия",
-                 json.dumps([
+                 Json([
                      {"key": "event_name", "label": "Название мероприятия", "placeholder": "Форум молодых лидеров"},
                      {"key": "participants", "label": "Кол-во участников", "placeholder": "150"},
                      {"key": "highlights", "label": "Главные моменты", "placeholder": "5 спикеров, мастер-классы"},
@@ -253,7 +253,7 @@ def seed_db():
                  ]),
                  "✅ {event_name} — позади!\n\n👥 Участников: {participants}\n\n🎯 {highlights}\n\nСпасибо всем! {next_event} — следите за анонсами.\n\n#итоги #молодёжь #красноярск"),
                 ("Вакансия", "vacancy", "Объявление об открытой позиции",
-                 json.dumps([
+                 Json([
                      {"key": "position", "label": "Должность", "placeholder": "SMM-менеджер"},
                      {"key": "organization", "label": "Организация", "placeholder": "МЦ «Зеркало»"},
                      {"key": "requirements", "label": "Требования", "placeholder": "Опыт от 1 года"},
@@ -262,7 +262,7 @@ def seed_db():
                  ]),
                  "🚀 Вакансия: {position}\n🏢 {organization}\n\n📋 Требования:\n{requirements}\n\n💼 Условия:\n{conditions}\n\n📩 Откликнуться: {contact}\n\n#вакансия #работа #красноярск"),
                 ("Грант", "grant", "Информация о грантовой программе",
-                 json.dumps([
+                 Json([
                      {"key": "grant_name", "label": "Название гранта", "placeholder": "Грант «Молодёжь края»"},
                      {"key": "amount", "label": "Размер поддержки", "placeholder": "до 500 000 ₽"},
                      {"key": "deadline", "label": "Дедлайн подачи", "placeholder": "1 мая 2026"},
@@ -311,7 +311,7 @@ def seed_db():
                 "INSERT INTO posts (title,content,status,platforms,tags,scheduled_at,"
                 "published_at,author_id,template_type,created_at) "
                 "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (title, content, status, json.dumps(platforms), json.dumps(tags),
+                (title, content, status, Json(platforms), Json(tags),
                  scheduled_at, published_at, random.choice([1, 2]), tmpl, created_at),
             )
 
@@ -438,47 +438,35 @@ def ensure_admin_exists() -> bool:
 
 def check_time_alignment() -> bool:
     """
-    Сверяет часовой пояс базы и приложения.
+    Сверяет часы приложения и базы.
 
-    Даты-строки ставят двое: база через server_default (зона зашита миграцией)
-    и код через app_now_str() (зона из APP_TZ). Если их развести, в одной
-    колонке снова окажутся значения, различающиеся на несколько часов — ровно
-    та беда, которую разбирала миграция e5c9d4a71b38. Проверка дешёвая, а
-    заметить расхождение потом по данным очень трудно.
+    Раньше здесь проверялось совпадение часовых поясов: даты лежали строками
+    без зоны, и достаточно было развести APP_TZ с зоной в server_default,
+    чтобы в одной колонке оказались значения, различающиеся на часы. После
+    перехода на timestamptz такой ошибки быть не может — колонка хранит
+    абсолютный момент, а зона применяется только на выдаче.
 
-    Не роняет приложение: перекос по времени — повод для громкого предупреждения,
-    но не для отказа обслуживать людей.
+    Остаётся то, что проверять всё ещё стоит: расхождение самих часов. Оно
+    ломает и сроки публикации, и окна аналитики, а по данным замечается плохо.
+    Не роняет приложение: перекос времени — повод громко предупредить.
     """
     conn = get_db()
     try:
         c = conn.cursor()
-        c.execute(
-            "SELECT column_default FROM information_schema.columns "
-            "WHERE table_name='posts' AND column_name='created_at'"
-        )
-        row = c.fetchone()
-        expr = row and row.get("column_default")
-        if not expr:
-            return True
-        c.execute(f"SELECT {expr} AS db_now")  # noqa: S608 — выражение из схемы, не из ввода
+        c.execute("SELECT NOW() AS db_now")
         db_now = c.fetchone()["db_now"]
     finally:
         conn.close()
 
-    fmt = "%Y-%m-%dT%H:%M"
-    drift = abs(
-        (datetime.datetime.strptime(db_now, fmt)
-         - datetime.datetime.strptime(app_now_str(), fmt)).total_seconds()
-    ) / 60
+    drift = abs((db_now - app_now()).total_seconds()) / 60
     if drift > 5:
         print(
-            f"⚠️   база и приложение расходятся во времени на {drift:.0f} мин: "
-            f"база пишет {db_now}, приложение считает {app_now_str()}. "
-            f"Проверьте APP_TZ (сейчас {APP_TZ}) и server_default дат — "
-            "иначе в одной колонке снова окажутся разные часовые пояса."
+            f"⚠️   часы базы и приложения расходятся на {drift:.0f} мин: "
+            f"база считает {db_now.isoformat()}, приложение — {app_now().isoformat()}. "
+            "Отложенные посты и окна аналитики будут смещаться."
         )
         return False
-    print(f"🕒  время согласовано: {APP_TZ}, сейчас {db_now}")
+    print(f"🕒  время согласовано: {APP_TZ}, сейчас {app_now_str()}")
     return True
 
 

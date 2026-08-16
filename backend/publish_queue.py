@@ -17,7 +17,7 @@ import sys
 import traceback
 
 from publishing import perform_publish
-from utils import app_now_str, get_db
+from utils import app_now, get_db
 
 # Один пост не может стоять в очереди дважды — это гарантирует частичный
 # уникальный индекс uq_publish_jobs_active. Два клика по «Опубликовать» не
@@ -43,7 +43,7 @@ def enqueue(conn, post_id: int, group_id: int | None, user_id: int | None) -> di
     c.execute(
         "INSERT INTO publish_jobs (post_id, group_id, requested_by, state, created_at) "
         "VALUES (%s, %s, %s, 'queued', %s) RETURNING *",
-        (post_id, group_id, user_id, app_now_str()),
+        (post_id, group_id, user_id, app_now()),
     )
     job = dict(c.fetchone())
     conn.commit()
@@ -90,7 +90,7 @@ def _finish(conn, job_id: int, state: str, error: str | None, result: dict | Non
     c.execute(
         "UPDATE publish_jobs SET state=%s, error=%s, result=%s, finished_at=%s WHERE id=%s",
         (state, error, json.dumps(result, ensure_ascii=False) if result else None,
-         app_now_str(), job_id),
+         app_now(), job_id),
     )
     conn.commit()
 
@@ -160,7 +160,7 @@ def requeue_stuck_jobs() -> int:
             "WHERE state='running' RETURNING id",
             ("Публикация прервалась на полпути. Проверьте паблик: пост мог уйти. "
              "Автоматически она не повторится, чтобы не опубликовать дважды.",
-             app_now_str()),
+             app_now()),
         )
         stuck = c.fetchall()
         conn.commit()
