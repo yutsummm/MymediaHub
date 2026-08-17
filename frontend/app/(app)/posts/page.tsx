@@ -362,6 +362,23 @@ export default function PostsPage() {
                       onClick={() => canEdit && router.push(`/posts/${p.id}/edit`)}
                     >{p.title}</div>
                     {p.author_name && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{p.author_name}</div>}
+                    {/* Снятый пост остаётся у нас и считается в отчётах —
+                        из ленты исчезла запись, а не факт публикации. */}
+                    {p.removed_at && (
+                      <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
+                        Снят с публикации {fmtDt(p.removed_at)}
+                      </div>
+                    )}
+                    {p.remove_error && (
+                      <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 4, maxWidth: 260 }}>
+                        Не удалось снять: {p.remove_error}
+                      </div>
+                    )}
+                    {!p.removed_at && p.auto_delete_at && p.status === 'published' && (
+                      <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
+                        Будет снят {fmtDt(p.auto_delete_at)}
+                      </div>
+                    )}
                     {p.review_comment && (
                       <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 4, maxWidth: 260 }}>
                         Возвращено: {p.review_comment}

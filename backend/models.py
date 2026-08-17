@@ -21,6 +21,9 @@ class PostCreate(BaseModel):
     location_address: str | None = None
     location_lat: float | None = None
     location_lng: float | None = None
+    # Когда убрать запись из соцсети. Анонс прошедшего мероприятия
+    # висит в ленте и путает людей.
+    auto_delete_at: str | None = None
 
 
 class PostUpdate(BaseModel):
@@ -34,6 +37,14 @@ class PostUpdate(BaseModel):
     location_address: str | None = None
     location_lat: float | None = None
     location_lng: float | None = None
+    # Когда убрать запись из соцсети. Анонс прошедшего мероприятия
+    # висит в ленте и путает людей.
+    auto_delete_at: str | None = None
+
+
+class PostQueue(BaseModel):
+    """Постановка поста в очередь по расписанию группы."""
+    auto_delete_at: str | None = None
 
 
 class ReviewReject(BaseModel):
@@ -119,12 +130,36 @@ class GroupCreate(BaseModel):
     description: str = ""
 
 
+class SlotItem(BaseModel):
+    # 0 — понедельник, как у datetime.weekday()
+    weekday: int
+    at: str
+
+
+class SlotsUpdate(BaseModel):
+    """
+    Расписание заменяется целиком: человек воспринимает его как одну вещь —
+    сетку недели — и правит тоже целиком.
+    """
+    slots: list[SlotItem] = []
+
+
+class HashtagSet(BaseModel):
+    name: str
+    tags: str
+
+
 class GroupUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     avatar: str | None = None
     # Выходят ли посты только после визы администратора группы.
     require_approval: bool | None = None
+    # Размечать ли ссылки UTM-метками на выпуске.
+    utm_enabled: bool | None = None
+    # Подстановки {{ключ}} в тексте поста и именованные наборы хештегов.
+    variables: dict[str, str] | None = None
+    hashtag_sets: list[HashtagSet] | None = None
 
 
 class GroupMemberRoleUpdate(BaseModel):

@@ -270,7 +270,12 @@ export const api = {
       method: 'POST', body: body({ name, description: description || '' }),
     }),
   getGroup: (groupId: number) => req<import('./types').Group>(`/api/groups/${groupId}`),
-  updateGroup: (groupId: number, data: { name?: string; description?: string; avatar?: string; require_approval?: boolean }) =>
+  updateGroup: (groupId: number, data: {
+    name?: string; description?: string; avatar?: string
+    require_approval?: boolean; utm_enabled?: boolean
+    variables?: Record<string, string>
+    hashtag_sets?: import('./types').HashtagSet[]
+  }) =>
     req<import('./types').Group>(`/api/groups/${groupId}`, {
       method: 'PUT', body: body(data),
     }),
@@ -363,6 +368,29 @@ export const api = {
     req<{ status: string }>(`/api/groups/${groupId}/posts/${postId}/reject`, {
       method: 'POST', body: body({ comment }),
     }),
+
+  // Расписание публикаций: правится целиком, как сетка недели
+  getSlots: (groupId: number) =>
+    req<{ slots: import('./types').PublishingSlot[] }>(`/api/groups/${groupId}/slots`),
+  saveSlots: (groupId: number, slots: import('./types').PublishingSlot[]) =>
+    req<{ slots: import('./types').PublishingSlot[] }>(`/api/groups/${groupId}/slots`, {
+      method: 'PUT',
+      body: body({ slots: slots.map(s => ({ weekday: s.weekday, at: s.at })) }),
+    }),
+  // Ближайшее свободное окно — показываем до постановки в очередь, чтобы
+  // человек заранее видел, когда пост выйдет
+  getNextSlot: (groupId: number) =>
+    req<{ at: string }>(`/api/groups/${groupId}/slots/next`),
+  // Время считает сервер по расписанию группы: держать копию правил на
+  // клиенте значило бы однажды с ними разойтись
+  queueGroupPost: (groupId: number, postId: number, autoDeleteAt?: string | null) =>
+    req<import('./types').Post & { queued: boolean }>(
+      `/api/groups/${groupId}/posts/${postId}/queue`, {
+        method: 'POST', body: body({ auto_delete_at: autoDeleteAt ?? null }),
+      }),
+
+  getPostHistory: (postId: number) =>
+    req<{ events: import('./types').PostHistoryEvent[] }>(`/api/posts/${postId}/history`),
 
   // Медиатека: одобренные материалы волонтёров плюс файлы из прошлых постов
   getMediaLibrary: (groupId: number, params?: Record<string, string>) => {

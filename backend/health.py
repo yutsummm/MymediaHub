@@ -103,6 +103,7 @@ def _loops() -> dict:
     expected = {
         "scheduler": scheduler.SCHEDULER_INTERVAL,
         "publish_worker": scheduler.PUBLISH_POLL_INTERVAL,
+        "retention": scheduler.RETENTION_INTERVAL,
     }
     if scheduler.TELEGRAM_STATS_ENABLED:
         expected["telegram_stats"] = scheduler.TELEGRAM_POLL_INTERVAL
