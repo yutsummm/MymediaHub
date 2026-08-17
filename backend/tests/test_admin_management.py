@@ -90,7 +90,7 @@ def test_admin_presence_is_detected(monkeypatch):
     assert main.ensure_admin_exists() is True
 
 
-def test_missing_usable_admin_is_reported(monkeypatch, capsys):
+def test_missing_usable_admin_is_reported(monkeypatch, caplog):
     """
     Админ с пустым паролем (посевной admin@mediahub.ru) роль занимает, а войти
     им нельзя — это и есть запертая система, и её надо замечать.
@@ -104,7 +104,7 @@ def test_missing_usable_admin_is_reported(monkeypatch, capsys):
     conn.commit()
     try:
         assert main.ensure_admin_exists() is False
-        assert "нет ни одного администратора" in capsys.readouterr().out
+        assert "нет ни одного администратора" in caplog.text
     finally:
         for uid, ph in saved:
             c.execute("UPDATE users SET password_hash=%s WHERE id=%s", (ph, uid))
@@ -112,7 +112,7 @@ def test_missing_usable_admin_is_reported(monkeypatch, capsys):
         conn.close()
 
 
-def test_bootstrap_env_promotes_existing_user(client, make_user, monkeypatch, capsys):
+def test_bootstrap_env_promotes_existing_user(client, make_user, monkeypatch, caplog):
     """Выход из запертого состояния: почта в переменной — и человек стал админом."""
     token, uid = make_user("bootstrap")
     conn = get_db()
@@ -125,11 +125,11 @@ def test_bootstrap_env_promotes_existing_user(client, make_user, monkeypatch, ca
     monkeypatch.setenv("BOOTSTRAP_ADMIN_EMAIL", email.upper())  # регистр не должен мешать
     main.ensure_admin_exists()
     assert role_of(email) == "admin"
-    assert "назначен администратором" in capsys.readouterr().out
+    assert "назначен администратором" in caplog.text
     assert client.get("/api/users", headers=auth(token)).status_code == 200
 
 
-def test_bootstrap_is_idempotent(client, make_user, monkeypatch, capsys):
+def test_bootstrap_is_idempotent(client, make_user, monkeypatch, caplog):
     """Переменную забудут убрать — повторный старт не должен ничего ломать."""
     _, uid = make_user("twice")
     conn = get_db()
@@ -140,16 +140,16 @@ def test_bootstrap_is_idempotent(client, make_user, monkeypatch, capsys):
 
     monkeypatch.setenv("BOOTSTRAP_ADMIN_EMAIL", email)
     main.ensure_admin_exists()
-    capsys.readouterr()
+    caplog.clear()
     main.ensure_admin_exists()
-    assert "назначен администратором" not in capsys.readouterr().out
+    assert "назначен администратором" not in caplog.text
     assert role_of(email) == "admin"
 
 
-def test_bootstrap_with_unknown_email_warns(monkeypatch, capsys):
+def test_bootstrap_with_unknown_email_warns(monkeypatch, caplog):
     monkeypatch.setenv("BOOTSTRAP_ADMIN_EMAIL", "нет-такого@test.local")
     main.ensure_admin_exists()
-    assert "такого пользователя нет" in capsys.readouterr().out
+    assert "такого пользователя нет" in caplog.text
 
 
 @pytest.fixture(autouse=True)

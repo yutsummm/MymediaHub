@@ -78,11 +78,24 @@ const SkeletonStatCard = memo(function SkeletonStatCard({ index }: { index: numb
   )
 })
 
+// Цвета серий берём из темы, а не из констант. На тёмной это сиреневый и
+// зелёный — они хорошо читаются на чёрном. На светлой сиреневый спорит с
+// монохромом интерфейса, поэтому основная серия становится тушью, а вторая
+// остаётся зелёной: две серии обязаны различаться, но различать их цветом
+// ради цвета незачем.
 function getChartColors() {
   const style = getComputedStyle(document.documentElement)
+  const light = document.documentElement.getAttribute('data-theme') === 'light'
   return {
     text3:  style.getPropertyValue('--text-3').trim()  || 'rgba(255,255,255,0.24)',
     border: style.getPropertyValue('--border').trim()  || 'rgba(255,255,255,0.07)',
+    s1:     light ? '#101014' : '#a78bfa',
+    s1fill: light ? 'rgba(16,16,20,0.07)' : 'rgba(167,139,250,.08)',
+    s2:     light ? '#0F7A57' : '#34d399',
+    s2fill: light ? 'rgba(15,122,87,0.06)' : 'rgba(52,211,153,.06)',
+    b1:     light ? 'rgba(16,16,20,0.82)'  : 'rgba(124,58,237,0.7)',
+    b2:     light ? 'rgba(16,16,20,0.34)'  : 'rgba(167,139,250,0.7)',
+    b3:     light ? 'rgba(15,122,87,0.72)' : 'rgba(52,211,153,0.7)',
   }
 }
 
@@ -117,14 +130,15 @@ export default function AnalyticsPage() {
   useEffect(() => {
     if (!tl.length || !lineRef.current) return
     lineChart.current?.destroy()
-    const { text3, border } = getChartColors()
+    const c = getChartColors()
+    const { text3, border } = c
     lineChart.current = new Chart(lineRef.current.getContext('2d')!, {
       type: 'line',
       data: {
         labels: tl.map(d => d.label),
         datasets: [
-          { label: 'Просмотры', data: tl.map(d => d.views),     borderColor: '#a78bfa', backgroundColor: 'rgba(167,139,250,.08)', tension: .4, fill: true, pointRadius: 3, pointHoverRadius: 5 },
-          { label: 'Реакции',   data: tl.map(d => d.reactions), borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,.06)', tension: .4, pointRadius: 3, pointHoverRadius: 5 },
+          { label: 'Просмотры', data: tl.map(d => d.views),     borderColor: c.s1, backgroundColor: c.s1fill, tension: .4, fill: true, pointRadius: 3, pointHoverRadius: 5 },
+          { label: 'Реакции',   data: tl.map(d => d.reactions), borderColor: c.s2, backgroundColor: c.s2fill, tension: .4, pointRadius: 3, pointHoverRadius: 5 },
         ],
       },
       options: {
@@ -144,17 +158,18 @@ export default function AnalyticsPage() {
     if (!sum?.platform_stats || !barRef.current) return
     barChart.current?.destroy()
     const d = sum.platform_stats
-    const { text3, border } = getChartColors()
+    const c = getChartColors()
+    const { text3, border } = c
     barChart.current = new Chart(barRef.current.getContext('2d')!, {
       type: 'bar',
       data: {
         labels: d.map(x => x.platform.toUpperCase()),
         datasets: [
-          { label: 'Постов',           data: d.map(x => x.count),                    backgroundColor: 'rgba(124,58,237,0.7)', borderRadius: 5 },
+          { label: 'Постов',           data: d.map(x => x.count),                    backgroundColor: c.b1, borderRadius: 5 },
           // null вместо 0 — площадка без статистики не должна рисовать нулевой столбик,
           // это читалось бы как «охват ноль», хотя данных просто нет
-          { label: 'Просмотры (÷100)', data: d.map(x => x.views === null ? null : Math.round(x.views / 100)), backgroundColor: 'rgba(167,139,250,0.7)', borderRadius: 5 },
-          { label: 'Реакции',          data: d.map(x => x.reactions),                backgroundColor: 'rgba(52,211,153,0.7)', borderRadius: 5 },
+          { label: 'Просмотры (÷100)', data: d.map(x => x.views === null ? null : Math.round(x.views / 100)), backgroundColor: c.b2, borderRadius: 5 },
+          { label: 'Реакции',          data: d.map(x => x.reactions),                backgroundColor: c.b3, borderRadius: 5 },
         ],
       },
       options: {

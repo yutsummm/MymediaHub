@@ -13,9 +13,8 @@
 Состояния: queued → running → done | failed.
 """
 import json
-import sys
-import traceback
 
+from logs import get_logger
 from publishing import perform_publish
 from utils import app_now, get_db
 
@@ -23,6 +22,8 @@ from utils import app_now, get_db
 # уникальный индекс uq_publish_jobs_active. Два клика по «Опубликовать» не
 # должны дать две записи на стене.
 ACTIVE_STATES = ("queued", "running")
+
+log = get_logger("publish")
 
 
 def enqueue(conn, post_id: int, group_id: int | None, user_id: int | None) -> dict:
@@ -42,8 +43,10 @@ def enqueue(conn, post_id: int, group_id: int | None, user_id: int | None) -> di
 
     c.execute(
         "INSERT INTO publish_jobs (post_id, group_id, requested_by, state, created_at) "
-        "VALUES (%s, %s, %s, 'queued', %s) RETURNING *",
-        (post_id, group_id, user_id, app_now()),
+        "VALUES (%(post_id)s, %(group_id)s, %(requested_by)s, 'queued', %(created_at)s) "
+        "RETURNING *",
+        {"post_id": post_id, "group_id": group_id, "requested_by": user_id,
+         "created_at": app_now()},
     )
     job = dict(c.fetchone())
     conn.commit()
@@ -88,9 +91,11 @@ def claim_job(conn):
 def _finish(conn, job_id: int, state: str, error: str | None, result: dict | None) -> None:
     c = conn.cursor()
     c.execute(
-        "UPDATE publish_jobs SET state=%s, error=%s, result=%s, finished_at=%s WHERE id=%s",
-        (state, error, json.dumps(result, ensure_ascii=False) if result else None,
-         app_now(), job_id),
+        "UPDATE publish_jobs SET state=%(state)s, error=%(error)s, result=%(result)s, "
+        "finished_at=%(finished_at)s WHERE id=%(id)s",
+        {"state": state, "error": error,
+         "result": json.dumps(result, ensure_ascii=False) if result else None,
+         "finished_at": app_now(), "id": job_id},
     )
     conn.commit()
 
@@ -111,12 +116,12 @@ def run_job(conn, job: dict) -> bool:
         # легко даст вторую запись на стене. Ошибку сохраняем, человек решает сам.
         conn.rollback()
         _finish(conn, job["id"], "failed", str(e), None)
-        print(f"❌  задача публикации #{job['id']}: {e}", file=sys.stderr)
+        log.error(f"❌  задача публикации #{job['id']}: {e}")
         return False
 
     # Соцсеть могла отказать, хотя сама задача отработала — это не провал
     # очереди, но человек должен видеть, что именно не ушло.
-    problems = [result.get(k) for k in ("vk_error", "tg_error") if result.get(k)]
+    problems = [str(result.get(k)) for k in ("vk_error", "tg_error") if result.get(k)]
     _finish(
         conn, job["id"], "done", "; ".join(problems) or None,
         {k: result.get(k) for k in
@@ -138,7 +143,7 @@ def process_jobs(max_jobs: int = 5) -> int:
             try:
                 run_job(conn, job)
             except Exception:
-                traceback.print_exc(file=sys.stderr)
+                log.exception(f"задача публикации #{job['id']} упала")
     finally:
         conn.close()
     return done
@@ -167,5 +172,5 @@ def requeue_stuck_jobs() -> int:
     finally:
         conn.close()
     if stuck:
-        print(f"⚠️   прерванных задач публикации: {len(stuck)} ({[r['id'] for r in stuck]})")
+        log.warning(f"⚠️   прерванных задач публикации: {len(stuck)} ({[r['id'] for r in stuck]})")
     return len(stuck)

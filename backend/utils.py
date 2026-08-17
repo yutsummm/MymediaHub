@@ -18,16 +18,57 @@ import bcrypt
 import psycopg2
 import psycopg2.extras
 import requests as http_requests
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, Request
 from jose import JWTError, jwt
 from psycopg2.extras import Json
+
+from logs import get_logger, user_id_var
 
 # ── DB ───────────────────────────────────────────────────────────────────────
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://mediahub:mediahub123@localhost:5432/mediahub")
 
+def _session_options() -> str:
+    """
+    Параметры сессии Postgres: часовой пояс — APP_TZ.
+
+    От зоны сессии зависят все выражения вида `published_at::date`: без явной
+    установки Postgres берёт зону сервера (на Railway это UTC), и «день» в
+    аналитике заканчивался бы в 17:00 по Красноярску. Раньше это было незаметно
+    ровно потому, что читалось как «просто сдвинутый график».
+
+    Зона уходит вместе с параметрами подключения — лишнего запроса нет.
+    Незнакомое значение APP_TZ не должно ронять подключение: `app_now()` в этом
+    случае тоже не падает, а предупреждает и работает по часам контейнера.
+    """
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        ZoneInfo(APP_TZ)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ""
+    return f"-c timezone={APP_TZ}"
+
+
 def get_db():
-    return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    opts = _session_options()
+    kwargs = {"options": opts} if opts else {}
+    return psycopg2.connect(
+        DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor, **kwargs
+    )
+
+
+def like_pattern(query: str) -> str:
+    """
+    Строка поиска → шаблон для ILIKE.
+
+    Спецсимволы LIKE экранируются: без этого «50%» искалось как «50 и что
+    угодно», а одиночный «%» совпадал вообще со всем. Экранирующий символ —
+    обратный слэш, он же по умолчанию у LIKE в Postgres, поэтому ESCAPE
+    в запросе указывать не нужно.
+    """
+    escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
 
 
 JSON_FIELDS = ("platforms", "tags", "media", "tg_message_ids")
@@ -85,6 +126,8 @@ def row_to_dict(row):
 
 APP_TZ = os.getenv("APP_TZ", "Asia/Krasnoyarsk")
 
+log = get_logger("utils")
+
 
 def app_now() -> datetime:
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -92,7 +135,7 @@ def app_now() -> datetime:
     try:
         return datetime.now(ZoneInfo(APP_TZ))
     except (ZoneInfoNotFoundError, ValueError):
-        print(f"WARNING: неизвестная таймзона APP_TZ={APP_TZ!r}, беру время контейнера")
+        log.warning(f"неизвестная таймзона APP_TZ={APP_TZ!r}, беру время контейнера")
         return datetime.now()
 
 
@@ -162,10 +205,14 @@ def verify_password(password: str, hashed: str) -> bool:
 
 # ── JWT helpers ──────────────────────────────────────────────────────────────
 
-JWT_SECRET = os.getenv("JWT_SECRET")
+JWT_SECRET = os.getenv("JWT_SECRET") or ""
 if not JWT_SECRET:
     JWT_SECRET = secrets.token_hex(32)
-    print("WARNING: JWT_SECRET not set. Using a random key. Set JWT_SECRET in environment for persistence across restarts.")
+    log.warning(
+        "JWT_SECRET не задан — взят случайный ключ. После перезапуска все токены "
+        "перестанут работать, а секреты интеграций (ключ выводится из JWT_SECRET) "
+        "станут нечитаемыми. Задайте JWT_SECRET в окружении."
+    )
 JWT_ALGORITHM = "HS256"
 
 
@@ -190,10 +237,14 @@ def create_token(user_id: int, request=None, conn=None) -> str:
         c = conn.cursor()
         c.execute(
             "INSERT INTO sessions (jti, user_id, expires_at, ip, user_agent) "
-            "VALUES (%s, %s, %s, %s, %s)",
-            (jti, user_id, expire,
-             client_ip(request) if request else None,
-             (request.headers.get("user-agent") if request else None) or None),
+            "VALUES (%(jti)s, %(user_id)s, %(expires_at)s, %(ip)s, %(user_agent)s)",
+            {
+                "jti": jti,
+                "user_id": user_id,
+                "expires_at": expire,
+                "ip": client_ip(request) if request else None,
+                "user_agent": (request.headers.get("user-agent") if request else None) or None,
+            },
         )
         conn.commit()
     finally:
@@ -234,10 +285,12 @@ def revoke_user_sessions(user_id: int, reason: str, conn=None, except_jti: str |
     try:
         c = conn.cursor()
         c.execute(
-            "UPDATE sessions SET revoked_at=NOW(), revoked_reason=%s "
-            "WHERE user_id=%s AND revoked_at IS NULL "
-            "  AND (%s::text IS NULL OR jti <> %s) RETURNING jti",
-            (reason, user_id, except_jti, except_jti),
+            "UPDATE sessions SET revoked_at=NOW(), revoked_reason=%(reason)s "
+            "WHERE user_id=%(user_id)s AND revoked_at IS NULL "
+            # Одно имя вместо двух одинаковых позиционных значений — раньше
+            # except_jti приходилось передавать дважды подряд.
+            "  AND (%(except_jti)s::text IS NULL OR jti <> %(except_jti)s) RETURNING jti",
+            {"reason": reason, "user_id": user_id, "except_jti": except_jti},
         )
         count = len(c.fetchall())
         conn.commit()
@@ -300,11 +353,13 @@ def _session_is_active(jti: str) -> tuple[bool, int | None]:
         conn.close()
 
 
-def get_current_user_id(authorization: str = Header(None)) -> int:
-    return current_session(authorization)[0]
+def get_current_user_id(authorization: str = Header(None), request: Request = None) -> int:
+    return current_session(authorization, request)[0]
 
 
-def current_session(authorization: str = Header(None)) -> tuple[int, str | None]:
+def current_session(
+    authorization: str = Header(None), request: Request = None
+) -> tuple[int, str | None]:
     """(id пользователя, идентификатор сессии). Второе нужно ручке выхода."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Требуется авторизация")
@@ -323,6 +378,16 @@ def current_session(authorization: str = Header(None)) -> tuple[int, str | None]
     active, session_user = _session_is_active(jti)
     if not active or session_user != user_id:
         raise HTTPException(401, "Сессия завершена, войдите заново")
+    # Чтобы записи в логе знали, чей это запрос. Ставится здесь, а не в
+    # middleware: там токен ещё не разобран.
+    #
+    # Двумя путями сразу, и оба нужны. Контекстная переменная видна записям,
+    # которые сделает сам обработчик. Но синхронные обработчики FastAPI
+    # выполняет в отдельном потоке, и обратно в middleware изменение контекста
+    # не возвращается — итоговой записи про запрос достаётся request.state.
+    user_id_var.set(user_id)
+    if request is not None:
+        request.state.user_id = user_id
     return user_id, jti
 
 
@@ -1115,6 +1180,20 @@ def _resolve_media_bytes(item: dict, backend_base: str) -> tuple[bytes, str]:
     return resp.content, item.get("filename") or fname
 
 
+
+def _remember_message(posted_ids: list[int], response) -> None:
+    """
+    Запоминает идентификатор отправленного сообщения.
+
+    Ответ без message_id — не повод класть в tg_message_ids дырку: по этому
+    списку потом ищутся реакции (`tg_message_ids @> [id]`), и null в нём просто
+    мусор.
+    """
+    message_id = (response or {}).get("message_id")
+    if isinstance(message_id, int):
+        posted_ids.append(message_id)
+
+
 def tg_send_post(bot_token: str, chat_id: str, message: str, media: list[dict], backend_base: str) -> list[int]:
     photos_videos = [m for m in media if m.get("type") in ("image", "video")]
     docs = [m for m in media if m.get("type") == "doc"]
@@ -1127,7 +1206,7 @@ def tg_send_post(bot_token: str, chat_id: str, message: str, media: list[dict], 
         for chunk_start in range(0, len(message), TG_MESSAGE_LIMIT):
             chunk = message[chunk_start:chunk_start + TG_MESSAGE_LIMIT]
             res = tg_api(bot_token, "sendMessage", data={"chat_id": chat_id, "text": chunk})
-            posted_ids.append(res.get("message_id"))
+            _remember_message(posted_ids, res)
         sent_text_separately = True
 
     if photos_videos:
@@ -1140,7 +1219,7 @@ def tg_send_post(bot_token: str, chat_id: str, message: str, media: list[dict], 
             if not sent_text_separately and message:
                 data["caption"] = message[:TG_CAPTION_LIMIT]
             res = tg_api(bot_token, method, data=data, files={field: (fname, file_bytes)}, _timeout=300)
-            posted_ids.append(res.get("message_id"))
+            _remember_message(posted_ids, res)
         else:
             files = {}
             media_payload = []
@@ -1158,7 +1237,8 @@ def tg_send_post(bot_token: str, chat_id: str, message: str, media: list[dict], 
                 files=files, _timeout=600,
             )
             if isinstance(res, list):
-                posted_ids.extend(m.get("message_id") for m in res)
+                for m in res:
+                    _remember_message(posted_ids, m)
 
     for idx, item in enumerate(docs):
         file_bytes, fname = _resolve_media_bytes(item, backend_base)
@@ -1166,18 +1246,18 @@ def tg_send_post(bot_token: str, chat_id: str, message: str, media: list[dict], 
         if idx == 0 and not sent_text_separately and not photos_videos and message:
             data["caption"] = message[:TG_CAPTION_LIMIT]
         res = tg_api(bot_token, "sendDocument", data=data, files={"document": (fname, file_bytes)}, _timeout=300)
-        posted_ids.append(res.get("message_id"))
+        _remember_message(posted_ids, res)
 
     if not posted_ids and message:
         res = tg_api(bot_token, "sendMessage", data={"chat_id": chat_id, "text": message[:TG_MESSAGE_LIMIT]})
-        posted_ids.append(res.get("message_id"))
+        _remember_message(posted_ids, res)
 
     return posted_ids
 
 
 # ── Youth centers mock data ──────────────────────────────────────────────────
 
-YOUTH_CENTERS_MOCK = [
+YOUTH_CENTERS_MOCK: list[dict] = [
     {"id": 1, "name": "Молодёжный творческий бизнес-центр «Пилот»", "address": "ул. Аэровокзальная, 9", "coordinates": [56.007231, 92.872375]},
     {"id": 2, "name": "Молодёжный центр «Зеркало»", "address": "ул. Бограда, 65", "coordinates": [56.007156, 92.857835]},
     {"id": 3, "name": "Молодёжный центр «Новые имена»", "address": "пр. им. газеты «Красноярский рабочий», 68", "coordinates": [56.019088, 92.932854]},

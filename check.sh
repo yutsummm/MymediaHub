@@ -13,6 +13,11 @@ if [ "$TARGET" = "all" ] || [ "$TARGET" = "backend" ]; then
   echo "🐍 Бэкенд: ruff"
   (cd "$ROOT/backend" && "$PY" -m ruff check .)
 
+  echo "🔎 Бэкенд: mypy"
+  # Ловит ровно тот класс ошибок, на котором мы уже спотыкались: перепутанные
+  # типы аргументов и обращение к fetchone(), который вернул None.
+  (cd "$ROOT/backend" && "$PY" -m mypy .)
+
   echo "🧪 Бэкенд: pytest"
   # Тестам нужен живой PostgreSQL. По умолчанию — база из docker-compose;
   # переопределяется через TEST_DATABASE_URL.

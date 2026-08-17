@@ -1,9 +1,18 @@
 <svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-  <rect width="48" height="48" rx="10" fill="#0A0A0A"/>
-  <rect x="4"  y="6"  width="6" height="32" rx="2" fill="white"/>
-  <rect x="13" y="13" width="6" height="25" rx="2" fill="rgba(255,255,255,0.52)"/>
-  <rect x="22" y="19" width="6" height="19" rx="2" fill="rgba(255,255,255,0.28)"/>
-  <rect x="31" y="13" width="6" height="25" rx="2" fill="rgba(255,255,255,0.52)"/>
-  <rect x="40" y="6"  width="6" height="32" rx="2" fill="white"/>
-  <rect x="4"  y="40" width="42" height="3"  rx="1.5" fill="rgba(255,255,255,0.30)"/>
+  <!-- Аватар знака: искра на тёмном поле с точечной матрицей (components/Logo.tsx). -->
+  <defs>
+    <pattern id="dots" width="6" height="6" patternUnits="userSpaceOnUse">
+      <circle cx="3" cy="3" r="0.9" fill="rgba(255,255,255,0.32)"/>
+    </pattern>
+    <clipPath id="plate">
+      <rect width="48" height="48" rx="10"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#plate)">
+    <rect width="48" height="48" fill="#0A0A0A"/>
+    <rect width="48" height="48" fill="url(#dots)"/>
+    <!-- Четырёхлучевая звезда: та же геометрия, что в знаке, в поле 100×100. -->
+    <polygon points="50,0 59,41 100,50 59,59 50,100 41,59 0,50 41,41"
+             fill="#fff" transform="translate(11 11) scale(0.26)"/>
+  </g>
 </svg>

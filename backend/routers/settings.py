@@ -1,7 +1,8 @@
 
 import requests as http_requests
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+import audit
 from models import TgSettingsSave, VkOAuthExchange, VkSettingsSave
 from utils import (
     app_now,
@@ -68,10 +69,21 @@ def _upsert(conn, table: str, gid: int | None, values: dict) -> None:
     conn.commit()
 
 
-def _delete_settings(conn, table: str, gid: int | None) -> dict:
+def _delete_settings(conn, table: str, gid: int | None, actor_id: int, request=None) -> dict:
+    """
+    Отключает интеграцию. Отключение оставляет след: после него посты
+    перестают уходить в паблик, а по интерфейсу это выглядит как «ничего не
+    происходит» — вопрос «кто отключил» возникает обязательно.
+    """
     where, params = _scope(gid)
     c = conn.cursor()
     c.execute(f"DELETE FROM {table} WHERE {where}", params)  # noqa: S608
+    audit.record(
+        conn, actor_id, audit.INTEGRATION_DISCONNECTED,
+        object_type=table, group_id=gid,
+        object_label="ВКонтакте" if table == "vk_settings" else "Telegram",
+        request=request,
+    )
     conn.commit()
     return {"connected": False}
 
@@ -152,11 +164,11 @@ def save_vk_settings(body: VkSettingsSave, user_id: int = Depends(get_current_us
 
 
 @router.delete("/api/settings/vk")
-def delete_vk_settings(user_id: int = Depends(get_current_user_id)):
+def delete_vk_settings(user_id: int = Depends(get_current_user_id), request: Request = None):
     conn = get_db()
     try:
         _require_rights(conn, user_id, None)
-        return _delete_settings(conn, "vk_settings", None)
+        return _delete_settings(conn, "vk_settings", None, user_id, request)
     finally:
         conn.close()
 
@@ -182,11 +194,13 @@ def save_group_vk_settings(gid: int, body: VkSettingsSave, user_id: int = Depend
 
 
 @router.delete("/api/groups/{gid}/settings/vk")
-def delete_group_vk_settings(gid: int, user_id: int = Depends(get_current_user_id)):
+def delete_group_vk_settings(
+    gid: int, user_id: int = Depends(get_current_user_id), request: Request = None,
+):
     conn = get_db()
     try:
         _require_rights(conn, user_id, gid)
-        return _delete_settings(conn, "vk_settings", gid)
+        return _delete_settings(conn, "vk_settings", gid, user_id, request)
     finally:
         conn.close()
 
@@ -242,11 +256,11 @@ def save_tg_settings(body: TgSettingsSave, user_id: int = Depends(get_current_us
 
 
 @router.delete("/api/settings/telegram")
-def delete_tg_settings(user_id: int = Depends(get_current_user_id)):
+def delete_tg_settings(user_id: int = Depends(get_current_user_id), request: Request = None):
     conn = get_db()
     try:
         _require_rights(conn, user_id, None)
-        return _delete_settings(conn, "tg_settings", None)
+        return _delete_settings(conn, "tg_settings", None, user_id, request)
     finally:
         conn.close()
 
@@ -272,10 +286,12 @@ def save_group_tg_settings(gid: int, body: TgSettingsSave, user_id: int = Depend
 
 
 @router.delete("/api/groups/{gid}/settings/telegram")
-def delete_group_tg_settings(gid: int, user_id: int = Depends(get_current_user_id)):
+def delete_group_tg_settings(
+    gid: int, user_id: int = Depends(get_current_user_id), request: Request = None,
+):
     conn = get_db()
     try:
         _require_rights(conn, user_id, gid)
-        return _delete_settings(conn, "tg_settings", gid)
+        return _delete_settings(conn, "tg_settings", gid, user_id, request)
     finally:
         conn.close()

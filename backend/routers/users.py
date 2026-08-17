@@ -1,7 +1,8 @@
 import re
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+import audit
 from models import UserCreate, UserUpdate
 from utils import (
     GLOBAL_ROLES,
@@ -54,7 +55,10 @@ def get_users(limit: int = 100, offset: int = 0, user_id: int = Depends(get_curr
 
 
 @router.put("/api/users/{user_id}/role")
-def update_role(user_id: int, body: UserUpdate, actor_id: int = Depends(get_current_user_id)):
+def update_role(
+    user_id: int, body: UserUpdate,
+    actor_id: int = Depends(get_current_user_id), request: Request = None,
+):
     if body.role not in GLOBAL_ROLES:
         raise HTTPException(400, f"Недопустимая роль. Допустимы: {', '.join(GLOBAL_ROLES)}")
     conn = get_db()
@@ -64,7 +68,17 @@ def update_role(user_id: int, body: UserUpdate, actor_id: int = Depends(get_curr
         conn.close()
         raise HTTPException(400, "Нельзя снять с себя права администратора")
     _guard_last_admin(c, conn, user_id, becoming=body.role)
+    c.execute("SELECT role, email FROM users WHERE id=%s", (user_id,))
+    was = c.fetchone()
     c.execute("UPDATE users SET role=%s WHERE id=%s", (body.role, user_id))
+    # Глобальная роль admin — это доступ ко всем пользователям системы.
+    # Её выдача обязана оставлять след.
+    audit.record(
+        conn, actor_id, audit.USER_ROLE_CHANGED,
+        object_type="user", object_id=user_id,
+        object_label=was["email"] if was else None,
+        details={"было": was["role"] if was else None, "стало": body.role}, request=request,
+    )
     conn.commit()
     c.execute("SELECT * FROM users WHERE id=%s", (user_id,))
     user = c.fetchone()
@@ -95,8 +109,10 @@ def create_user(body: UserCreate, actor_id: int = Depends(get_current_user_id)):
         raise HTTPException(409, "Пользователь с таким email уже существует")
     avatar = "".join(p[0].upper() for p in body.name.strip().split()[:2])
     c.execute(
-        "INSERT INTO users (name, email, role, avatar, password_hash) VALUES (%s,%s,%s,%s,%s) RETURNING id",
-        (body.name.strip(), body.email.lower().strip(), body.role, avatar, hash_password(body.password)),
+        "INSERT INTO users (name, email, role, avatar, password_hash) "
+        "VALUES (%(name)s, %(email)s, %(role)s, %(avatar)s, %(password_hash)s) RETURNING id",
+        {"name": body.name.strip(), "email": body.email.lower().strip(), "role": body.role,
+         "avatar": avatar, "password_hash": hash_password(body.password)},
     )
     uid = c.fetchone()["id"]
     conn.commit()
@@ -106,20 +122,60 @@ def create_user(body: UserCreate, actor_id: int = Depends(get_current_user_id)):
     return row_to_dict(user)
 
 
-@router.delete("/api/users/{user_id}")
-def delete_user(user_id: int, actor_id: int = Depends(get_current_user_id)):
+@router.get("/api/users/{user_id}/deletion-preview")
+def user_deletion_preview(user_id: int, actor_id: int = Depends(get_current_user_id)):
+    """Что будет с человеком и его следами. Посты остаются, автор пропадает."""
     conn = get_db()
-    c = conn.cursor()
-    require_admin(actor_id, conn)
-    if actor_id == user_id:
+    try:
+        require_admin(actor_id, conn)
+        preview = audit.user_deletion_preview(conn, user_id)
+    finally:
         conn.close()
-        raise HTTPException(400, "Нельзя удалить самого себя")
-    _guard_last_admin(c, conn, user_id, becoming=None)
-    c.execute("SELECT id FROM users WHERE id=%s", (user_id,))
-    if not c.fetchone():
-        conn.close()
+    if not preview:
         raise HTTPException(404, "Пользователь не найден")
-    c.execute("DELETE FROM users WHERE id=%s", (user_id,))
-    conn.commit()
-    conn.close()
-    return {"ok": True}
+    return preview
+
+
+@router.delete("/api/users/{user_id}")
+def delete_user(
+    user_id: int,
+    confirm: str = Query(None, description="Точный email пользователя"),
+    actor_id: int = Depends(get_current_user_id),
+    request: Request = None,
+):
+    """
+    Удаляет пользователя. Подтверждение — его точный адрес почты.
+
+    Раньше запрос попросту падал пятисоткой на любом, кто написал хотя бы один
+    пост или создал группу: внешние ключи не давали удалить строку, а ошибку
+    никто не ловил. Теперь посты и группы остаются, у них пропадает автор
+    (SET NULL, миграция e3b7d2f81a45) — работа организации не должна исчезать
+    вместе с уволившимся сотрудником.
+    """
+    conn = get_db()
+    try:
+        require_admin(actor_id, conn)
+        c = conn.cursor()
+        if actor_id == user_id:
+            raise HTTPException(400, "Нельзя удалить самого себя")
+        preview = audit.user_deletion_preview(conn, user_id)
+        if not preview:
+            raise HTTPException(404, "Пользователь не найден")
+        _guard_last_admin(c, conn, user_id, becoming=None)
+        if (confirm or "").strip().lower() != preview["email"].lower():
+            raise HTTPException(
+                409,
+                f"Удаление не подтверждено. Введите точный email: «{preview['email']}». "
+                f"Постов сохранится: {preview['posts_kept']} (у них пропадёт автор), "
+                f"групп покинет: {preview['groups']}.",
+            )
+        audit.record(
+            conn, actor_id, audit.USER_DELETED,
+            object_type="user", object_id=user_id, object_label=preview["email"],
+            details=preview, request=request,
+        )
+        c.execute("DELETE FROM users WHERE id=%s", (user_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "deleted": preview}

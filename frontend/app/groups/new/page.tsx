@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { useGroup } from '@/contexts/GroupContext'
 import { api } from '@/lib/api'
+import Logo from '@/components/Logo'
 
 export default function CreateGroupPage() {
   const router = useRouter()
@@ -43,18 +44,11 @@ export default function CreateGroupPage() {
         <div className="login-card anim-in">
           {/* Logo + header */}
           <div style={{ marginBottom: 26 }}>
-            <svg viewBox="0 0 212 46" xmlns="http://www.w3.org/2000/svg"
-              style={{ width: 196, height: 'auto', display: 'block', margin: '0 auto 20px' }}>
-              <rect x="0"  y="3"  width="7" height="36" rx="1.5" style={{ fill: 'var(--text)' }}/>
-              <rect x="10" y="11" width="7" height="28" rx="1.5" style={{ fill: 'var(--text)', opacity: 0.48 }}/>
-              <rect x="20" y="19" width="7" height="20" rx="1.5" style={{ fill: 'var(--text)', opacity: 0.26 }}/>
-              <rect x="30" y="11" width="7" height="28" rx="1.5" style={{ fill: 'var(--text)', opacity: 0.48 }}/>
-              <rect x="40" y="3"  width="7" height="36" rx="1.5" style={{ fill: 'var(--text)' }}/>
-              <rect x="0"  y="41" width="47" height="3" rx="1.5" style={{ fill: 'var(--accent)', opacity: 0.55 }}/>
-              <line x1="57" y1="5" x2="57" y2="40" style={{ stroke: 'var(--border-2)' }} strokeWidth="1"/>
-              <text x="66" y="20" fontFamily="'Plus Jakarta Sans','Inter','Arial',sans-serif" fontSize="10" fontWeight="700" style={{ fill: 'var(--text)' }}>МЕДИАПРОСТРАНСТВО</text>
-              <text x="66" y="34" fontFamily="'Plus Jakarta Sans','Inter','Arial',sans-serif" fontSize="8.5" fontWeight="400" style={{ fill: 'var(--text-3)' }}>молодёжных центров</text>
-            </svg>
+            <Logo
+              size={22}
+              subtitle="молодёжных центров"
+              style={{ display: 'flex', width: 'fit-content', alignItems: 'center', margin: '0 auto 20px' }}
+            />
             <div style={{ fontSize: 17, fontWeight: 800, color: 'var(--text)', letterSpacing: '-0.04em', marginBottom: 6 }}>
               Создайте вашу первую группу
             </div>

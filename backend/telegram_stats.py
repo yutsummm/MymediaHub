@@ -21,11 +21,11 @@
 """
 import json
 import os
-import sys
 
 import requests as http_requests
 from psycopg2.extras import Json
 
+from logs import get_logger
 from stats import save_platform_stats
 from utils import decrypt_secret, get_db
 
@@ -34,12 +34,14 @@ TELEGRAM_STATS_ENABLED = os.getenv("TELEGRAM_STATS_ENABLED", "1").strip().lower(
 )
 # Апдейты живут у Telegram около суток, так что заглядывать надо чаще.
 TELEGRAM_POLL_INTERVAL = int(os.getenv("TELEGRAM_POLL_SECONDS", "300"))
+
+log = get_logger("telegram")
 ALLOWED_UPDATES = ["message_reaction_count"]
 
 
 def fetch_updates(bot_token: str, offset: int | None) -> list[dict]:
     """Забирает свежие апдейты о реакциях. Пустой список — тоже нормальный ответ."""
-    params = {
+    params: dict = {
         "timeout": 0,
         "allowed_updates": json.dumps(ALLOWED_UPDATES),
     }
@@ -146,9 +148,9 @@ def collect_telegram_stats() -> int:
                 total += collect_for_settings(conn, dict(row))
             except Exception as e:
                 conn.rollback()
-                print(f"⚠️   Telegram-статистика (настройка #{row['id']}): {e}", file=sys.stderr)
+                log.warning(f"⚠️   Telegram-статистика (настройка #{row['id']}): {e}")
     finally:
         conn.close()
     if total:
-        print(f"📊  реакции Telegram обновлены у постов: {total}")
+        log.info(f"📊  реакции Telegram обновлены у постов: {total}")
     return total

@@ -15,8 +15,9 @@ PUBLIC_ROUTES = {
     ("POST", "/api/auth/resend-code"),
     ("POST", "/api/auth/forgot-password"),
     ("POST", "/api/auth/reset-password"),
-    ("GET", "/api/debug/smtp-test"),
     ("GET", "/api/invites/{token}"),
+    # Мониторинг ходит без токена. Наружу уходят только флаги и счётчики.
+    ("GET", "/api/health"),
 }
 
 

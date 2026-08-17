@@ -1,8 +1,9 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+import audit
 from models import GroupCreate, GroupMemberRoleUpdate, GroupUpdate, InviteLinkCreate
 from utils import (
     GROUP_ROLES,
@@ -74,8 +75,8 @@ def update_group(gid: int, req: GroupUpdate, user_id: int = Depends(get_current_
     if role != "admin":
         conn.close()
         raise HTTPException(403, "Только администратор может изменять параметры группы")
-    updates = []
-    params = []
+    updates: list[str] = []
+    params: list = []
     for field, value in req.dict(exclude_unset=True).items():
         updates.append(f"{field}=%s")
         params.append(value)
@@ -93,18 +94,77 @@ def update_group(gid: int, req: GroupUpdate, user_id: int = Depends(get_current_
     return result
 
 
-@router.delete("/api/groups/{gid}")
-def delete_group(gid: int, user_id: int = Depends(get_current_user_id)):
+@router.get("/api/groups/{gid}/deletion-preview")
+def group_deletion_preview(gid: int, user_id: int = Depends(get_current_user_id)):
+    """
+    Что именно исчезнет вместе с группой.
+
+    Интерфейс спрашивал «Удалить группу?», а исчезал год работы: посты,
+    приглашения, медиа волонтёров, подключённые паблики. Человек должен видеть
+    смету до того, как согласится.
+    """
     conn = get_db()
-    c = conn.cursor()
-    role = require_group_member(gid, user_id, conn)
-    if role != "admin":
+    try:
+        role = require_group_member(gid, user_id, conn)
+        if role != "admin":
+            raise HTTPException(403, "Только администратор может удалять группу")
+        preview = audit.group_deletion_preview(conn, gid)
+    finally:
         conn.close()
-        raise HTTPException(403, "Только администратор может удалять группу")
-    c.execute("DELETE FROM groups WHERE id=%s", (gid,))
-    conn.commit()
-    conn.close()
-    return {"ok": True}
+    if not preview:
+        raise HTTPException(404, "Группа не найдена")
+    return preview
+
+
+@router.delete("/api/groups/{gid}")
+def delete_group(
+    gid: int,
+    confirm: str = Query(None, description="Точное название группы"),
+    user_id: int = Depends(get_current_user_id),
+    request: Request = None,
+):
+    """
+    Удаляет группу вместе со всем её содержимым.
+
+    Требует подтверждения — точного названия группы. Набрать его осмысленно, а
+    нажать «Да» — нет, и цена ошибки здесь несоразмерна: восстановить можно
+    только из резервной копии базы.
+
+    Само удаление до этой правки работало наполовину: участников и приглашения
+    сносил CASCADE, а посты, уведомления и интеграции внешние ключи не пускали
+    вовсе — запрос падал с ForeignKeyViolation, и группу с хотя бы одним постом
+    удалить было физически нельзя. Правила приведены в порядок миграцией
+    e3b7d2f81a45; содержимое уходит вместе с группой одной транзакцией.
+    """
+    conn = get_db()
+    try:
+        role = require_group_member(gid, user_id, conn)
+        if role != "admin":
+            raise HTTPException(403, "Только администратор может удалять группу")
+        preview = audit.group_deletion_preview(conn, gid)
+        if not preview:
+            raise HTTPException(404, "Группа не найдена")
+        if (confirm or "").strip() != preview["name"]:
+            raise HTTPException(
+                409,
+                f"Удаление не подтверждено. Введите точное название группы: «{preview['name']}». "
+                f"Вместе с ней исчезнут посты ({preview['posts']}), участники "
+                f"({preview['members']}) и медиа волонтёров ({preview['volunteer_media']}).",
+            )
+
+        c = conn.cursor()
+        # Запись в журнал — до удаления и в той же транзакции: после удаления
+        # название и счётчики уже не у кого спросить.
+        audit.record(
+            conn, user_id, audit.GROUP_DELETED,
+            object_type="group", object_id=gid, object_label=preview["name"],
+            group_id=gid, details=preview, request=request,
+        )
+        c.execute("DELETE FROM groups WHERE id=%s", (gid,))
+        conn.commit()
+    finally:
+        conn.close()
+    return {"ok": True, "deleted": preview}
 
 
 @router.get("/api/groups/{gid}/members")
@@ -123,7 +183,10 @@ def get_group_members(gid: int, user_id: int = Depends(get_current_user_id)):
 
 
 @router.put("/api/groups/{gid}/members/{uid}/role")
-def update_member_role(gid: int, uid: int, req: GroupMemberRoleUpdate, user_id: int = Depends(get_current_user_id)):
+def update_member_role(
+    gid: int, uid: int, req: GroupMemberRoleUpdate,
+    user_id: int = Depends(get_current_user_id), request: Request = None,
+):
     conn = get_db()
     c = conn.cursor()
     role = require_group_member(gid, user_id, conn)
@@ -143,7 +206,14 @@ def update_member_role(gid: int, uid: int, req: GroupMemberRoleUpdate, user_id: 
         if c.fetchone()["n"] <= 1:
             conn.close()
             raise HTTPException(400, "Вы единственный администратор группы")
+    c.execute("SELECT role FROM group_members WHERE group_id=%s AND user_id=%s", (gid, uid))
+    was = c.fetchone()
     c.execute("UPDATE group_members SET role=%s WHERE group_id=%s AND user_id=%s", (req.role, gid, uid))
+    audit.record(
+        conn, user_id, audit.GROUP_MEMBER_ROLE_CHANGED,
+        object_type="user", object_id=uid, group_id=gid,
+        details={"было": was["role"] if was else None, "стало": req.role}, request=request,
+    )
     conn.commit()
     c.execute(
         "SELECT u.id, u.name, u.email, u.avatar, gm.role, gm.joined_at "
@@ -156,14 +226,24 @@ def update_member_role(gid: int, uid: int, req: GroupMemberRoleUpdate, user_id: 
 
 
 @router.delete("/api/groups/{gid}/members/{uid}")
-def remove_group_member(gid: int, uid: int, user_id: int = Depends(get_current_user_id)):
+def remove_group_member(
+    gid: int, uid: int, user_id: int = Depends(get_current_user_id), request: Request = None,
+):
     conn = get_db()
     c = conn.cursor()
     role = require_group_member(gid, user_id, conn)
     if role != "admin" and user_id != uid:
         conn.close()
         raise HTTPException(403, "Вы можете удалить только себя из группы")
+    c.execute("SELECT name FROM users WHERE id=%s", (uid,))
+    who = c.fetchone()
     c.execute("DELETE FROM group_members WHERE group_id=%s AND user_id=%s", (gid, uid))
+    audit.record(
+        conn, user_id, audit.GROUP_MEMBER_REMOVED,
+        object_type="user", object_id=uid,
+        object_label=who["name"] if who else None, group_id=gid,
+        details={"сам себя": user_id == uid}, request=request,
+    )
     conn.commit()
     conn.close()
     return {"ok": True}
@@ -184,8 +264,11 @@ def create_invite_link(gid: int, req: InviteLinkCreate, user_id: int = Depends(g
     # Колонка теперь timestamptz — строку с «Z» собирать незачем
     expires_at = datetime.now(UTC) + timedelta(hours=req.expires_hours)
     c.execute(
-        "INSERT INTO invite_links (group_id, token, role, created_by, expires_at, max_uses) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
-        (gid, token, req.role, user_id, expires_at, req.max_uses),
+        "INSERT INTO invite_links (group_id, token, role, created_by, expires_at, max_uses) "
+        "VALUES (%(group_id)s, %(token)s, %(role)s, %(created_by)s, %(expires_at)s, %(max_uses)s) "
+        "RETURNING id",
+        {"group_id": gid, "token": token, "role": req.role, "created_by": user_id,
+         "expires_at": expires_at, "max_uses": req.max_uses},
     )
     link_id = c.fetchone()["id"]
     conn.commit()
@@ -210,7 +293,9 @@ def get_invite_links(gid: int, user_id: int = Depends(get_current_user_id)):
 
 
 @router.delete("/api/groups/{gid}/invites/{link_id}")
-def revoke_invite_link(gid: int, link_id: int, user_id: int = Depends(get_current_user_id)):
+def revoke_invite_link(
+    gid: int, link_id: int, user_id: int = Depends(get_current_user_id), request: Request = None,
+):
     conn = get_db()
     c = conn.cursor()
     role = require_group_member(gid, user_id, conn)
@@ -218,6 +303,10 @@ def revoke_invite_link(gid: int, link_id: int, user_id: int = Depends(get_curren
         conn.close()
         raise HTTPException(403, "Только администратор может отзывать ссылки")
     c.execute("DELETE FROM invite_links WHERE id=%s AND group_id=%s", (link_id, gid))
+    audit.record(
+        conn, user_id, audit.INVITE_REVOKED,
+        object_type="invite", object_id=link_id, group_id=gid, request=request,
+    )
     conn.commit()
     conn.close()
     return {"ok": True}

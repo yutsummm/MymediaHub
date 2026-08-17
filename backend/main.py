@@ -4,18 +4,22 @@ FastAPI + PostgreSQL backend
 """
 
 import datetime
+import logging
 import os
 import random
+import time
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from psycopg2.extras import Json
 
+import health
 import scheduler
 from alembic import command
 from alembic.config import Config
+from logs import get_logger, new_request_id, request_id_var, setup_logging, user_id_var
 from utils import (
     APP_TZ,
     DATABASE_URL,
@@ -26,12 +30,15 @@ from utils import (
     app_now,
     app_now_str,
     check_upload_signature,
+    client_ip,
     encrypt_secret,
     get_db,
     hash_password,
 )
 
 load_dotenv()
+setup_logging()
+log = get_logger("app")
 
 app = FastAPI(title="MediaHub API", version="1.0.0")
 
@@ -52,9 +59,95 @@ app.add_middleware(
 )
 
 
+# ── Логи запросов ────────────────────────────────────────────────────────────
+# Одна строка на обращение: метод, путь, код, длительность, кто и какой запрос.
+# Без этого о проде было известно ровно столько, сколько успел напечатать
+# случайный print, и связать жалобу пользователя с записью в логе было нечем.
+
+# Запрос дольше этого — уже не норма, о нём стоит знать до того, как он станет
+# таймаутом. По умолчанию 2 секунды.
+SLOW_REQUEST_MS = int(os.getenv("SLOW_REQUEST_MS", "2000"))
+
+# Мониторинг ходит на /api/health постоянно, и в логе от этого нет пользы.
+QUIET_PATHS = ("/api/health", "/")
+
+
+@app.middleware("http")
+async def request_logging(request: Request, call_next):
+    # Идентификатор берём из заголовка, если он пришёл: так запись у нас
+    # сшивается с записью прокси или фронта по одному значению.
+    request_id = request.headers.get("x-request-id", "").strip()[:64] or new_request_id()
+    token = request_id_var.set(request_id)
+    user_token = user_id_var.set(None)
+    # Кладём и в состояние запроса: обработчик непойманной ошибки работает
+    # снаружи этого middleware, когда контекст уже сброшен, а идентификатор
+    # в ответе и в логе обязан быть один и тот же.
+    request.state.request_id = request_id
+    started = time.monotonic()
+    try:
+        response = await call_next(request)
+
+        took_ms = round((time.monotonic() - started) * 1000, 1)
+        response.headers["X-Request-Id"] = request_id
+        if request.url.path in QUIET_PATHS:
+            level = logging.DEBUG
+        elif response.status_code >= 500 or took_ms > SLOW_REQUEST_MS:
+            # Медленный ответ — ещё не отказ, но и не норма: о нём стоит знать
+            # до того, как он станет таймаутом.
+            level = logging.WARNING
+        else:
+            level = logging.INFO
+        log.log(
+            level,
+            f"{request.method} {request.url.path} → {response.status_code} за {took_ms} мс",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status": response.status_code,
+                "duration_ms": took_ms,
+                # Идентификатор пользователя проставляет разбор токена, поэтому
+                # читаем его здесь, а не в начале обработки.
+                "user_id": getattr(request.state, "user_id", None),
+                "ip": client_ip(request),
+            },
+        )
+        return response
+    finally:
+        # Сбрасываем в самом конце: записи выше обязаны видеть контекст.
+        request_id_var.reset(token)
+        user_id_var.reset(user_token)
+
+
+@app.exception_handler(Exception)
+async def unhandled_error(request: Request, exc: Exception):
+    """
+    Единый ответ на непойманную ошибку.
+
+    Наружу уходит идентификатор запроса и ничего больше: тип исключения и
+    трейсбек — это внутреннее устройство, ему в ответе не место. Зато по этому
+    идентификатору запись находится в логе точным поиском, и человеку есть что
+    назвать в обращении.
+    """
+    request_id = getattr(request.state, "request_id", None) or request_id_var.get() or new_request_id()
+    log.exception(
+        "необработанная ошибка",
+        extra={"method": request.method, "path": request.url.path, "request_id": request_id},
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Внутренняя ошибка сервера. "
+                      f"Если она повторяется, сообщите код обращения: {request_id}",
+            "request_id": request_id,
+        },
+        headers={"X-Request-Id": request_id},
+    )
+
+
 # ── Routers ──────────────────────────────────────────────────────────────────
 
 from routers.analytics import router as analytics_router
+from routers.audit_log import router as audit_router
 from routers.auth import router as auth_router
 from routers.groups import router as groups_router
 from routers.notifications import router as notifications_router
@@ -75,6 +168,7 @@ app.include_router(analytics_router)
 app.include_router(users_router)
 app.include_router(yc_router)
 app.include_router(upload_router)
+app.include_router(audit_router)
 
 
 # ── Health ───────────────────────────────────────────────────────────────────
@@ -82,6 +176,18 @@ app.include_router(upload_router)
 @app.get("/")
 def root():
     return {"status": "ok", "service": "MediaHub API"}
+
+
+@app.get("/api/health")
+def healthcheck():
+    """
+    Состояние сервиса для мониторинга: 200 — всё в порядке, 503 — нет.
+
+    Без авторизации: аптайм-чекер ходит без токена. Наружу уходят только флаги
+    и счётчики, ничего чувствительного.
+    """
+    report, ok = health.collect()
+    return JSONResponse(status_code=200 if ok else 503, content=report)
 
 
 # ── Схема БД ─────────────────────────────────────────────────────────────────
@@ -207,7 +313,7 @@ def _run_migrations_locked():
         _assert_matches_baseline(conn)
         conn.close()
         command.stamp(cfg, BASELINE_REVISION)
-        print(f"alembic: существующая схема помечена ревизией {BASELINE_REVISION}")
+        log.info(f"alembic: существующая схема помечена ревизией {BASELINE_REVISION}")
     else:
         conn.close()
     command.upgrade(cfg, "head")
@@ -381,7 +487,7 @@ def encrypt_existing_secrets():
     conn.commit()
     conn.close()
     if encrypted:
-        print(f"🔒  зашифровано токенов интеграций: {encrypted}")
+        log.info(f"🔒  зашифровано токенов интеграций: {encrypted}")
 
 
 def ensure_admin_exists() -> bool:
@@ -409,11 +515,11 @@ def ensure_admin_exists() -> bool:
             promoted = c.fetchone()
             conn.commit()
             if promoted:
-                print(f"👑  {bootstrap} назначен администратором (BOOTSTRAP_ADMIN_EMAIL)")
+                log.info(f"👑  {bootstrap} назначен администратором (BOOTSTRAP_ADMIN_EMAIL)")
             else:
                 c.execute("SELECT 1 FROM users WHERE email=%s", (bootstrap,))
                 if not c.fetchone():
-                    print(
+                    log.warning(
                         f"⚠️   BOOTSTRAP_ADMIN_EMAIL={bootstrap}: такого пользователя нет. "
                         "Сначала зарегистрируйтесь этой почтой."
                     )
@@ -428,7 +534,7 @@ def ensure_admin_exists() -> bool:
 
     if row["usable"]:
         return True
-    print(
+    log.warning(
         "⚠️   нет ни одного администратора, который может войти "
         f"(всего с ролью admin: {row['total']}). Назначить нового будет некому — "
         "задайте BOOTSTRAP_ADMIN_EMAIL с почтой существующего пользователя."
@@ -460,13 +566,13 @@ def check_time_alignment() -> bool:
 
     drift = abs((db_now - app_now()).total_seconds()) / 60
     if drift > 5:
-        print(
+        log.warning(
             f"⚠️   часы базы и приложения расходятся на {drift:.0f} мин: "
             f"база считает {db_now.isoformat()}, приложение — {app_now().isoformat()}. "
             "Отложенные посты и окна аналитики будут смещаться."
         )
         return False
-    print(f"🕒  время согласовано: {APP_TZ}, сейчас {app_now_str()}")
+    log.info(f"🕒  время согласовано: {APP_TZ}, сейчас {app_now_str()}")
     return True
 
 
@@ -488,13 +594,13 @@ def check_upload_storage():
 
     files = [n for n in os.listdir(UPLOAD_DIR) if not n.startswith(".")]
     if UPLOAD_DIR == DEFAULT_UPLOAD_DIR:
-        print(
+        log.warning(
             f"⚠️   загрузки: {UPLOAD_DIR} — каталог внутри контейнера. "
             "На Railway он пересоздаётся при каждой выкатке и файлы пропадут. "
             "Смонтируйте том и задайте UPLOAD_DIR."
         )
     else:
-        print(f"📁  загрузки: {UPLOAD_DIR} (файлов: {len(files)})")
+        log.info(f"📁  загрузки: {UPLOAD_DIR} (файлов: {len(files)})")
 
 
 # Локально миграции удобно катить при старте; на Railway их двигает
@@ -510,16 +616,16 @@ def startup():
         try:
             run_migrations()
         except Exception as e:
-            print(f"❌  миграции не применились: {e}")
+            log.error(f"❌  миграции не применились: {e}")
             raise
         try:
             seed_db()
         except Exception as e:
-            print(f"❌  seed_db() FAILED: {e}")
+            log.error(f"❌  seed_db() FAILED: {e}")
             raise
     else:
         ok, message = schema_is_current()
-        print(("🗄️   " if ok else "❌  ") + message)
+        log.error(("🗄️   " if ok else "❌  ") + message)
         if not ok:
             # Обслуживать запросы на отставшей схеме — это 500-е в рантайме
             # у пользователей вместо честного отказа подняться.
@@ -527,23 +633,23 @@ def startup():
     try:
         encrypt_existing_secrets()
     except Exception as e:
-        print(f"❌  не удалось зашифровать токены интеграций: {e}")
+        log.error(f"❌  не удалось зашифровать токены интеграций: {e}")
         raise
     try:
         check_upload_storage()
     except Exception as e:
-        print(f"❌  проблема с каталогом загрузок: {e}")
+        log.error(f"❌  проблема с каталогом загрузок: {e}")
         raise
     try:
         check_time_alignment()
     except Exception as e:
-        print(f"⚠️   не удалось сверить время базы и приложения: {e}")
+        log.warning(f"⚠️   не удалось сверить время базы и приложения: {e}")
     try:
         ensure_admin_exists()
     except Exception as e:
-        print(f"⚠️   не удалось проверить наличие администратора: {e}")
+        log.warning(f"⚠️   не удалось проверить наличие администратора: {e}")
     scheduler.start(app)
-    print("✅  MediaHub API запущен!  →  http://localhost:8000")
+    log.info("✅  MediaHub API запущен!  →  http://localhost:8000")
 
 
 @app.get("/uploads/{filename}")

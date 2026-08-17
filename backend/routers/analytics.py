@@ -28,6 +28,48 @@ def _platform_row(platform: str, count: int, collected: int, views, reactions,
     }
 
 
+# «Нет данных» в отчёте: None выглядел бы в ячейке пустым местом, а пустое
+# место читается как ноль.
+NO_DATA = "нет данных"
+
+
+def _collected_views(row) -> int | None:
+    """
+    Сумма просмотров или None, если их вообще не собирали.
+
+    Само по себе SUM(views) ноль не отличает: в post_totals суммы обёрнуты
+    в COALESCE, а по площадкам вроде Telegram просмотры недостижимы в принципе.
+    Различие несёт views_samples — COUNT по ненулевым значениям (миграция
+    b2e6a3d95f41): ноль там означает ровно «цифр нет ни по одному посту».
+    """
+    if not row["vs"]:
+        return None
+    return row["v"] or 0
+
+
+def _engagement(views, reactions, comments) -> float | None:
+    """
+    Вовлечённость — доля откликов от просмотров, или None, если считать не из чего.
+
+    Знаменатель раньше страховали через `max(views, 1)`. При нуле просмотров и трёх
+    реакциях это давало 300 %, а при нуле и нуле — аккуратные «0,0 %», которые
+    читаются как «людям не заходит», хотя на деле цифр просто нет: у Telegram
+    просмотры недостижимы в принципе, у ВК их могли ещё не синхронизировать.
+    NULL в сумме просмотров означает «ни по одной площадке не собирали» — отдаём
+    то же None, что и разбивка по площадкам, а интерфейс пишет «нет данных».
+    """
+    if not views:
+        return None
+    return round(((reactions or 0) + (comments or 0)) / views * 100, 1)
+
+
+def _avg_views(views, published: int) -> int | None:
+    """Средние просмотры на пост — по той же причине None, пока просмотров нет."""
+    if views is None or published <= 0:
+        return None
+    return round(views / published)
+
+
 # Сумма по всем площадкам живёт в представлении post_totals (см. миграцию
 # f4b2e8c15d93) — иначе одинаковый подзапрос разъехался бы по полутора десяткам мест.
 TOTALS = "posts JOIN post_totals t ON t.post_id = posts.id"
@@ -113,8 +155,10 @@ def _build_workbook(dt_start, dt_end, summary: dict, timeline, pl_stats, top_pos
         ("Реакции", summary["total_reactions"]),
         ("Комментарии", summary["total_comments"]),
         ("Репосты", summary["total_shares"]),
-        ("Средние просмотры", summary["avg_views"]),
-        ("Вовлечённость, %", summary["eng"]),
+        # Пока просмотры не собраны, среднего и вовлечённости не существует —
+        # пустая ячейка прочиталась бы как ноль, поэтому пишем словами.
+        ("Средние просмотры", summary["avg_views"] if summary["avg_views"] is not None else NO_DATA),
+        ("Вовлечённость, %", summary["eng"] if summary["eng"] is not None else NO_DATA),
     ]
     for i, (label, val) in enumerate(rows_data, start=4):
         ws1.append([label, val])
@@ -140,8 +184,8 @@ def _build_workbook(dt_start, dt_end, summary: dict, timeline, pl_stats, top_pos
     ws3.row_dimensions[1].height = 24
     for i, pl in enumerate(pl_stats, start=2):
         # None → пустая ячейка выглядит как ноль; пишем словами, что данных нет
-        views = pl["views"] if pl["views"] is not None else "нет данных"
-        reactions = pl["reactions"] if pl["reactions"] is not None else "нет данных"
+        views = pl["views"] if pl["views"] is not None else NO_DATA
+        reactions = pl["reactions"] if pl["reactions"] is not None else NO_DATA
         ws3.append([pl["platform"], pl["count"], views, reactions])
         ws3.row_dimensions[i].height = 20
         style_data_row(ws3, i, 4, shade=(i % 2 == 0))
@@ -183,7 +227,8 @@ def _summary(c, where: str, params: list) -> dict:
     drafts = count(" AND status='draft'")
 
     c.execute(
-        f"SELECT SUM(t.views) v,SUM(t.reactions) r,SUM(t.comments) cm,SUM(t.shares) sh "
+        f"SELECT SUM(t.views) v,SUM(t.reactions) r,SUM(t.comments) cm,SUM(t.shares) sh,"
+        f"SUM(t.views_samples) vs "
         f"FROM {TOTALS} WHERE {where} AND status='published'",
         params,
     )
@@ -197,32 +242,54 @@ def _summary(c, where: str, params: list) -> dict:
     top = c.fetchall()
     pl_stats = _platform_stats(c, f"{where} AND status='published'", params)
 
-    total_views = s["v"] or 0
-    eng = round(((s["r"] or 0) + (s["cm"] or 0)) / max(total_views, 1) * 100, 1)
     return {
         "total_posts": total, "published": published, "scheduled": scheduled, "drafts": drafts,
-        "total_views": total_views, "total_reactions": s["r"] or 0,
+        "total_views": s["v"] or 0, "total_reactions": s["r"] or 0,
         "total_comments": s["cm"] or 0, "total_shares": s["sh"] or 0,
-        "avg_views": round(total_views / max(published, 1)),
-        "engagement_rate": eng,
+        "avg_views": _avg_views(_collected_views(s), published),
+        "engagement_rate": _engagement(_collected_views(s), s["r"], s["cm"]),
         "top_posts": [dict(r) for r in top],
         "platform_stats": pl_stats,
     }
 
 
 def _timeline(c, where: str, params: list, days: list) -> list[dict]:
+    """
+    Динамика по дням — одним запросом на весь период.
+
+    Раньше здесь был цикл с отдельным SELECT на каждый день: неделя — 7
+    обращений к базе, месяц — 30, квартал — 90, а экспорт за произвольный
+    период мог попросить и больше. Запросы отличались только датой, то есть
+    девяносто раз перечитывали одну и ту же выборку ради одной строки итога.
+
+    Диапазон берётся сравнением с published_at напрямую (а не
+    `published_at::date = ...`), чтобы условие ложилось на индекс
+    `ix_posts_published`. Пустые дни SQL не вернёт — их дорисовываем здесь:
+    графику нужен сплошной ряд, а «в этот день ничего не выходило» и «этого
+    дня нет в ответе» для него разные вещи.
+    """
+    if not days:
+        return []
+    first = min(days).strftime("%Y-%m-%d")
+    last = max(days).strftime("%Y-%m-%d")
+    c.execute(
+        f"SELECT published_at::date AS d, SUM(t.views) v, SUM(t.reactions) r, COUNT(*) p "
+        f"FROM {TOTALS} WHERE {where} "
+        "AND published_at >= %s::date AND published_at < %s::date + INTERVAL '1 day' "
+        "GROUP BY 1",
+        params + [first, last],
+    )
+    by_day = {row["d"].strftime("%Y-%m-%d"): row for row in c.fetchall()}
+
     result = []
     for day in days:
         ds = day.strftime("%Y-%m-%d")
-        c.execute(
-            f"SELECT SUM(t.views) v, SUM(t.reactions) r, COUNT(*) p "
-            f"FROM {TOTALS} WHERE {where} AND published_at::date = %s::date",
-            params + [ds],
-        )
-        row = c.fetchone()
+        row = by_day.get(ds)
         result.append({
             "date": ds, "label": day.strftime("%d.%m"),
-            "views": row["v"] or 0, "reactions": row["r"] or 0, "posts": row["p"] or 0,
+            "views": (row["v"] or 0) if row else 0,
+            "reactions": (row["r"] or 0) if row else 0,
+            "posts": (row["p"] or 0) if row else 0,
         })
     return result
 
@@ -256,13 +323,12 @@ def _export(c, where: str, params: list, start_date: str, end_date: str):
                   params + [start_str, end_next])
 
     c.execute(
-        f"SELECT SUM(t.views) v,SUM(t.reactions) r,SUM(t.comments) cm,SUM(t.shares) sh "
+        f"SELECT SUM(t.views) v,SUM(t.reactions) r,SUM(t.comments) cm,SUM(t.shares) sh,"
+        f"SUM(t.views_samples) vs "
         f"FROM {TOTALS} WHERE {period}",
         period_params,
     )
     s = c.fetchone()
-    total_views = s["v"] or 0
-    eng = round(((s["r"] or 0) + (s["cm"] or 0)) / max(total_views, 1) * 100, 1)
 
     span = [dt_start + timedelta(days=i) for i in range((dt_end - dt_start).days + 1)]
     timeline = _timeline(c, where, params, span)
@@ -278,9 +344,10 @@ def _export(c, where: str, params: list, start_date: str, end_date: str):
 
     summary = {
         "total": total, "published": published, "scheduled": scheduled, "drafts": drafts,
-        "total_views": total_views, "total_reactions": s["r"] or 0,
+        "total_views": s["v"] or 0, "total_reactions": s["r"] or 0,
         "total_comments": s["cm"] or 0, "total_shares": s["sh"] or 0,
-        "avg_views": round(total_views / max(published, 1)), "eng": eng,
+        "avg_views": _avg_views(_collected_views(s), published),
+        "eng": _engagement(_collected_views(s), s["r"], s["cm"]),
     }
     wb = _build_workbook(dt_start, dt_end, summary, timeline, pl_stats, top_posts)
     buf = io.BytesIO()

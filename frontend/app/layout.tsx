@@ -3,12 +3,22 @@ import './globals.css'
 import { AuthProvider } from '@/contexts/AuthContext'
 import { GroupProvider } from '@/contexts/GroupContext'
 import { ToastProvider } from '@/contexts/ToastContext'
-import { Plus_Jakarta_Sans } from 'next/font/google'
+import { Comfortaa, Plus_Jakarta_Sans } from 'next/font/google'
 
 const sans = Plus_Jakarta_Sans({
   subsets: ['latin'],
   variable: '--font-sans',
   weight: ['400', '500', '600', '700', '800'],
+  display: 'swap',
+})
+
+// Шрифт только для логотипа (components/Logo.tsx). Кириллица обязательна —
+// название набирается по-русски, без этого поддиапазона знак поедет на
+// системный шрифт и перестанет быть собой.
+const display = Comfortaa({
+  subsets: ['cyrillic', 'latin'],
+  variable: '--font-display',
+  weight: ['400', '600'],
   display: 'swap',
 })
 
@@ -45,7 +55,7 @@ const themeInitScript = `
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ru" className={sans.variable}>
+    <html lang="ru" className={`${sans.variable} ${display.variable}`}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>

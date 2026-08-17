@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, memo } from 'react'
+import { useEffect, useRef, useState, memo } from 'react'
 
 type Variant = 'danger' | 'warning' | 'info'
 
@@ -30,6 +30,9 @@ const ConfirmDialog = memo(function ConfirmDialog({
   confirmLabel = 'Подтвердить',
   cancelLabel = 'Отмена',
   loading = false,
+  confirmWith,
+  confirmHint,
+  details,
   onConfirm,
   onCancel,
 }: {
@@ -40,19 +43,37 @@ const ConfirmDialog = memo(function ConfirmDialog({
   confirmLabel?: string
   cancelLabel?: string
   loading?: boolean
+  /**
+   * Точная фраза, которую нужно набрать: название группы или почта.
+   * Нажать «Да» можно не глядя, набрать название своей группы — нет.
+   * Без совпадения кнопка не работает, и то же самое проверяет сервер.
+   */
+  confirmWith?: string
+  confirmHint?: React.ReactNode
+  /** Смета: что именно исчезнет. Считает сервер, мы только показываем. */
+  details?: { label: string; value: number | string }[]
   onConfirm: () => void
   onCancel: () => void
 }) {
   const confirmRef = useRef<HTMLButtonElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [typed, setTyped] = useState('')
+
+  // Открыли заново — поле обязано быть пустым: подтверждение прошлого
+  // удаления не должно засчитываться следующему.
+  useEffect(() => { if (open) setTyped('') }, [open, confirmWith])
+
+  const matches = !confirmWith || typed.trim() === confirmWith.trim()
 
   useEffect(() => {
     if (open) {
-      confirmRef.current?.focus()
+      if (confirmWith) inputRef.current?.focus()
+      else confirmRef.current?.focus()
       const handleEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel() }
       document.addEventListener('keydown', handleEsc)
       return () => document.removeEventListener('keydown', handleEsc)
     }
-  }, [open, onCancel])
+  }, [open, onCancel, confirmWith])
 
   if (!open) return null
 
@@ -68,6 +89,33 @@ const ConfirmDialog = memo(function ConfirmDialog({
             {description && <div className="confirm-desc">{description}</div>}
           </div>
         </div>
+        {details && details.length > 0 && (
+          <div className="confirm-details">
+            {details.map(d => (
+              <div key={d.label} className="confirm-details-row">
+                <span>{d.label}</span>
+                <b>{d.value}</b>
+              </div>
+            ))}
+          </div>
+        )}
+        {confirmWith && (
+          <div className="confirm-typebox">
+            <label className="confirm-typebox-label">
+              {confirmHint || <>Для подтверждения введите <b>{confirmWith}</b></>}
+            </label>
+            <input
+              ref={inputRef}
+              className="input"
+              value={typed}
+              onChange={e => setTyped(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && matches && !loading) onConfirm() }}
+              placeholder={confirmWith}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </div>
+        )}
         <div className="confirm-ft">
           <button
             className="btn btn-ghost btn-sm"
@@ -80,7 +128,8 @@ const ConfirmDialog = memo(function ConfirmDialog({
             ref={confirmRef}
             className={`btn btn-sm ${variant === 'danger' ? 'btn-danger' : variant === 'warning' ? 'btn-primary' : 'btn-primary'}`}
             onClick={onConfirm}
-            disabled={loading}
+            disabled={loading || !matches}
+            title={matches ? undefined : 'Введите точное название, чтобы подтвердить'}
           >
             {loading ? '...' : confirmLabel}
           </button>

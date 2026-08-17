@@ -7,7 +7,7 @@ import { useGroup } from '@/contexts/GroupContext'
 import { useToast } from '@/contexts/ToastContext'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import StateWrapper from '@/components/StateWrapper'
-import type { VkSettings, TgSettings, GroupMember, InviteLink } from '@/lib/types'
+import type { VkSettings, TgSettings, GroupMember, InviteLink, GroupDeletionPreview } from '@/lib/types'
 
 const S14 = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 const S12 = { width: 12, height: 12, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
@@ -79,6 +79,7 @@ export default function SettingsPage() {
   const [deletingGroup, setDeletingGroup] = useState(false)
   const [confirmRemoveMember, setConfirmRemoveMember] = useState<GroupMember | null>(null)
   const [confirmDeleteGroup, setConfirmDeleteGroup] = useState(false)
+  const [deletionPreview, setDeletionPreview] = useState<GroupDeletionPreview | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [retryKey, setRetryKey] = useState(0)
@@ -194,19 +195,26 @@ export default function SettingsPage() {
 
   async function deleteGroup() {
     if (!currentGroup) return
-    setConfirmDeleteGroup(true)
+    // Смету считает сервер: показать надо то, что исчезнет на самом деле,
+    // а не то, что успел загрузить экран.
+    setDeletingGroup(true)
+    try {
+      setDeletionPreview(await api.getGroupDeletionPreview(currentGroup.id))
+      setConfirmDeleteGroup(true)
+    } catch (e: unknown) { showToast((e as Error).message, 'error') }
+    finally { setDeletingGroup(false) }
   }
 
   async function confirmDeleteGroupAction() {
     if (!currentGroup) return
     setDeletingGroup(true)
     try {
-      await api.deleteGroup(currentGroup.id)
+      await api.deleteGroup(currentGroup.id, currentGroup.name)
       await refreshGroups()
       router.push('/dashboard')
       showToast('Группа удалена', 'success')
     } catch (e: unknown) { showToast((e as Error).message, 'error') }
-    finally { setDeletingGroup(false); setConfirmDeleteGroup(false) }
+    finally { setDeletingGroup(false); setConfirmDeleteGroup(false); setDeletionPreview(null) }
   }
 
   const isAdmin = currentGroup?.role === 'admin'
@@ -585,11 +593,21 @@ export default function SettingsPage() {
       <ConfirmDialog
         open={confirmDeleteGroup}
         title="Удалить группу?"
-        description={currentGroup ? `Группа «${currentGroup.name}» будет удалена безвозвратно. Все посты, настройки и участники будут удалены.` : ''}
+        description="Это необратимо. Восстановить содержимое можно только из резервной копии базы."
         variant="danger"
         confirmLabel="Удалить группу"
+        loading={deletingGroup}
+        confirmWith={deletionPreview?.confirm_with}
+        details={deletionPreview ? [
+          { label: 'Постов', value: deletionPreview.posts },
+          { label: 'из них опубликованных', value: deletionPreview.published_posts },
+          { label: 'Участников', value: deletionPreview.members },
+          { label: 'Ссылок-приглашений', value: deletionPreview.invites },
+          { label: 'Медиа волонтёров', value: deletionPreview.volunteer_media },
+          { label: 'Подключённых площадок', value: deletionPreview.integrations },
+        ] : undefined}
         onConfirm={confirmDeleteGroupAction}
-        onCancel={() => setConfirmDeleteGroup(false)}
+        onCancel={() => { setConfirmDeleteGroup(false); setDeletionPreview(null) }}
       />
       </StateWrapper>
     </div>

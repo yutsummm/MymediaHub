@@ -1,10 +1,12 @@
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+import audit
 from utils import (
     as_json_list,
     get_current_user_id,
     get_db,
+    like_pattern,
     media_for_storage,
     page_meta,
     paging,
@@ -35,7 +37,7 @@ def get_volunteer_media(
         params.append(user_id)
     if event:
         q += " AND vm.event_name ILIKE %s"
-        params.append(f"%{event}%")
+        params.append(like_pattern(event))
     if status:
         q += " AND vm.status=%s"
         params.append(status)
@@ -75,8 +77,10 @@ def create_volunteer_media(gid: int, body: dict, user_id: int = Depends(get_curr
         conn.close()
         raise HTTPException(400, "Добавьте хотя бы один файл")
     c.execute(
-        "INSERT INTO volunteer_media (user_id, group_id, event_name, media) VALUES (%s, %s, %s, %s) RETURNING id",
-        (user_id, gid, event_name, media_for_storage(media)),
+        "INSERT INTO volunteer_media (user_id, group_id, event_name, media) "
+        "VALUES (%(user_id)s, %(group_id)s, %(event_name)s, %(media)s) RETURNING id",
+        {"user_id": user_id, "group_id": gid, "event_name": event_name,
+         "media": media_for_storage(media)},
     )
     vid = c.fetchone()["id"]
     conn.commit()
@@ -89,11 +93,16 @@ def create_volunteer_media(gid: int, body: dict, user_id: int = Depends(get_curr
 
 
 @router.delete("/api/groups/{gid}/volunteer-media/{vid}")
-def delete_volunteer_media(gid: int, vid: int, user_id: int = Depends(get_current_user_id)):
+def delete_volunteer_media(
+    gid: int, vid: int,
+    user_id: int = Depends(get_current_user_id), request: Request = None,
+):
     conn = get_db()
     c = conn.cursor()
     role = require_group_member(gid, user_id, conn)
-    c.execute("SELECT user_id FROM volunteer_media WHERE id=%s AND group_id=%s", (vid, gid))
+    c.execute(
+        "SELECT user_id, event_name FROM volunteer_media WHERE id=%s AND group_id=%s", (vid, gid)
+    )
     row = c.fetchone()
     if not row:
         conn.close()
@@ -102,6 +111,12 @@ def delete_volunteer_media(gid: int, vid: int, user_id: int = Depends(get_curren
         conn.close()
         raise HTTPException(403, "Нельзя удалить чужую загрузку")
     c.execute("DELETE FROM volunteer_media WHERE id=%s", (vid,))
+    audit.record(
+        conn, user_id, audit.MEDIA_DELETED,
+        object_type="volunteer_media", object_id=vid,
+        object_label=row["event_name"], group_id=gid,
+        details={"чужая загрузка": row["user_id"] != user_id}, request=request,
+    )
     conn.commit()
     conn.close()
     return {"ok": True}
