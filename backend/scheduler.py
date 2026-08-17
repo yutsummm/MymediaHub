@@ -11,10 +11,10 @@
 """
 import asyncio
 import os
-import sys
-import traceback
 from datetime import timedelta
 
+from health import beat
+from logs import get_logger
 from publish_queue import enqueue, process_jobs, requeue_stuck_jobs
 from telegram_stats import (
     TELEGRAM_POLL_INTERVAL,
@@ -35,6 +35,8 @@ MAX_PER_TICK = int(os.getenv("SCHEDULER_MAX_PER_TICK", "10"))
 MAX_DELAY_MINUTES = int(os.getenv("SCHEDULER_MAX_DELAY_MINUTES", "120"))
 # Очередь публикации разбирается чаще: человек нажал «Опубликовать» и ждёт.
 PUBLISH_POLL_INTERVAL = int(os.getenv("PUBLISH_POLL_SECONDS", "3"))
+
+log = get_logger("scheduler")
 
 
 def _window() -> tuple[object, object]:
@@ -102,7 +104,7 @@ def flag_missed_posts() -> int:
     conn.commit()
     conn.close()
     if missed:
-        print(f"⚠️   пропущенных отложенных постов: {len(missed)} ({[r['id'] for r in missed]})")
+        log.warning(f"⚠️   пропущенных отложенных постов: {len(missed)} ({[r['id'] for r in missed]})")
     return len(missed)
 
 
@@ -127,7 +129,7 @@ def flag_interrupted_posts() -> int:
     conn.commit()
     conn.close()
     if stuck:
-        print(f"⚠️   зависших отложенных постов: {len(stuck)} ({[r['id'] for r in stuck]})")
+        log.warning(f"⚠️   зависших отложенных постов: {len(stuck)} ({[r['id'] for r in stuck]})")
     return len(stuck)
 
 
@@ -147,7 +149,7 @@ def publish_due_posts() -> int:
                 # ручной публикации. Иначе тяжёлое видео вешало бы такт
                 # планировщика на минуты.
                 enqueue(conn, post["id"], post.get("group_id"), post.get("author_id"))
-                print(f"⏰  отложенный пост #{post['id']} поставлен в очередь")
+                log.info(f"⏰  отложенный пост #{post['id']} поставлен в очередь")
             except Exception as e:
                 # Сеть, соцсеть, что угодно. Пост уже снят с очереди: повторять
                 # автоматически нельзя — публикация не идемпотентна, и повтор
@@ -166,21 +168,33 @@ def publish_due_posts() -> int:
                      "error"),
                 )
                 conn.commit()
-                print(f"❌  отложенный пост #{post['id']}: {e}", file=sys.stderr)
+                log.error(f"❌  отложенный пост #{post['id']}: {e}")
     finally:
         conn.close()
     return published
 
 
-async def scheduler_loop():
+async def _run_loop(name: str, work, interval: int):
+    """
+    Общий каркас фонового такта: отработать, отметить пульс, поспать.
+
+    Цикл не имеет права умереть: иначе отложенные посты снова перестанут
+    выходить, а снаружи это будет незаметно. Отсюда же и пульс — единственный
+    способ узнать, что цикл жив, не глядя на его последствия. Отмечается он
+    только после успешного такта: цикл, который каждый раз падает, обязан
+    выглядеть мёртвым, а не бодрым.
+    """
     while True:
         try:
-            await asyncio.to_thread(publish_due_posts)
+            await asyncio.to_thread(work)
+            beat(name)
         except Exception:
-            # Цикл не имеет права умереть: иначе отложенные посты снова
-            # перестанут выходить, и снаружи это будет незаметно.
-            traceback.print_exc(file=sys.stderr)
-        await asyncio.sleep(SCHEDULER_INTERVAL)
+            log.exception(f"такт «{name}» упал, цикл продолжается")
+        await asyncio.sleep(interval)
+
+
+async def scheduler_loop():
+    await _run_loop("scheduler", publish_due_posts, SCHEDULER_INTERVAL)
 
 
 async def publish_worker_loop():
@@ -190,12 +204,7 @@ async def publish_worker_loop():
     Отдельный цикл, а не общий с планировщиком: один тяжёлый пост с видео
     занимает минуты, и такт «кому пора выходить» не должен его ждать.
     """
-    while True:
-        try:
-            await asyncio.to_thread(process_jobs)
-        except Exception:
-            traceback.print_exc(file=sys.stderr)
-        await asyncio.sleep(PUBLISH_POLL_INTERVAL)
+    await _run_loop("publish_worker", process_jobs, PUBLISH_POLL_INTERVAL)
 
 
 async def telegram_stats_loop():
@@ -204,27 +213,22 @@ async def telegram_stats_loop():
     вычитывать из потока апдейтов. Но делать это каждую минуту незачем — у
     Telegram апдейты живут около суток.
     """
-    while True:
-        try:
-            await asyncio.to_thread(collect_telegram_stats)
-        except Exception:
-            traceback.print_exc(file=sys.stderr)
-        await asyncio.sleep(TELEGRAM_POLL_INTERVAL)
+    await _run_loop("telegram_stats", collect_telegram_stats, TELEGRAM_POLL_INTERVAL)
 
 
 def start(app) -> None:
     if not SCHEDULER_ENABLED:
-        print("⏰  планировщик отключён (SCHEDULER_ENABLED=0)")
+        log.info("⏰  планировщик отключён (SCHEDULER_ENABLED=0)")
         return
     for sweep in (flag_interrupted_posts, requeue_stuck_jobs):
         try:
             sweep()
         except Exception:
-            traceback.print_exc(file=sys.stderr)
+            log.exception(f"стартовая уборка {sweep.__name__} не отработала")
     app.state.scheduler_task = asyncio.create_task(scheduler_loop())
     app.state.publish_worker_task = asyncio.create_task(publish_worker_loop())
-    print(f"📮  воркер публикации запущен, очередь раз в {PUBLISH_POLL_INTERVAL} с")
-    print(f"⏰  планировщик запущен, проверка каждые {SCHEDULER_INTERVAL} с")
+    log.info(f"📮  воркер публикации запущен, очередь раз в {PUBLISH_POLL_INTERVAL} с")
+    log.info(f"⏰  планировщик запущен, проверка каждые {SCHEDULER_INTERVAL} с")
     if TELEGRAM_STATS_ENABLED:
         app.state.telegram_stats_task = asyncio.create_task(telegram_stats_loop())
-        print(f"📊  сбор реакций Telegram запущен, раз в {TELEGRAM_POLL_INTERVAL} с")
+        log.info(f"📊  сбор реакций Telegram запущен, раз в {TELEGRAM_POLL_INTERVAL} с")

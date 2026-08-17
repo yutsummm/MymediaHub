@@ -2,12 +2,11 @@ import os
 import random
 import re
 import smtplib
-import sys
-import traceback
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from logs import get_logger
 from models import (
     ForgotPasswordRequest,
     LoginRequest,
@@ -22,10 +21,12 @@ from utils import (
     client_ip,
     create_token,
     current_session,
+    get_current_user_id,
     get_db,
     hash_password,
     list_sessions,
     redeem_invite,
+    require_admin,
     revoke_session,
     revoke_user_sessions,
     row_to_dict,
@@ -35,6 +36,7 @@ from utils import (
 )
 
 router = APIRouter()
+log = get_logger("auth")
 
 # Сколько живёт код подтверждения регистрации.
 VERIFICATION_TTL = timedelta(minutes=15)
@@ -76,8 +78,8 @@ def _send_code_or_drop(conn, email: str, code: str) -> None:
         conn.close()
         if isinstance(e, ValueError):
             raise HTTPException(503, str(e))
-        traceback.print_exc(file=sys.stderr)
-        raise HTTPException(500, f"Не удалось отправить письмо: {type(e).__name__}: {e}")
+        log.exception("не удалось отправить письмо с кодом", extra={"email": email})
+        raise HTTPException(500, "Не удалось отправить письмо. Попробуйте позже.")
 
 
 @router.post("/api/auth/login")
@@ -102,7 +104,21 @@ def login(req: LoginRequest, request: Request = None):
 
 
 @router.get("/api/debug/smtp-test")
-def smtp_test():
+def smtp_test(actor_id: int = Depends(get_current_user_id)):
+    """
+    Проверка связи с почтовым сервером.
+
+    Закрыта авторизацией и не отдаёт наружу подробностей: раньше ручка была
+    открыта всем и возвращала в теле ответа полный трейсбек — а это имена
+    внутренних модулей, пути и адрес SMTP-сервера. Подробности уходят в лог,
+    ответ остаётся односложным.
+    """
+    conn = get_db()
+    try:
+        require_admin(actor_id, conn)
+    finally:
+        conn.close()
+
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USER", "")
@@ -115,7 +131,8 @@ def smtp_test():
             server.login(smtp_user, smtp_password)
         return {"ok": True, "message": f"SMTP подключение успешно ({smtp_user})"}
     except Exception as e:
-        return {"ok": False, "error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()}
+        log.warning(f"SMTP недоступен: {type(e).__name__}: {e}")
+        return {"ok": False, "error": f"Не удалось подключиться к SMTP: {type(e).__name__}"}
 
 
 @router.post("/api/auth/register")
@@ -158,15 +175,15 @@ def register(req: RegisterRequest, request: Request = None):
     c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
     c.execute(
         "INSERT INTO email_verifications (email, name, password_hash, code, expires_at, invite_token) "
-        "VALUES (%s,%s,%s,%s,%s,%s)",
-        (
-            email,
-            name,
-            hash_password(req.password),
-            code,
-            datetime.now(UTC) + VERIFICATION_TTL,
-            req.invite_token.strip() if req.invite_token else None,
-        ),
+        "VALUES (%(email)s, %(name)s, %(password_hash)s, %(code)s, %(expires_at)s, %(invite_token)s)",
+        {
+            "email": email,
+            "name": name,
+            "password_hash": hash_password(req.password),
+            "code": code,
+            "expires_at": datetime.now(UTC) + VERIFICATION_TTL,
+            "invite_token": req.invite_token.strip() if req.invite_token else None,
+        },
     )
     conn.commit()
     _send_code_or_drop(conn, email, code)
@@ -210,8 +227,9 @@ def verify_email(req: VerifyEmailRequest, request: Request = None):
     avatar = "".join(p[0].upper() for p in name.split()[:2])
     c.execute(
         "INSERT INTO users (name, email, role, avatar, password_hash) "
-        "VALUES (%s,%s,%s,%s,%s) RETURNING id",
-        (name, email, "member", avatar, pending["password_hash"]),
+        "VALUES (%(name)s, %(email)s, %(role)s, %(avatar)s, %(password_hash)s) RETURNING id",
+        {"name": name, "email": email, "role": "member", "avatar": avatar,
+         "password_hash": pending["password_hash"]},
     )
     uid = c.fetchone()["id"]
 
@@ -316,9 +334,9 @@ def forgot_password(req: ForgotPasswordRequest, request: Request = None):
         send_reset_email(email, code)
     except ValueError as e:
         raise HTTPException(503, str(e))
-    except Exception as e:
-        traceback.print_exc(file=sys.stderr)
-        raise HTTPException(500, f"Не удалось отправить письмо: {type(e).__name__}: {e}")
+    except Exception:
+        log.exception("не удалось отправить письмо для сброса пароля")
+        raise HTTPException(500, "Не удалось отправить письмо. Попробуйте позже.")
     return {"status": "code_sent"}
 
 

@@ -39,7 +39,7 @@ def save_platform_stats(conn, post_id: int, platform: str, **counters) -> None:
     )
 
 
-def stats_for_posts(conn, post_ids: list[int]) -> dict[int, list[dict]]:
+def stats_for_posts(conn, post_ids: list) -> dict[int, list[dict]]:
     """Разбивка по площадкам для набора постов: {post_id: [строки post_stats]}."""
     if not post_ids:
         return {}
@@ -66,7 +66,7 @@ def attach_stats(conn, posts: list[dict]) -> list[dict]:
     posts = [p for p in posts if p]
     by_post = stats_for_posts(conn, [p["id"] for p in posts if p.get("id") is not None])
     for post in posts:
-        rows = by_post.get(post.get("id"), [])
+        rows = by_post.get(post["id"], []) if post.get("id") is not None else []
         post["stats"] = [
             {
                 "platform": r["platform"],

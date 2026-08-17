@@ -1,5 +1,4 @@
 import os
-from logging.config import fileConfig
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, pool
@@ -32,8 +31,16 @@ def get_database_url() -> str:
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+# Логирование настраивает приложение (backend/logs.py), а не alembic.ini.
+#
+# Здесь стоял fileConfig(config.config_file_name). Так делать нельзя: миграции
+# катятся из startup-хука, то есть уже после того, как модули завели свои
+# логгеры, а fileConfig по умолчанию все существующие логгеры выключает и
+# заодно переустанавливает уровень корневого. Приложение после старта замолкало
+# целиком — и заметить это, не имея логов, было бы особенно нечем.
+#
+# Сообщения самого alembic никуда не деваются: они уходят в корневой логгер
+# и печатаются нашим обработчиком.
 
 # add your model's MetaData object here
 # for 'autogenerate' support

@@ -31,7 +31,7 @@ def test_roundtrip_returns_original():
 
 def test_ciphertext_does_not_contain_plaintext():
     token = "secret-bot-token-42"
-    blob = encrypt_secret(token)
+    blob = encrypt_secret(token) or ""
     assert blob.startswith(SECRET_PREFIX)
     assert token not in blob
 

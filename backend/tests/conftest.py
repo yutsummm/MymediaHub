@@ -192,9 +192,11 @@ def publish_and_wait(client, path: str, headers: dict) -> dict:
     drain_publish_queue()
     conn = get_db()
     try:
-        return get_job(conn, job_id)
+        job = get_job(conn, job_id)
     finally:
         conn.close()
+    assert job, f"задача публикации #{job_id} исчезла"
+    return job
 
 
 @pytest.fixture()

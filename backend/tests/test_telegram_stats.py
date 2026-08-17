@@ -65,11 +65,14 @@ def reaction_update(update_id: int, chat_id: str, message_id: int, counts: list[
     }
 
 
-def stats_of(pid: int, platform: str) -> dict | None:
+def stats_of(pid: int, platform: str) -> dict:
+    """Строка статистики по площадке. Её отсутствие — уже провал теста."""
     conn = get_db()
     rows = stats_for_posts(conn, [pid]).get(pid, [])
     conn.close()
-    return next((r for r in rows if r["platform"] == platform), None)
+    row = next((r for r in rows if r["platform"] == platform), None)
+    assert row is not None, f"нет статистики {platform} у поста {pid}"
+    return row
 
 
 # ── Разбор апдейтов ──────────────────────────────────────────────────────────

@@ -1,9 +1,10 @@
 import os
 
 import requests as http_requests
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from psycopg2.extras import Json
 
+import audit
 from models import AIEnhanceRequest, GenerateRequest, PostCreate, PostUpdate
 from publish_queue import enqueue, get_job, job_for_post
 from stats import save_platform_stats, serialize_post, serialize_posts
@@ -15,6 +16,7 @@ from utils import (
     decrypt_row_secret,
     get_current_user_id,
     get_db,
+    like_pattern,
     media_for_storage,
     page_meta,
     paging,
@@ -26,6 +28,67 @@ from utils import (
 )
 
 router = APIRouter()
+
+
+# Поля поста, приходящие из запроса. Именованные параметры, а не позиционные:
+# в списке из тринадцати «%s» перестановка двух соседних значений выглядит
+# ровно так же, как правильный код, — и именно на этом мы уже спотыкались
+# (перепутанные параметры в приёме приглашения).
+POST_COLUMNS = (
+    "title", "content", "status", "platforms", "tags", "scheduled_at",
+    "location_address", "location_lat", "location_lng", "author_id",
+    "template_type", "media",
+)
+
+
+def _post_values(body, user_id: int) -> dict:
+    return {
+        "title": body.title,
+        "content": body.content,
+        "status": body.status,
+        "platforms": Json(body.platforms),
+        "tags": Json(body.tags),
+        "scheduled_at": parse_dt(body.scheduled_at),
+        "location_address": body.location_address,
+        "location_lat": body.location_lat,
+        "location_lng": body.location_lng,
+        "author_id": user_id,
+        "template_type": body.template_type,
+        "media": media_for_storage(body.media),
+    }
+
+
+def _insert_post(c, body, user_id: int, gid: int | None = None) -> int:
+    """Заводит пост. gid=None — пост вне группы (легаси-область без группы)."""
+    values = _post_values(body, user_id)
+    columns = list(POST_COLUMNS)
+    if gid is not None:
+        columns.append("group_id")
+        values["group_id"] = gid
+    c.execute(
+        f"INSERT INTO posts ({', '.join(columns)}) "  # noqa: S608 — имена свои, из POST_COLUMNS
+        f"VALUES ({', '.join('%(' + col + ')s' for col in columns)}) RETURNING id",
+        values,
+    )
+    return c.fetchone()["id"]
+
+
+
+def _record_post_deletion(conn, c, post_id: int, user_id: int, request) -> None:
+    """
+    След от удаления поста. Опубликованный пост особенно: в паблике он
+    остаётся, а у нас исчезает — и объяснить расхождение потом нечем.
+    """
+    c.execute("SELECT title, status, group_id FROM posts WHERE id=%s", (post_id,))
+    post = c.fetchone()
+    if not post:
+        return
+    audit.record(
+        conn, user_id, audit.POST_DELETED,
+        object_type="post", object_id=post_id, object_label=post["title"],
+        group_id=post["group_id"], details={"статус": post["status"]}, request=request,
+    )
+
 
 
 # ── Global Posts ──────────────────────────────────────────────────────────────
@@ -50,8 +113,13 @@ def get_posts(
     )
     params: list = list(scope_params)
     if q:
-        query += " AND (LOWER(p.title) LIKE LOWER(%s) OR LOWER(p.content) LIKE LOWER(%s))"
-        params += [f'%{q}%', f'%{q}%']
+        # ILIKE, а не LOWER(...) LIKE LOWER(...): триграммный GIN-индекс
+        # (миграция a9d4f1c60b72) построен по самой колонке и обслуживает
+        # ILIKE, а вот LOWER(колонка) для него — уже другое выражение, и
+        # запрос сваливался бы в перебор всей таблицы.
+        query += " AND (p.title ILIKE %s OR p.content ILIKE %s)"
+        pattern = like_pattern(q)
+        params += [pattern, pattern]
     if status:
         query += " AND p.status=%s"
         params.append(status)
@@ -95,16 +163,7 @@ def get_posts(
 def create_post(body: PostCreate, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
-    c.execute(
-        "INSERT INTO posts (title,content,status,platforms,tags,scheduled_at,"
-        "location_address,location_lat,location_lng,author_id,template_type,media) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (body.title, body.content, body.status, Json(body.platforms),
-         Json(body.tags), parse_dt(body.scheduled_at), body.location_address,
-         body.location_lat, body.location_lng, user_id, body.template_type,
-         media_for_storage(body.media)),
-    )
-    pid = c.fetchone()["id"]
+    pid = _insert_post(c, body, user_id)
     conn.commit()
     c.execute("SELECT * FROM posts WHERE id=%s", (pid,))
     row = c.fetchone()
@@ -135,7 +194,8 @@ def update_post(post_id: int, body: PostUpdate, user_id: int = Depends(get_curre
     conn = get_db()
     c = conn.cursor()
     require_post_access(post_id, user_id, conn, write=True)
-    updates, params = [], []
+    updates: list[str] = []
+    params: list = []
     if body.title is not None:
         updates.append("title=%s")
         params.append(body.title)
@@ -178,10 +238,13 @@ def update_post(post_id: int, body: PostUpdate, user_id: int = Depends(get_curre
 
 
 @router.delete("/api/posts/{post_id}")
-def delete_post(post_id: int, user_id: int = Depends(get_current_user_id)):
+def delete_post(
+    post_id: int, user_id: int = Depends(get_current_user_id), request: Request = None,
+):
     conn = get_db()
     c = conn.cursor()
     require_post_access(post_id, user_id, conn, write=True)
+    _record_post_deletion(conn, c, post_id, user_id, request)
     c.execute("DELETE FROM posts WHERE id=%s", (post_id,))
     conn.commit()
     conn.close()
@@ -225,8 +288,13 @@ def get_group_posts(
     query = "SELECT p.*, u.name as author_name FROM posts p LEFT JOIN users u ON p.author_id=u.id WHERE p.group_id=%s"
     params: list = [gid]
     if q:
-        query += " AND (LOWER(p.title) LIKE LOWER(%s) OR LOWER(p.content) LIKE LOWER(%s))"
-        params += [f'%{q}%', f'%{q}%']
+        # ILIKE, а не LOWER(...) LIKE LOWER(...): триграммный GIN-индекс
+        # (миграция a9d4f1c60b72) построен по самой колонке и обслуживает
+        # ILIKE, а вот LOWER(колонка) для него — уже другое выражение, и
+        # запрос сваливался бы в перебор всей таблицы.
+        query += " AND (p.title ILIKE %s OR p.content ILIKE %s)"
+        pattern = like_pattern(q)
+        params += [pattern, pattern]
     if status:
         query += " AND p.status=%s"
         params.append(status)
@@ -268,16 +336,7 @@ def create_group_post(gid: int, body: PostCreate, user_id: int = Depends(get_cur
     if role == "volunteer":
         conn.close()
         raise HTTPException(403, "Наблюдатели не могут создавать посты")
-    c.execute(
-        "INSERT INTO posts (title,content,status,platforms,tags,scheduled_at,"
-        "location_address,location_lat,location_lng,author_id,template_type,media,group_id) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-        (body.title, body.content, body.status, Json(body.platforms),
-         Json(body.tags), parse_dt(body.scheduled_at), body.location_address,
-         body.location_lat, body.location_lng, user_id, body.template_type,
-         media_for_storage(body.media), gid),
-    )
-    pid = c.fetchone()["id"]
+    pid = _insert_post(c, body, user_id, gid)
     conn.commit()
     c.execute("SELECT * FROM posts WHERE id=%s", (pid,))
     row = c.fetchone()
@@ -316,7 +375,8 @@ def update_group_post(gid: int, post_id: int, body: PostUpdate, user_id: int = D
     if not c.fetchone():
         conn.close()
         raise HTTPException(404, "Пост не найден")
-    updates, params = [], []
+    updates: list[str] = []
+    params: list = []
     if body.title is not None:
         updates.append("title=%s")
         params.append(body.title)
@@ -359,7 +419,10 @@ def update_group_post(gid: int, post_id: int, body: PostUpdate, user_id: int = D
 
 
 @router.delete("/api/groups/{gid}/posts/{post_id}")
-def delete_group_post(gid: int, post_id: int, user_id: int = Depends(get_current_user_id)):
+def delete_group_post(
+    gid: int, post_id: int,
+    user_id: int = Depends(get_current_user_id), request: Request = None,
+):
     conn = get_db()
     c = conn.cursor()
     role = require_group_member(gid, user_id, conn)
@@ -370,6 +433,7 @@ def delete_group_post(gid: int, post_id: int, user_id: int = Depends(get_current
     if not c.fetchone():
         conn.close()
         raise HTTPException(404)
+    _record_post_deletion(conn, c, post_id, user_id, request)
     c.execute("DELETE FROM posts WHERE id=%s", (post_id,))
     conn.commit()
     conn.close()
@@ -434,7 +498,7 @@ def sync_vk_stats(user_id: int = Depends(get_current_user_id)):
         conn.close()
         return {"synced": 0, "message": "VK не подключён"}
     c.execute("SELECT DISTINCT vk.group_id, vk.access_token FROM vk_settings vk WHERE vk.workspace_id IS NOT NULL")
-    all_vk = [decrypt_row_secret(r, "access_token") for r in c.fetchall()]
+    all_vk = [row for row in (decrypt_row_secret(r, "access_token") for r in c.fetchall()) if row]
     if vk:
         all_vk.append(dict(vk))
     seen = set()
