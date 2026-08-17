@@ -2,7 +2,14 @@ export interface User {
   id: number
   name: string
   email: string
-  role: 'admin' | 'editor' | 'volunteer'
+  /**
+   * Глобальная роль — про администрирование системы, и только. Права на
+   * контент живут в GroupRole. Здесь долго стояло 'admin' | 'editor' |
+   * 'volunteer' — набор, которого после разделения систем ролей не
+   * существует; по нему в редакторе была закрыта кнопка медиатеки, и видели
+   * её одни глобальные администраторы.
+   */
+  role: 'admin' | 'member'
   avatar: string
   created_at: string
 }
@@ -13,11 +20,13 @@ export interface MediaItem {
   filename: string
 }
 
+export type PostStatus = 'draft' | 'on_review' | 'scheduled' | 'published'
+
 export interface Post {
   id: number
   title: string
   content: string
-  status: 'draft' | 'scheduled' | 'published'
+  status: PostStatus
   platforms: string[]
   tags: string[]
   scheduled_at: string | null
@@ -41,6 +50,11 @@ export interface Post {
   vk_post_id?: string | null
   tg_message_ids?: number[]
   vk_stats_updated_at?: string | null
+  /** Согласование: когда отправлен, кто и когда посмотрел, что сказал при возврате */
+  submitted_at?: string | null
+  reviewed_at?: string | null
+  reviewed_by?: number | null
+  review_comment?: string | null
 }
 
 /**
@@ -99,6 +113,7 @@ export interface AnalyticsSummary {
   published: number
   scheduled: number
   drafts: number
+  on_review: number
   total_views: number
   total_reactions: number
   total_comments: number
@@ -182,6 +197,8 @@ export interface Group {
   name: string
   description: string
   avatar: string
+  /** Посты выходят только после визы администратора группы */
+  require_approval?: boolean
   role: GroupRole
   created_by?: number
   created_at: string
@@ -284,4 +301,16 @@ export interface AuditEntry {
   group_id: number | null
   details: Record<string, unknown> | null
   ip: string | null
+}
+
+/**
+ * Карточка медиатеки: файл, уже загруженный в группе, и откуда он взялся.
+ * Источника два — одобренные материалы волонтёров и файлы из прошлых постов.
+ */
+export interface MediaLibraryItem extends MediaItem {
+  source: 'volunteer' | 'post'
+  /** название мероприятия либо заголовок поста, откуда файл */
+  label: string
+  author: string | null
+  at: string | null
 }

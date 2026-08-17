@@ -36,6 +36,12 @@ class PostUpdate(BaseModel):
     location_lng: float | None = None
 
 
+class ReviewReject(BaseModel):
+    # Возврат без причины бесполезен: автор увидит «доработайте» и не узнает,
+    # что именно не так.
+    comment: str
+
+
 class GenerateRequest(BaseModel):
     template_type: str
     fields: dict
@@ -117,6 +123,8 @@ class GroupUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     avatar: str | None = None
+    # Выходят ли посты только после визы администратора группы.
+    require_approval: bool | None = None
 
 
 class GroupMemberRoleUpdate(BaseModel):

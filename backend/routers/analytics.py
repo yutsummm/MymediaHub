@@ -7,7 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-from utils import app_now, get_current_user_id, get_db, posts_scope, require_group_member
+from utils import (
+    app_now,
+    as_json_list,
+    get_current_user_id,
+    get_db,
+    posts_scope,
+    require_group_member,
+)
 
 router = APIRouter()
 
@@ -209,6 +216,356 @@ def _build_workbook(dt_start, dt_end, summary: dict, timeline, pl_stats, top_pos
     return wb
 
 
+# ── Отчёт для учредителя ────────────────────────────────────────────────────
+# Аналитика в интерфейсе отвечает на вопросы того, кто ведёт каналы: что зашло,
+# когда публиковать, где просело. Учредителю нужен другой документ и другой
+# язык — «что делали и что из этого вышло» связным текстом, а не сетка
+# показателей. Отсюда отдельный отчёт, а не ещё одна вкладка в экспорте.
+
+
+def _plural(n: int, one: str, few: str, many: str) -> str:
+    """Русское согласование числительного: 1 публикация, 2 публикации, 5 публикаций."""
+    if 11 <= n % 100 <= 14:
+        return many
+    last = n % 10
+    if last == 1:
+        return one
+    if 2 <= last <= 4:
+        return few
+    return many
+
+
+def _spaced(n: int) -> str:
+    """Число с неразрывными пробелами по разрядам: 12 480, а не 12480."""
+    return f"{n:,}".replace(",", " ")
+
+
+def _tag_breakdown(c, where: str, params: list) -> list[dict]:
+    """
+    Разбивка по рубрикам. Учредителю интереснее всего именно она: сколько было
+    про мероприятия, сколько про гранты, сколько про набор волонтёров.
+    """
+    c.execute(
+        "SELECT tag, COUNT(*) AS posts, SUM(t.views) AS v, SUM(t.views_samples) AS vs, "
+        "       SUM(t.reactions) AS r "
+        f"FROM {TOTALS} "
+        "CROSS JOIN LATERAL jsonb_array_elements_text("
+        "    CASE WHEN jsonb_typeof(posts.tags) = 'array' THEN posts.tags ELSE '[]'::jsonb END"
+        ") AS tag "
+        f"WHERE {where} "
+        "GROUP BY tag ORDER BY posts DESC, tag",
+        params,
+    )
+    return [
+        {"tag": r["tag"], "posts": r["posts"],
+         "views": _collected_views({"v": r["v"], "vs": r["vs"]}),
+         "reactions": r["r"] or 0}
+        for r in c.fetchall()
+    ]
+
+
+def _vk_community(c, gid: int | None) -> str | None:
+    """Идентификатор сообщества ВК — из него собирается ссылка на запись."""
+    if gid is None:
+        c.execute("SELECT group_id FROM vk_settings WHERE id=1")
+    else:
+        c.execute("SELECT group_id FROM vk_settings WHERE workspace_id=%s", (gid,))
+    row = c.fetchone()
+    return row["group_id"] if row else None
+
+
+def _post_link(post: dict, community: str | None) -> str:
+    """
+    Ссылка на запись во ВКонтакте. Учредителю нужен не наш идентификатор поста,
+    а возможность открыть публикацию и посмотреть на неё.
+    """
+    if not post.get("vk_post_id") or not community:
+        return ""
+    return f"https://vk.com/wall-{str(community).lstrip('-')}_{post['vk_post_id']}"
+
+
+def _report_summary_text(org: str, period: str, s: dict, published: int,
+                         platforms: list[dict], top_tag: str | None) -> list[str]:
+    """Связный текст вместо таблицы: с этого учредитель начинает читать."""
+    lines = [
+        # Кавычки вокруг названия не ставим: названия учреждений сплошь и рядом
+        # уже написаны в кавычках — «Молодёжный центр «Спектр»» читается плохо.
+        f"За период {period} организация {org} опубликовала "
+        f"{_spaced(published)} {_plural(published, 'материал', 'материала', 'материалов')} "
+        f"в социальных сетях."
+    ]
+
+    where = [f"{p['platform']} — {_spaced(p['count'])}" for p in platforms if p["count"]]
+    if where:
+        lines.append("Распределение по площадкам: " + ", ".join(where) + ".")
+
+    views = s["views"]
+    if views is None:
+        # Придумывать охват нельзя: у Telegram просмотры недостижимы в принципе,
+        # у ВК их могли ещё не синхронизировать. Молчание честнее нуля.
+        lines.append(
+            "Данные о просмотрах за период не собраны, поэтому охват в отчёте не приводится."
+        )
+    else:
+        lines.append(
+            f"Публикации набрали {_spaced(views)} "
+            f"{_plural(views, 'просмотр', 'просмотра', 'просмотров')}"
+            + (f", в среднем {_spaced(s['avg_views'])} на материал"
+               if s["avg_views"] is not None else "")
+            + "."
+        )
+
+    parts = []
+    for value, forms in (
+        (s["reactions"], ('отметка «нравится»', 'отметки «нравится»', 'отметок «нравится»')),
+        (s["comments"], ('комментарий', 'комментария', 'комментариев')),
+        (s["shares"], ('репост', 'репоста', 'репостов')),
+    ):
+        # None — не собирали. Такой показатель в предложение не попадает вовсе:
+        # написать «0 комментариев» там, где их не считали, значит соврать.
+        if value:
+            parts.append(f"{_spaced(value)} {_plural(value, *forms)}")
+    if parts:
+        total_reactions = sum(v for v in (s["reactions"], s["comments"], s["shares"]) if v)
+        lines.append(
+            f"Читатели откликнулись {_spaced(total_reactions)} "
+            f"{_plural(total_reactions, 'раз', 'раза', 'раз')}: " + ", ".join(parts) + "."
+        )
+
+    if top_tag:
+        lines.append(f"Больше всего материалов вышло по направлению «{top_tag}».")
+
+    return lines
+
+
+def _build_report(org: str, dt_start, dt_end, s: dict, published: int,
+                  platforms: list[dict], tags: list[dict], posts: list[dict],
+                  community: str | None):
+    INK = "101014"
+    MUTED = "6B7280"
+    RULE = "D4D4D8"
+
+    period = f"с {dt_start.strftime('%d.%m.%Y')} по {dt_end.strftime('%d.%m.%Y')}"
+
+    wb = openpyxl.Workbook()
+
+    # ── Лист 1: собственно отчёт ────────────────────────────────────────────
+    ws = wb.active
+    ws.title = "Отчёт"
+    ws.column_dimensions["A"].width = 34
+    ws.column_dimensions["B"].width = 22
+    ws.column_dimensions["C"].width = 18
+    ws.column_dimensions["D"].width = 18
+    ws.sheet_view.showGridLines = False
+
+    ws["A1"] = "Отчёт об информационной работе"
+    ws["A1"].font = Font(bold=True, size=16, color=INK)
+    ws.row_dimensions[1].height = 26
+    ws["A2"] = f"{org} · {period}"
+    ws["A2"].font = Font(size=11, color=MUTED)
+    ws.row_dimensions[2].height = 20
+
+    row = 4
+    for line in _report_summary_text(org, period, s, published, platforms,
+                                     tags[0]["tag"] if tags else None):
+        ws.cell(row=row, column=1, value=line)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=4)
+        ws.cell(row=row, column=1).alignment = Alignment(wrap_text=True, vertical="top")
+        # Высота под перенос: openpyxl автоподбор не умеет, а обрезанный текст
+        # в отчёте наружу — это отчёт, который никто не дочитает.
+        ws.row_dimensions[row].height = 15 * (1 + len(line) // 95)
+        row += 1
+
+    row += 1
+    ws.cell(row=row, column=1, value="Ключевые показатели").font = Font(bold=True, size=12, color=INK)
+    row += 1
+
+    figures = [
+        ("Опубликовано материалов", _spaced(published)),
+        ("Просмотры", _spaced(s["views"]) if s["views"] is not None else NO_DATA),
+        ("Среднее число просмотров на материал",
+         _spaced(s["avg_views"]) if s["avg_views"] is not None else NO_DATA),
+        ("Отметки «нравится»", _spaced(s["reactions"]) if s["reactions"] is not None else NO_DATA),
+        ("Комментарии", _spaced(s["comments"]) if s["comments"] is not None else NO_DATA),
+        ("Репосты", _spaced(s["shares"]) if s["shares"] is not None else NO_DATA),
+        ("Отклик на просмотр",
+         f"{s['engagement']:.1f} %".replace(".", ",") if s["engagement"] is not None else NO_DATA),
+    ]
+    for label, value in figures:
+        ws.cell(row=row, column=1, value=label).font = Font(size=11, color=INK)
+        cell = ws.cell(row=row, column=2, value=value)
+        cell.font = Font(bold=True, size=11, color=INK)
+        cell.alignment = Alignment(horizontal="right")
+        for col in (1, 2):
+            ws.cell(row=row, column=col).border = Border(
+                bottom=Side(style="thin", color=RULE))
+        ws.row_dimensions[row].height = 19
+        row += 1
+
+    if any(s[k] is None for k in ("views", "reactions", "comments", "shares")):
+        row += 1
+        note = ws.cell(
+            row=row, column=1,
+            value="«нет данных» означает, что показатель не собирался, а не что он равен нулю. "
+                  "Просмотры доступны только для ВКонтакте: Telegram их не отдаёт.",
+        )
+        note.font = Font(size=9, color=MUTED, italic=True)
+        ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=4)
+        note.alignment = Alignment(wrap_text=True, vertical="top")
+        ws.row_dimensions[row].height = 28
+
+    # ── Лист 2: направления работы ──────────────────────────────────────────
+    def sheet(title: str, headers: list[str], widths: list[int]):
+        s2 = wb.create_sheet(title)
+        s2.sheet_view.showGridLines = False
+        s2.append(headers)
+        for i in range(1, len(headers) + 1):
+            cell = s2.cell(row=1, column=i)
+            cell.font = Font(bold=True, size=10, color=INK)
+            cell.border = Border(bottom=Side(style="medium", color=INK))
+            cell.alignment = Alignment(vertical="center")
+        s2.row_dimensions[1].height = 22
+        for col, w in zip(
+            [chr(ord("A") + i) for i in range(len(widths))], widths, strict=True
+        ):
+            s2.column_dimensions[col].width = w
+        return s2
+
+    # Формат ячейки, а не форматирование строкой: число остаётся числом —
+    # его можно сложить и по нему можно отсортировать, — но читается с
+    # разрядами. Строка «20 280» не умеет ни того, ни другого.
+    NUM = "# ##0"
+
+    def numbers(sheet_obj, first_col: int, last_col: int) -> None:
+        for row in sheet_obj.iter_rows(min_row=2, min_col=first_col, max_col=last_col):
+            for cell in row:
+                if isinstance(cell.value, int | float):
+                    cell.number_format = NUM
+
+    ws2 = sheet("Направления", ["Направление", "Материалов", "Просмотры", "Отклики"],
+                [30, 14, 16, 14])
+    for i, t in enumerate(tags, start=2):
+        ws2.append([t["tag"], t["posts"],
+                    t["views"] if t["views"] is not None else NO_DATA, t["reactions"]])
+        ws2.cell(row=i, column=1).border = Border(bottom=Side(style="thin", color=RULE))
+    numbers(ws2, 2, 4)
+    if not tags:
+        ws2.append(["Материалы за период не размечены по направлениям"])
+
+    ws3 = sheet("Площадки", ["Площадка", "Материалов", "Просмотры", "Отклики"],
+                [22, 14, 16, 14])
+    for pl in platforms:
+        ws3.append([pl["platform"], pl["count"],
+                    pl["views"] if pl["views"] is not None else NO_DATA,
+                    pl["reactions"] if pl["reactions"] is not None else NO_DATA])
+    numbers(ws3, 2, 4)
+
+    ws4 = sheet("Публикации",
+                ["Дата", "Заголовок", "Направления", "Площадки", "Просмотры", "Отклики", "Ссылка"],
+                [12, 46, 24, 16, 12, 12, 42])
+    for i, p in enumerate(posts, start=2):
+        link = _post_link(p, community)
+        # ДД.ММ.ГГГГ, а не ISO: документ читает человек, а не программа.
+        published_on = p["published_at"].strftime("%d.%m.%Y") if p["published_at"] else ""
+        ws4.append([
+            published_on,
+            p["title"],
+            ", ".join(as_json_list(p["tags"])),
+            ", ".join("ВКонтакте" if x == "vk" else "Telegram" if x == "telegram" else x
+                      for x in as_json_list(p["platforms"])),
+            p["views"] if p["views_samples"] else NO_DATA,
+            # Отклики — сумма только по тому, что действительно считали.
+            ((p["reactions"] or 0) + (p["comments"] or 0) + (p["shares"] or 0))
+            if (p["reactions_samples"] or p["comments_samples"] or p["shares_samples"])
+            else NO_DATA,
+            link,
+        ])
+        if link:
+            cell = ws4.cell(row=i, column=7)
+            cell.hyperlink = link
+            cell.font = Font(color="1D4ED8", underline="single", size=10)
+        ws4.cell(row=i, column=2).alignment = Alignment(wrap_text=False)
+    numbers(ws4, 5, 6)
+    if not posts:
+        ws4.append(["", "За указанный период публикаций не было"])
+
+    return wb
+
+
+def _report(c, where: str, params: list, org: str, start_date: str, end_date: str,
+            gid: int | None):
+    try:
+        dt_start = datetime.strptime(start_date, "%Y-%m-%d")
+        dt_end = datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Формат дат: YYYY-MM-DD")
+    if dt_end < dt_start:
+        raise HTTPException(status_code=400, detail="Конец периода раньше начала")
+
+    end_next = (dt_end + timedelta(days=1)).strftime("%Y-%m-%d")
+    period = f"{where} AND published_at >= %s AND published_at < %s AND status='published'"
+    period_params = params + [dt_start.strftime("%Y-%m-%d"), end_next]
+
+    c.execute(f"SELECT COUNT(*) FROM posts WHERE {period}", period_params)
+    published = c.fetchone()["count"]
+
+    # Счётчики собранных значений тянем по каждому показателю, а не только по
+    # просмотрам. Ноль реакций в отчёте наружу означает «людям не зашло» — а
+    # если реакции просто не собирали, это неправда о работе организации,
+    # напечатанная на бумаге и отданная учредителю.
+    c.execute(
+        f"SELECT SUM(t.views) v, SUM(t.views_samples) vs, "
+        f"SUM(t.reactions) r, SUM(t.reactions_samples) rs, "
+        f"SUM(t.comments) cm, SUM(t.comments_samples) cms, "
+        f"SUM(t.shares) sh, SUM(t.shares_samples) shs "
+        f"FROM {TOTALS} WHERE {period}",
+        period_params,
+    )
+    row = c.fetchone()
+    views = _collected_views(row)
+
+    def collected(value_key: str, samples_key: str) -> int | None:
+        return (row[value_key] or 0) if row[samples_key] else None
+
+    summary = {
+        "views": views,
+        "reactions": collected("r", "rs"),
+        "comments": collected("cm", "cms"),
+        "shares": collected("sh", "shs"),
+        "avg_views": _avg_views(views, published),
+        "engagement": _engagement(views, row["r"], row["cm"]),
+    }
+
+    platforms = _platform_stats(c, period, period_params)
+    for pl in platforms:
+        pl["platform"] = "ВКонтакте" if pl["platform"] == "vk" else "Telegram"
+
+    tags = _tag_breakdown(c, period, period_params)
+
+    c.execute(
+        f"SELECT title, published_at, tags, platforms, vk_post_id, "
+        f"t.views, t.views_samples, t.reactions, t.comments, t.shares, "
+        f"t.reactions_samples, t.comments_samples, t.shares_samples "
+        f"FROM {TOTALS} WHERE {period} ORDER BY published_at",
+        period_params,
+    )
+    posts = [dict(r) for r in c.fetchall()]
+
+    wb = _build_report(org, dt_start, dt_end, summary, published, platforms, tags,
+                       posts, _vk_community(c, gid))
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    fname = (f"отчёт_{org}_{dt_start.strftime('%d.%m.%Y')}-"
+             f"{dt_end.strftime('%d.%m.%Y')}.xlsx")
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(fname, safe='')}"},
+    )
+
+
 # ── Ядро: одно на глобальные и групповые ручки ──────────────────────────────
 # Раньше это была пара почти дословных копий на каждый отчёт: глобальную и
 # групповую отличало только условие выборки. Копии неизбежно разъезжаются —
@@ -225,6 +582,7 @@ def _summary(c, where: str, params: list) -> dict:
     published = count(" AND status='published'")
     scheduled = count(" AND status='scheduled'")
     drafts = count(" AND status='draft'")
+    on_review = count(" AND status='on_review'")
 
     c.execute(
         f"SELECT SUM(t.views) v,SUM(t.reactions) r,SUM(t.comments) cm,SUM(t.shares) sh,"
@@ -243,7 +601,8 @@ def _summary(c, where: str, params: list) -> dict:
     pl_stats = _platform_stats(c, f"{where} AND status='published'", params)
 
     return {
-        "total_posts": total, "published": published, "scheduled": scheduled, "drafts": drafts,
+        "total_posts": total, "published": published, "scheduled": scheduled,
+        "drafts": drafts, "on_review": on_review,
         "total_views": s["v"] or 0, "total_reactions": s["r"] or 0,
         "total_comments": s["cm"] or 0, "total_shares": s["sh"] or 0,
         "avg_views": _avg_views(_collected_views(s), published),
@@ -400,6 +759,22 @@ def analytics_export(
         conn.close()
 
 
+@router.get("/api/analytics/report")
+def analytics_report(
+    start_date: str = Query(...),
+    end_date: str = Query(...),
+    org: str = Query("Молодёжный центр"),
+    user_id: int = Depends(get_current_user_id),
+):
+    """Отчёт для учредителя по всем доступным пользователю постам."""
+    conn = get_db()
+    try:
+        scope, sp = posts_scope(user_id, conn, alias="")
+        return _report(conn.cursor(), scope, list(sp), org, start_date, end_date, None)
+    finally:
+        conn.close()
+
+
 # ── Group-scoped Analytics ──────────────────────────────────────────────────
 
 @router.get("/api/groups/{gid}/analytics/summary")
@@ -418,6 +793,30 @@ def group_analytics_timeline(gid: int, period: str = "month", user_id: int = Dep
     try:
         require_group_member(gid, user_id, conn)
         return _timeline(conn.cursor(), "group_id=%s", [gid], _period_days(period))
+    finally:
+        conn.close()
+
+
+@router.get("/api/groups/{gid}/analytics/report")
+def group_analytics_report(
+    gid: int,
+    start_date: str = Query(...),
+    end_date: str = Query(...),
+    user_id: int = Depends(get_current_user_id),
+):
+    """
+    Отчёт для учредителя. Название организации берём из названия группы —
+    просить человека вводить его в поле было бы лишним: оно уже есть.
+    """
+    conn = get_db()
+    try:
+        require_group_member(gid, user_id, conn)
+        c = conn.cursor()
+        c.execute("SELECT name FROM groups WHERE id=%s", (gid,))
+        row = c.fetchone()
+        if not row:
+            raise HTTPException(404, "Группа не найдена")
+        return _report(c, "group_id=%s", [gid], row["name"], start_date, end_date, gid)
     finally:
         conn.close()
 

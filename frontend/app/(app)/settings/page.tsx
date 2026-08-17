@@ -66,6 +66,7 @@ export default function SettingsPage() {
   const [tgBotToken, setTgBotToken] = useState('')
   const [tgChatId, setTgChatId]     = useState('')
   const [tgSaving, setTgSaving]     = useState(false)
+  const [approvalSaving, setApprovalSaving] = useState(false)
   const [tgDis, setTgDis]           = useState(false)
   const [showTgForm, setShowTgForm] = useState(false)
   const [showTgToken, setShowTgToken] = useState(false)
@@ -218,6 +219,20 @@ export default function SettingsPage() {
   }
 
   const isAdmin = currentGroup?.role === 'admin'
+
+  async function toggleApproval(value: boolean) {
+    if (!currentGroup) return
+    setApprovalSaving(true)
+    try {
+      await api.updateGroup(currentGroup.id, { require_approval: value })
+      // Правило читает и редактор постов, и список постов — обновляем группы
+      // целиком, иначе интерфейс до перезагрузки жил бы по старому порядку.
+      await refreshGroups()
+      showToast(value ? 'Согласование включено' : 'Согласование выключено', 'success')
+    }
+    catch (e: unknown) { showToast((e as Error).message, 'error') }
+    finally { setApprovalSaving(false) }
+  }
 
   const IntegCard = ({
     platform, color, icon, title, subtitle, children,
@@ -410,6 +425,33 @@ export default function SettingsPage() {
           </div>
         )}
       </IntegCard>
+
+      {/* Порядок публикации */}
+      {isAdmin && (
+        <div className="card anim-in" style={{ marginBottom: 12 }}>
+          <div className="card-header">
+            <span className="card-title">Порядок публикации</span>
+          </div>
+          <div style={{ padding: '16px 20px' }}>
+            <label className="opt-toggle">
+              <input
+                type="checkbox"
+                checked={!!currentGroup?.require_approval}
+                onChange={e => toggleApproval(e.target.checked)}
+                disabled={approvalSaving}
+              />
+              <span>
+                <span className="opt-toggle-ttl">Публиковать только после согласования</span>
+                <span className="opt-toggle-sub">
+                  Редакторы готовят посты и отправляют их на согласование, а выпускаете вы.
+                  Пока согласование выключено, редактор публикует в каналы организации сам.
+                  На вас правило не распространяется — свои посты вы выпускаете сразу.
+                </span>
+              </span>
+            </label>
+          </div>
+        </div>
+      )}
 
       {/* Invite links */}
       {isAdmin && (

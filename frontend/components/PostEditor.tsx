@@ -7,7 +7,6 @@ import EmojiPicker, { EmojiClickData, Theme } from 'emoji-picker-react'
 import { api, publishOutcome, waitForPublish } from '@/lib/api'
 import { useToast } from '@/contexts/ToastContext'
 import { useGroup } from '@/contexts/GroupContext'
-import { useAuth } from '@/contexts/AuthContext'
 import { applyEmojiSuggestion, getEmojiSuggestions } from '@/lib/postUtils'
 import type { MediaItem, Post, Template } from '@/lib/types'
 
@@ -66,6 +65,15 @@ const AI_MODIFIERS_CONFIG: { id: AiModifier; icon: ReactNode; title: string; sho
   { id: 'russify',  icon: <svg {...S14}><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>,                                                                               title: 'Русификация', short: 'Русские слова вместо англицизмов', info: 'Заменяет иностранные слова на естественные русские: фидбек→отклик, дедлайн→срок, контент→публикации' },
 ]
 
+/**
+ * Что автор выбирает в поле «Статус». Совпадает со статусами поста, но
+ * `on_review` здесь означает намерение — «сохранить и отправить на
+ * согласование», — а сам переход делает отдельная ручка: у него есть побочные
+ * действия (уведомить администраторов, записать в журнал), и вешать их на
+ * обычное сохранение нельзя.
+ */
+type EditorStatus = 'draft' | 'on_review' | 'scheduled' | 'published'
+
 type PostEditorProps = {
   editPost?: Post
   initialStatus?: 'draft' | 'scheduled' | 'published'
@@ -106,8 +114,10 @@ export default function PostEditor({
   const router = useRouter()
   const { showToast } = useToast()
   const { currentGroup } = useGroup()
-  const { user } = useAuth()
   const isEdit = !!editPost
+  // Виза нужна, когда группа этого требует, а человек не её администратор:
+  // заставлять администратора утверждать самого себя — обряд без содержания.
+  const needsApproval = !!currentGroup?.require_approval && currentGroup.role !== 'admin'
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const emojiCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -119,7 +129,8 @@ export default function PostEditor({
   const [content, setContent] = useState(editPost?.content ?? '')
   const [platforms, setPlatforms] = useState<string[]>(editPost?.platforms ?? ['vk'])
   const [tags, setTags] = useState<string[]>(editPost?.tags ?? [])
-  const [status, setStatus] = useState<'draft' | 'scheduled' | 'published'>(editPost?.status ?? initialStatus ?? 'draft')
+  const [status, setStatus] = useState<EditorStatus>(
+    (editPost?.status === 'on_review' ? 'on_review' : editPost?.status) ?? initialStatus ?? 'draft')
   const [schedAt, setSchedAt] = useState(editPost?.scheduled_at ? editPost.scheduled_at.slice(0, 16) : initialScheduledAt ?? '')
   const [locationAddress, setLocationAddress] = useState(editPost?.location_address ?? initialLocationAddress ?? '')
   const [locationLat, setLocationLat] = useState<number | null>(editPost?.location_lat ?? initialLocationLat ?? null)
@@ -143,10 +154,25 @@ export default function PostEditor({
   const [prevContent, setPrevContent] = useState<string | null>(null)
   const splitCallIdRef = useRef(0)
   const splitDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [volModalOpen, setVolModalOpen] = useState(false)
-  const [volItems, setVolItems] = useState<import('@/lib/types').VolunteerMedia[] | null>(null)
+  // Медиатека: всё уже загруженное в группе — одобренные материалы волонтёров
+  // и файлы из прошлых постов. Раньше выбор шёл только по волонтёрским
+  // загрузкам, то есть переиспользовать снятое на прошлом мероприятии было
+  // нельзя, хотя лежало оно в той же базе.
+  const [libOpen, setLibOpen] = useState(false)
+  const [libItems, setLibItems] = useState<import('@/lib/types').MediaLibraryItem[] | null>(null)
+  const [libQuery, setLibQuery] = useState('')
+  const [libSource, setLibSource] = useState<'' | 'volunteer' | 'post'>('')
 
   useEffect(() => { api.getTemplates().then(setTmpls).catch(console.error) }, [])
+
+  // Пост мог прийти из календаря сразу «на публикацию», а группа требует визы —
+  // тогда в списке не окажется выбранного варианта, и поле молча покажет не то,
+  // что в состоянии. Приводим намерение к тому, что человеку доступно.
+  useEffect(() => {
+    if (needsApproval && (status === 'scheduled' || status === 'published')) {
+      setStatus('on_review')
+    }
+  }, [needsApproval, status])
   useEffect(() => {
     return () => {
       if (emojiCloseTimerRef.current) clearTimeout(emojiCloseTimerRef.current)
@@ -180,9 +206,15 @@ export default function PostEditor({
     if (!content.trim()) { showToast('Введите текст', 'error'); return }
     setSaving(true)
     try {
+      // on_review в тело не кладём: пост сохраняется черновиком, а на
+      // согласование его отправляет отдельная ручка — она же уведомляет
+      // администраторов и пишет в журнал.
       const body = {
-        title, content, status, platforms, tags, media,
-        scheduled_at: status === 'scheduled' ? (schedAt || null) : null,
+        title, content, status: status === 'on_review' ? 'draft' : status,
+        platforms, tags, media,
+        // Желаемое время нужно и при согласовании: одобряющий по нему решает,
+        // ставить пост в расписание или выпускать сразу.
+        scheduled_at: (status === 'scheduled' || status === 'on_review') ? (schedAt || null) : null,
         location_address: locationAddress.trim() || null,
         location_lat: locationLat,
         location_lng: locationLng,
@@ -191,12 +223,22 @@ export default function PostEditor({
       if (isEdit) {
         if (currentGroup) await api.updateGroupPost(currentGroup.id, editPost!.id, body)
         else await api.updatePost(editPost!.id, body)
-        showToast('Пост обновлён!', 'success')
+        if (status === 'on_review' && currentGroup) {
+          await api.submitGroupPost(currentGroup.id, editPost!.id)
+          showToast('Отправлено на согласование', 'success',
+                    'Администратор группы получит уведомление')
+        } else {
+          showToast('Пост обновлён!', 'success')
+        }
       } else {
         let newPost: import('@/lib/types').Post
         if (currentGroup) newPost = await api.createGroupPost(currentGroup.id, body)
         else newPost = await api.createPost(body)
-        if (status === 'published' && currentGroup) {
+        if (status === 'on_review' && currentGroup) {
+          await api.submitGroupPost(currentGroup.id, newPost.id)
+          showToast('Отправлено на согласование', 'success',
+                    'Администратор группы получит уведомление')
+        } else if (status === 'published' && currentGroup) {
           try {
             // Ставим в очередь и ждём воркера: сама отправка идёт вне запроса
             const job = await api.publishGroupPost(currentGroup.id, newPost.id)
@@ -244,19 +286,31 @@ export default function PostEditor({
     setMedia(prev => prev.filter(m => m.url !== url))
   }
 
-  function openVolModal() {
-    setVolModalOpen(true)
-    if (!volItems && currentGroup) {
-      api.getVolunteerMedia(currentGroup.id, { status: 'approved' })
-        .then(data => setVolItems(data.items))
-        .catch(() => {})
-    }
+  function loadLibrary() {
+    if (!currentGroup) return
+    const params: Record<string, string> = { limit: '60' }
+    if (libQuery.trim()) params.q = libQuery.trim()
+    if (libSource) params.source = libSource
+    api.getMediaLibrary(currentGroup.id, params)
+      .then(data => setLibItems(data.items))
+      .catch(() => setLibItems([]))
   }
 
-  function addVolMedia(m: import('@/lib/types').MediaItem) {
-    if (!media.find(x => x.url === m.url)) {
-      setMedia(prev => [...prev, m])
-    }
+  // Поиск и фильтр по источнику считает сервер: фильтровать на клиенте поверх
+  // загруженной страницы значило бы «ничего не найдено» вместо «нет на этой
+  // странице». Ищем после паузы — иначе запрос на каждую букву.
+  useEffect(() => {
+    if (!libOpen) return
+    const t = setTimeout(loadLibrary, libQuery ? 350 : 0)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [libOpen, libQuery, libSource, currentGroup])
+
+  function toggleLibItem(m: import('@/lib/types').MediaItem) {
+    const item = { url: m.url, type: m.type, filename: m.filename }
+    setMedia(prev => prev.find(x => x.url === m.url)
+      ? prev.filter(x => x.url !== m.url)
+      : [...prev, item])
   }
 
   function togglePl(pl: string) {
@@ -648,14 +702,18 @@ export default function PostEditor({
                 >
                   {uploading ? 'Загружаем...' : '+ Добавить фото / видео / документ'}
                 </button>
-                {(user?.role === 'editor' || user?.role === 'admin') && (
+                {/* Право на медиатеку даёт роль в ГРУППЕ. Раньше здесь стояла
+                    глобальная роль 'editor', которой после разделения систем
+                    ролей не существует, — кнопку видели одни глобальные
+                    администраторы, а редакторы групп загружали файлы заново. */}
+                {currentGroup && currentGroup.role !== 'volunteer' && (
                   <button
                     type="button"
                     className="btn btn-secondary"
-                    onClick={openVolModal}
+                    onClick={() => setLibOpen(true)}
                     style={{ alignSelf: 'flex-start' }}
                   >
-                    📸 Из медиа волонтёров
+                    🗂 Медиатека
                   </button>
                 )}
               </div>
@@ -711,17 +769,37 @@ export default function PostEditor({
 
             <div className="fg">
               <label>Статус</label>
-              <select value={status} onChange={e => setStatus(e.target.value as 'draft' | 'scheduled' | 'published')}>
+              <select value={status} onChange={e => setStatus(e.target.value as EditorStatus)}>
                 <option value="draft">Черновик</option>
-                <option value="scheduled">Запланировать</option>
-                <option value="published">Опубликовать сейчас</option>
+                {needsApproval ? (
+                  <option value="on_review">Отправить на согласование</option>
+                ) : (
+                  <>
+                    <option value="scheduled">Запланировать</option>
+                    <option value="published">Опубликовать сейчас</option>
+                  </>
+                )}
               </select>
+              {needsApproval && (
+                <div className="ts tg" style={{ marginTop: 8 }}>
+                  В этой группе посты выходят после согласования: выпустит его администратор группы.
+                </div>
+              )}
             </div>
 
-            {status === 'scheduled' && (
+            {(status === 'scheduled' || status === 'on_review') && (
               <div className="fg">
-                <label>Дата и время публикации</label>
+                <label>
+                  {status === 'on_review'
+                    ? 'Желаемая дата публикации (необязательно)'
+                    : 'Дата и время публикации'}
+                </label>
                 <input type="datetime-local" value={schedAt} onChange={e => setSchedAt(e.target.value)} />
+                {status === 'on_review' && (
+                  <div className="ts tg" style={{ marginTop: 6 }}>
+                    Если дату не указать, согласованный пост уйдёт сразу после одобрения.
+                  </div>
+                )}
               </div>
             )}
 
@@ -759,90 +837,102 @@ export default function PostEditor({
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
               <button className="btn btn-secondary" onClick={() => setStep(3)}>← Назад</button>
               <button className="btn btn-primary" onClick={save} disabled={saving}>
-                {saving ? 'Сохраняем...' : status === 'published' ? 'Опубликовать' : status === 'scheduled' ? 'Запланировать' : 'Сохранить'}
+                {saving ? 'Сохраняем...'
+                  : status === 'published' ? 'Опубликовать'
+                  : status === 'scheduled' ? 'Запланировать'
+                  : status === 'on_review' ? 'На согласование'
+                  : 'Сохранить'}
                 {!saving && <span className="btn-icon">{status === 'published' ? IcoSend : IcoCheck}</span>}
               </button>
             </div>
           </div>
         )}
       </div>
-      {volModalOpen && (
-        <div className="overlay" onClick={() => setVolModalOpen(false)}>
-          <div className="modal" style={{ maxWidth: 640, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 22px', borderBottom: '1px solid var(--border)' }}>
-              <div className="card-title">Медиа волонтёров</div>
-              <button type="button" className="btn btn-ghost btn-sm" style={{ fontSize: 16, lineHeight: 1, padding: '4px 8px' }} onClick={() => setVolModalOpen(false)}>✕</button>
+      {libOpen && (
+        <div className="overlay" onClick={() => setLibOpen(false)}>
+          <div className="modal media-lib" onClick={e => e.stopPropagation()}>
+            <div className="media-lib-hd">
+              <div>
+                <div className="card-title">Медиатека</div>
+                <div className="media-lib-sub">
+                  Файлы, уже загруженные в группе: материалы волонтёров и вложения прошлых постов
+                </div>
+              </div>
+              <button type="button" className="btn btn-ghost btn-sm" style={{ fontSize: 16, lineHeight: 1, padding: '4px 8px' }} onClick={() => setLibOpen(false)}>✕</button>
             </div>
-            <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-              {volItems === null ? (
-                <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>Загрузка...</div>
-              ) : volItems.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-3)' }}>
-                  Одобренных медиа от волонтёров пока нет
+
+            <div className="media-lib-bar">
+              <input
+                className="srch"
+                placeholder="Поиск по названию файла или мероприятия..."
+                value={libQuery}
+                onChange={e => setLibQuery(e.target.value)}
+                style={{ flex: 1, minWidth: 200 }}
+              />
+              <div className="period-seg">
+                {([
+                  { v: '', l: 'Всё' },
+                  { v: 'volunteer', l: 'От волонтёров' },
+                  { v: 'post', l: 'Из постов' },
+                ] as const).map(o => (
+                  <button
+                    key={o.v}
+                    type="button"
+                    className={`period-seg-btn${libSource === o.v ? ' active' : ''}`}
+                    onClick={() => setLibSource(o.v)}
+                  >{o.l}</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="media-lib-body">
+              {libItems === null ? (
+                <div className="media-lib-empty">Загрузка...</div>
+              ) : libItems.length === 0 ? (
+                <div className="media-lib-empty">
+                  {libQuery || libSource
+                    ? 'Ничего не нашлось — попробуйте изменить запрос'
+                    : 'Медиатека пуста. Файлы попадут сюда из постов и одобренных загрузок волонтёров'}
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                  {volItems.map(item => (
-                    <div key={item.id}>
-                      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, color: 'var(--text-2)' }}>{item.event_name}</div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                        {item.media.filter(m => m.type === 'image').map((m, i) => {
-                          const url = m.url || ''
-                          const selected = !!media.find(x => x.url === url)
-                          return (
-                            <div
-                              key={i}
-                              onClick={() => addVolMedia(m)}
-                              style={{
-                                width: 100, height: 100, borderRadius: 'var(--r-md)',
-                                overflow: 'hidden', cursor: 'pointer',
-                                border: selected ? '2px solid var(--accent)' : '2px solid transparent',
-                                opacity: selected ? 0.6 : 1,
-                                position: 'relative',
-                              }}
-                            >
-                              <Image src={url} alt="" width={100} height={100} style={{ objectFit: 'cover' }} />
-                              {selected && (
-                                <div style={{ position: 'absolute', top: 4, right: 4, width: 18, height: 18, borderRadius: '50%', background: 'var(--accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
-                                  ✓
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })}
-                        {item.media.filter(m => m.type === 'video').map((m, i) => {
-                          const url = m.url || ''
-                          const selected = !!media.find(x => x.url === url)
-                          return (
-                            <div
-                              key={`v${i}`}
-                              onClick={() => addVolMedia(m)}
-                              style={{
-                                width: 100, height: 100, borderRadius: 'var(--r-md)',
-                                background: 'var(--surface-2)', cursor: 'pointer',
-                                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4,
-                                border: selected ? '2px solid var(--accent)' : '2px solid transparent',
-                                opacity: selected ? 0.6 : 1,
-                              }}
-                            >
-                              <span style={{ fontSize: 24 }}>🎬</span>
-                              <span style={{ fontSize: 9, color: 'var(--text-3)', textAlign: 'center', padding: '0 4px', wordBreak: 'break-all' }}>{m.filename}</span>
-                              {selected && (
-                                <div style={{ position: 'absolute', top: 4, right: 4, width: 18, height: 18, borderRadius: '50%', background: 'var(--accent)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
-                                  ✓
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  ))}
+                <div className="media-lib-grid">
+                  {libItems.map(m => {
+                    const selected = !!media.find(x => x.url === m.url)
+                    return (
+                      <button
+                        key={m.url}
+                        type="button"
+                        className={`media-lib-card${selected ? ' selected' : ''}`}
+                        onClick={() => toggleLibItem(m)}
+                        title={`${m.label}${m.author ? ` · ${m.author}` : ''}`}
+                      >
+                        <div className="media-lib-thumb">
+                          {m.type === 'image' ? (
+                            <Image src={m.url} alt={m.filename} width={132} height={100} style={{ objectFit: 'cover', width: '100%', height: '100%' }} />
+                          ) : (
+                            <span className="media-lib-ico">{m.type === 'video' ? '🎬' : '📄'}</span>
+                          )}
+                          {selected && <span className="media-lib-check">✓</span>}
+                        </div>
+                        <div className="media-lib-meta">
+                          <span className="media-lib-label">{m.label}</span>
+                          <span className="media-lib-src">
+                            {m.source === 'volunteer' ? 'от волонтёра' : 'из поста'}
+                            {m.at ? ` · ${m.at.slice(8, 10)}.${m.at.slice(5, 7)}.${m.at.slice(0, 4)}` : ''}
+                          </span>
+                        </div>
+                      </button>
+                    )
+                  })}
                 </div>
               )}
             </div>
-            <div className="modal-ft">
-              <button type="button" className="btn btn-primary btn-sm" onClick={() => setVolModalOpen(false)}>
+
+            <div className="modal-ft" style={{ justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                Выбрано файлов: {media.length}
+              </span>
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => setLibOpen(false)}>
                 Готово
               </button>
             </div>

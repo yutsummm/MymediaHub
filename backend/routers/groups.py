@@ -30,7 +30,7 @@ def create_group(req: GroupCreate, user_id: int = Depends(get_current_user_id)):
         (gid, user_id),
     )
     conn.commit()
-    c.execute("SELECT id, name, description, avatar, created_by, created_at FROM groups WHERE id=%s", (gid,))
+    c.execute("SELECT id, name, description, avatar, require_approval, created_by, created_at FROM groups WHERE id=%s", (gid,))
     group = c.fetchone()
     conn.close()
     result = dict(group)
@@ -43,7 +43,7 @@ def get_my_groups(user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
     c.execute(
-        "SELECT g.id, g.name, g.description, g.avatar, gm.role, g.created_at "
+        "SELECT g.id, g.name, g.description, g.avatar, g.require_approval, gm.role, g.created_at "
         "FROM groups g JOIN group_members gm ON g.id = gm.group_id WHERE gm.user_id=%s ORDER BY g.id",
         (user_id,),
     )
@@ -57,7 +57,7 @@ def get_group(gid: int, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
     role = require_group_member(gid, user_id, conn)
-    c.execute("SELECT id, name, description, avatar, created_by, created_at FROM groups WHERE id=%s", (gid,))
+    c.execute("SELECT id, name, description, avatar, require_approval, created_by, created_at FROM groups WHERE id=%s", (gid,))
     group = c.fetchone()
     conn.close()
     if not group:
@@ -86,7 +86,7 @@ def update_group(gid: int, req: GroupUpdate, user_id: int = Depends(get_current_
     params.append(gid)
     c.execute(f"UPDATE groups SET {', '.join(updates)} WHERE id=%s", params)
     conn.commit()
-    c.execute("SELECT id, name, description, avatar, created_by, created_at FROM groups WHERE id=%s", (gid,))
+    c.execute("SELECT id, name, description, avatar, require_approval, created_by, created_at FROM groups WHERE id=%s", (gid,))
     group = c.fetchone()
     conn.close()
     result = dict(group)
@@ -340,7 +340,7 @@ def accept_invite(token: str, user_id: int = Depends(get_current_user_id)):
         raise
     conn.commit()
     c.execute(
-        "SELECT g.id, g.name, g.description, g.avatar, gm.role, g.created_at "
+        "SELECT g.id, g.name, g.description, g.avatar, g.require_approval, gm.role, g.created_at "
         "FROM groups g JOIN group_members gm ON g.id = gm.group_id WHERE gm.user_id=%s AND g.id=%s",
         (user_id, gid),
     )
