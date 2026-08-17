@@ -78,8 +78,15 @@ def _overdue_posts(conn) -> int:
     # обработчик выше, и счётчик просроченных постов не считался никогда, то
     # есть единственный внешний признак вставшего планировщика молчал.
     # У `secs` тип double precision, дробное значение он принимает как есть.
+    # publish_error IS NULL — только те, кого ещё ждут. Посты, на которых
+    # flag_missed_posts() уже поставил крест, статус 'scheduled' сохраняют
+    # навсегда, и без этого условия счётчик считал их до скончания века:
+    # один пропущенный когда-то пост держал сигнал зажжённым вечно, а значит
+    # сигнал ничего не значил. Здесь он должен отвечать на один вопрос —
+    # «есть ли то, что должно было выйти и ещё может выйти».
     c.execute(
         "SELECT COUNT(*) AS n FROM posts WHERE status='scheduled' AND scheduled_at IS NOT NULL "
+        "AND publish_error IS NULL "
         "AND scheduled_at < NOW() - make_interval(secs => %s)",
         (scheduler.SCHEDULER_INTERVAL * 3,),
     )

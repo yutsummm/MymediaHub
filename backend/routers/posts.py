@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from psycopg2.extras import Json
 
 import audit
-from models import AIEnhanceRequest, GenerateRequest, PostCreate, PostUpdate
+import review
+from models import AIEnhanceRequest, GenerateRequest, PostCreate, PostUpdate, ReviewReject
 from publish_queue import enqueue, get_job, job_for_post
 from stats import save_platform_stats, serialize_post, serialize_posts
 from utils import (
@@ -336,6 +337,11 @@ def create_group_post(gid: int, body: PostCreate, user_id: int = Depends(get_cur
     if role == "volunteer":
         conn.close()
         raise HTTPException(403, "Наблюдатели не могут создавать посты")
+    try:
+        review.check_may_release(conn, gid, role, body.status)
+    except HTTPException:
+        conn.close()
+        raise
     pid = _insert_post(c, body, user_id, gid)
     conn.commit()
     c.execute("SELECT * FROM posts WHERE id=%s", (pid,))
@@ -375,6 +381,11 @@ def update_group_post(gid: int, post_id: int, body: PostUpdate, user_id: int = D
     if not c.fetchone():
         conn.close()
         raise HTTPException(404, "Пост не найден")
+    try:
+        review.check_may_release(conn, gid, role, body.status)
+    except HTTPException:
+        conn.close()
+        raise
     updates: list[str] = []
     params: list = []
     if body.title is not None:
@@ -454,7 +465,74 @@ def publish_group_post(gid: int, post_id: int, user_id: int = Depends(get_curren
         conn.close()
         raise HTTPException(404, "Пост не найден")
     try:
+        # Кнопка публикации — тот же выход в свет, что и статус: закрыв только
+        # статусы, мы оставили бы дверь рядом открытой.
+        review.check_may_release(conn, gid, role, "published")
         return enqueue(conn, post_id, gid, user_id)
+    finally:
+        conn.close()
+
+
+# ── Согласование ─────────────────────────────────────────────────────────────
+# Отдельная тройка ручек вместо «поставьте статус on_review через PUT»: у
+# перехода есть побочные действия — уведомить администраторов, записать в
+# журнал, при одобрении выпустить пост, — и прятать их внутрь обновления поля
+# значило бы, что любой PUT со статусом молча рассылает уведомления.
+
+def _review_post(gid: int, post_id: int, user_id: int, conn, admin_only: bool):
+    role = require_group_member(gid, user_id, conn)
+    if admin_only and role != "admin":
+        raise HTTPException(403, "Согласовывать посты может только администратор группы")
+    if role == "volunteer":
+        raise HTTPException(403, "Наблюдатели не работают с постами")
+    c = conn.cursor()
+    c.execute("SELECT * FROM posts WHERE id=%s AND group_id=%s", (post_id, gid))
+    post = c.fetchone()
+    if not post:
+        raise HTTPException(404, "Пост не найден")
+    return post
+
+
+@router.post("/api/groups/{gid}/posts/{post_id}/submit")
+def submit_group_post(
+    gid: int, post_id: int,
+    user_id: int = Depends(get_current_user_id), request: Request = None,
+):
+    """Отправляет пост на согласование администратору группы."""
+    conn = get_db()
+    try:
+        post = _review_post(gid, post_id, user_id, conn, admin_only=False)
+        review.submit(conn, post, user_id, request)
+        return {"status": "on_review"}
+    finally:
+        conn.close()
+
+
+@router.post("/api/groups/{gid}/posts/{post_id}/approve")
+def approve_group_post(
+    gid: int, post_id: int,
+    user_id: int = Depends(get_current_user_id), request: Request = None,
+):
+    """Одобряет пост: он уходит в расписание или сразу в очередь публикации."""
+    conn = get_db()
+    try:
+        post = _review_post(gid, post_id, user_id, conn, admin_only=True)
+        return review.approve(conn, post, user_id, request)
+    finally:
+        conn.close()
+
+
+@router.post("/api/groups/{gid}/posts/{post_id}/reject")
+def reject_group_post(
+    gid: int, post_id: int, body: ReviewReject,
+    user_id: int = Depends(get_current_user_id), request: Request = None,
+):
+    """Возвращает пост автору с замечанием."""
+    conn = get_db()
+    try:
+        post = _review_post(gid, post_id, user_id, conn, admin_only=True)
+        review.reject(conn, post, user_id, body.comment, request)
+        return {"status": "draft"}
     finally:
         conn.close()
 

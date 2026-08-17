@@ -77,6 +77,7 @@ JSON_FIELDS = ("platforms", "tags", "media", "tg_message_ids")
 DATE_FIELDS = (
     "created_at", "scheduled_at", "published_at", "vk_stats_updated_at",
     "joined_at", "connected_at", "updated_at", "finished_at",
+    "submitted_at", "reviewed_at",
 )
 
 

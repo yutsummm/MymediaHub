@@ -70,6 +70,32 @@ async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
 const body = (data: unknown) => JSON.stringify(data)
 
 /**
+ * Скачивает файл, отданный API. Имя берём из Content-Disposition — сервер
+ * называет файл по-русски и по периоду, а придумывать имя заново на клиенте
+ * значило бы разойтись с ним при первой же правке.
+ */
+async function download(path: string, fallbackName: string): Promise<void> {
+  const token = _getToken()
+  const headers: Record<string, string> = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  const res = await fetch(`${BASE}${path}`, { headers })
+  if (!res.ok) {
+    const text = await res.text().catch(() => '')
+    let detail: string | undefined
+    try { detail = JSON.parse(text)?.detail } catch {}
+    throw new Error(detail ?? `Не удалось получить файл: ${res.status}`)
+  }
+  const blob = await res.blob()
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  const cd = res.headers.get('content-disposition') ?? ''
+  const match = cd.match(/filename\*=UTF-8''(.+)/)
+  a.download = match ? decodeURIComponent(match[1]) : fallbackName
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
+/**
  * Ждёт, пока воркер разберёт задачу публикации.
  *
  * Отправка в соцсети идёт вне HTTP-запроса, поэтому результат забираем
@@ -186,22 +212,11 @@ export const api = {
   getAnalyticsSummary: () => req<import('./types').AnalyticsSummary>('/api/analytics/summary'),
   getTimeline: (period: string) =>
     req<import('./types').TimelinePoint[]>(`/api/analytics/timeline?period=${period}`),
-  exportAnalytics: async (startDate: string, endDate: string): Promise<void> => {
-    const url = `${BASE}/api/analytics/export?start_date=${startDate}&end_date=${endDate}`
-    const token = _getToken()
-    const headers: Record<string, string> = {}
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    const res = await fetch(url, { headers })
-    if (!res.ok) throw new Error(`Ошибка экспорта: ${res.status}`)
-    const blob = await res.blob()
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    const cd = res.headers.get('content-disposition') ?? ''
-    const match = cd.match(/filename\*=UTF-8''(.+)/)
-    a.download = match ? decodeURIComponent(match[1]) : `аналитика.xlsx`
-    a.click()
-    URL.revokeObjectURL(a.href)
-  },
+  exportAnalytics: (startDate: string, endDate: string): Promise<void> =>
+    download(`/api/analytics/export?start_date=${startDate}&end_date=${endDate}`, 'аналитика.xlsx'),
+  // Отчёт для учредителя — другой документ и другой язык, чем выгрузка аналитики
+  downloadReport: (startDate: string, endDate: string): Promise<void> =>
+    download(`/api/analytics/report?start_date=${startDate}&end_date=${endDate}`, 'отчёт.xlsx'),
 
   getNotifications: () =>
     req<{ items: import('./types').Notification[]; total: number }>('/api/notifications'),
@@ -255,7 +270,7 @@ export const api = {
       method: 'POST', body: body({ name, description: description || '' }),
     }),
   getGroup: (groupId: number) => req<import('./types').Group>(`/api/groups/${groupId}`),
-  updateGroup: (groupId: number, data: { name?: string; description?: string; avatar?: string }) =>
+  updateGroup: (groupId: number, data: { name?: string; description?: string; avatar?: string; require_approval?: boolean }) =>
     req<import('./types').Group>(`/api/groups/${groupId}`, {
       method: 'PUT', body: body(data),
     }),
@@ -336,6 +351,26 @@ export const api = {
   publishGroupPost: (groupId: number, postId: number) =>
     req<import('./types').PublishJob>(`/api/groups/${groupId}/posts/${postId}/publish`, { method: 'POST' }),
 
+  // Согласование. Отдельные ручки, а не смена статуса через PUT: у перехода
+  // есть побочные действия — уведомления, журнал, выпуск поста, — и прятать
+  // их внутрь обновления поля значило бы, что любой PUT рассылает уведомления.
+  submitGroupPost: (groupId: number, postId: number) =>
+    req<{ status: string }>(`/api/groups/${groupId}/posts/${postId}/submit`, { method: 'POST' }),
+  approveGroupPost: (groupId: number, postId: number) =>
+    req<{ status: string; job: import('./types').PublishJob | null }>(
+      `/api/groups/${groupId}/posts/${postId}/approve`, { method: 'POST' }),
+  rejectGroupPost: (groupId: number, postId: number, comment: string) =>
+    req<{ status: string }>(`/api/groups/${groupId}/posts/${postId}/reject`, {
+      method: 'POST', body: body({ comment }),
+    }),
+
+  // Медиатека: одобренные материалы волонтёров плюс файлы из прошлых постов
+  getMediaLibrary: (groupId: number, params?: Record<string, string>) => {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return req<{ items: import('./types').MediaLibraryItem[] } & import('./types').PageMeta>(
+      `/api/groups/${groupId}/media-library${qs}`)
+  },
+
   // Group-scoped settings
   getGroupVkSettings: (groupId: number) =>
     req<import('./types').VkSettings>(`/api/groups/${groupId}/settings/vk`),
@@ -363,22 +398,12 @@ export const api = {
     req<import('./types').AnalyticsSummary>(`/api/groups/${groupId}/analytics/summary`),
   getGroupTimeline: (groupId: number, period: string) =>
     req<import('./types').TimelinePoint[]>(`/api/groups/${groupId}/analytics/timeline?period=${period}`),
-  exportGroupAnalytics: async (groupId: number, startDate: string, endDate: string): Promise<void> => {
-    const url = `${BASE}/api/groups/${groupId}/analytics/export?start_date=${startDate}&end_date=${endDate}`
-    const token = _getToken()
-    const headers: Record<string, string> = {}
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    const res = await fetch(url, { headers })
-    if (!res.ok) throw new Error(`Ошибка экспорта: ${res.status}`)
-    const blob = await res.blob()
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    const cd = res.headers.get('content-disposition') ?? ''
-    const match = cd.match(/filename\*=UTF-8''(.+)/)
-    a.download = match ? decodeURIComponent(match[1]) : `аналитика.xlsx`
-    a.click()
-    URL.revokeObjectURL(a.href)
-  },
+  exportGroupAnalytics: (groupId: number, startDate: string, endDate: string): Promise<void> =>
+    download(`/api/groups/${groupId}/analytics/export?start_date=${startDate}&end_date=${endDate}`,
+      'аналитика.xlsx'),
+  downloadGroupReport: (groupId: number, startDate: string, endDate: string): Promise<void> =>
+    download(`/api/groups/${groupId}/analytics/report?start_date=${startDate}&end_date=${endDate}`,
+      'отчёт.xlsx'),
 
   // Group-scoped sync VK stats
   syncGroupVkStats: (groupId: number) =>

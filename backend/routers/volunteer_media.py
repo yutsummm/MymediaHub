@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 import audit
+import media_library
 from utils import (
     as_json_list,
     get_current_user_id,
@@ -44,12 +45,21 @@ def get_volunteer_media(
     if user_id_filter and role != "volunteer":
         q += " AND vm.user_id=%s"
         params.append(user_id_filter)
+    # Считаем по тем же условиям, что и выбираем. Раньше счётчик брал всю
+    # группу целиком: волонтёр видел свои три загрузки и подпись «из 120», а
+    # пагинация рисовала шесть несуществующих страниц.
+    count_q = q.replace(
+        "SELECT vm.*, u.name as user_name FROM volunteer_media vm JOIN users u ON vm.user_id=u.id",
+        "SELECT COUNT(*) FROM volunteer_media vm", 1,
+    )
+    count_params = list(params)
+
     limit, offset = paging(limit, offset)
     q += " ORDER BY vm.created_at DESC LIMIT %s OFFSET %s"
     params += [limit, offset]
     c.execute(q, params)
     rows = c.fetchall()
-    c.execute("SELECT COUNT(*) FROM volunteer_media WHERE group_id=%s", (gid,))
+    c.execute(count_q, count_params)
     total = c.fetchone()["count"]
     conn.close()
     result = []
@@ -58,6 +68,31 @@ def get_volunteer_media(
         d["media"] = sign_media_list(as_json_list(d["media"]))
         result.append(d)
     return {"items": result, **page_meta(total, limit, offset)}
+
+
+@router.get("/api/groups/{gid}/media-library")
+def get_media_library(
+    gid: int,
+    q: str | None = None,
+    type: str | None = None,
+    source: str | None = None,
+    limit: int = 60,
+    offset: int = 0,
+    user_id: int = Depends(get_current_user_id),
+):
+    """
+    Всё уже загруженное в группе: одобренные материалы волонтёров плюс файлы
+    из прошлых постов. Наблюдателям не отдаём — медиатека нужна тому, кто пишет.
+    """
+    conn = get_db()
+    try:
+        role = require_group_member(gid, user_id, conn)
+        if role == "volunteer":
+            raise HTTPException(403, "Наблюдателям медиатека недоступна")
+        return media_library.browse(conn, gid, q=q, kind=type, source=source,
+                                    limit=limit, offset=offset)
+    finally:
+        conn.close()
 
 
 @router.post("/api/groups/{gid}/volunteer-media")

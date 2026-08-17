@@ -18,8 +18,14 @@ const fmtDt = (s: string | null) => {
 }
 const fmtDate = (s: string | null) => s ? new Date(s).toLocaleDateString('ru-RU', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
 
-const SL: Record<string, string> = { draft: 'Черновик', scheduled: 'Запланирован', published: 'Опубликован' }
-const SC: Record<string, string> = { draft: 's-draft', scheduled: 's-scheduled', published: 's-published' }
+const SL: Record<string, string> = {
+  draft: 'Черновик', on_review: 'На согласовании',
+  scheduled: 'Запланирован', published: 'Опубликован',
+}
+const SC: Record<string, string> = {
+  draft: 's-draft', on_review: 's-review',
+  scheduled: 's-scheduled', published: 's-published',
+}
 
 const S = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 const IcoEdit  = <svg {...S}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -31,10 +37,15 @@ const IcoCal   = <svg width="13" height="13" viewBox="0 0 24 24" fill="none" str
 
 const STATUSES = [
   { v: '',          l: 'Все' },
+  { v: 'on_review', l: 'На согласовании' },
   { v: 'published', l: 'Опубликованы' },
   { v: 'scheduled', l: 'Запланированы' },
   { v: 'draft',     l: 'Черновики' },
 ]
+
+const IcoOk = <svg {...S}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+const IcoBack = <svg {...S}><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
+const IcoReview = <svg {...S}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
 
 function SkeletonRow() {
   return (
@@ -74,6 +85,11 @@ export default function PostsPage() {
   const [offset, setOffset] = useState(0)
   const [meta, setMeta] = useState({ total: 0, limit: PAGE_SIZE, offset: 0 })
   const [deleteConfirm, setDeleteConfirm] = useState<Post | null>(null)
+  // Возврат на доработку требует замечания: «доработайте» без объяснения
+  // бесполезно — автор не узнает, что именно не так.
+  const [rejecting, setRejecting] = useState<Post | null>(null)
+  const [rejectComment, setRejectComment] = useState('')
+  const [reviewing, setReviewing] = useState<number | null>(null)
 
   // Sync status filter with URL
   useEffect(() => {
@@ -126,6 +142,62 @@ export default function PostsPage() {
   // Удаление — тоже про группу. Раньше здесь стояла глобальная роль, из-за чего
   // администратор группы не мог удалить пост в своей же группе.
   const canDelete = (currentGroup?.role ?? 'admin') === 'admin'
+  // Согласование: визирует только администратор группы, отправляет — любой,
+  // кто вообще может править посты.
+  const canApprove = currentGroup?.role === 'admin'
+  const needsApproval = !!currentGroup?.require_approval && currentGroup.role !== 'admin'
+
+  async function handleSubmitForReview(p: Post) {
+    if (!currentGroup) return
+    setReviewing(p.id)
+    try {
+      await api.submitGroupPost(currentGroup.id, p.id)
+      showToast('Отправлено на согласование', 'success',
+                'Администратор группы получит уведомление')
+      load()
+    }
+    catch (e: unknown) { showToast((e as Error).message, 'error') }
+    finally { setReviewing(null) }
+  }
+
+  async function handleApprove(p: Post) {
+    if (!currentGroup) return
+    setReviewing(p.id)
+    try {
+      const r = await api.approveGroupPost(currentGroup.id, p.id)
+      if (r.status === 'scheduled') {
+        showToast('Пост согласован', 'success', 'Выйдет в назначенное время')
+        load()
+        return
+      }
+      showToast('Пост согласован, отправляется...', 'info', 'Публикация идёт в фоне')
+      if (r.job) {
+        const finished = await waitForPublish(r.job.id)
+        if (finished.state === 'failed') {
+          showToast('Не удалось опубликовать', 'error', finished.error ?? undefined)
+        } else {
+          const out = publishOutcome(finished)
+          const errs = [out.vk_error && `VK: ${out.vk_error}`, out.tg_error && `Telegram: ${out.tg_error}`].filter(Boolean) as string[]
+          if (errs.length) showToast('Опубликован частично', 'error', errs.join('\n'))
+          else showToast('Пост опубликован', 'success')
+        }
+      }
+      load()
+    }
+    catch (e: unknown) { showToast((e as Error).message, 'error') }
+    finally { setReviewing(null) }
+  }
+
+  async function confirmReject() {
+    if (!rejecting || !currentGroup) return
+    try {
+      await api.rejectGroupPost(currentGroup.id, rejecting.id, rejectComment)
+      showToast('Возвращено на доработку', 'success', 'Автор получит уведомление с замечанием')
+      load()
+    }
+    catch (e: unknown) { showToast((e as Error).message, 'error') }
+    finally { setRejecting(null); setRejectComment('') }
+  }
 
   async function handleDelete(p: Post) {
     setDeleteConfirm(p)
@@ -290,6 +362,11 @@ export default function PostsPage() {
                       onClick={() => canEdit && router.push(`/posts/${p.id}/edit`)}
                     >{p.title}</div>
                     {p.author_name && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{p.author_name}</div>}
+                    {p.review_comment && (
+                      <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 4, maxWidth: 260 }}>
+                        Возвращено: {p.review_comment}
+                      </div>
+                    )}
                   </td>
                   <td onClick={e => e.stopPropagation()}>
                     <span className={`sbadge ${SC[p.status]}`}>{SL[p.status]}</span>
@@ -339,7 +416,44 @@ export default function PostsPage() {
                           {IcoEdit}
                         </button>
                       )}
-                      {canEdit && (p.status === 'draft' || p.status === 'scheduled') && (
+                      {/* На согласование — путь редактора там, где виза обязательна */}
+                      {canEdit && needsApproval && p.status === 'draft' && (
+                        <button
+                          style={{ ...iconBtn }}
+                          onClick={() => handleSubmitForReview(p)}
+                          disabled={reviewing === p.id}
+                          title="Отправить на согласование"
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--accent-light)'; (e.currentTarget as HTMLElement).style.color = 'var(--accent)'; (e.currentTarget as HTMLElement).style.borderColor = 'transparent'; }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; }}
+                        >
+                          {reviewing === p.id ? IcoSpin : IcoReview}
+                        </button>
+                      )}
+                      {/* Виза: одобрить или вернуть с замечанием */}
+                      {canApprove && p.status === 'on_review' && (
+                        <>
+                          <button
+                            style={{ ...iconBtn }}
+                            onClick={() => handleApprove(p)}
+                            disabled={reviewing === p.id}
+                            title="Согласовать и выпустить"
+                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--green-bg)'; (e.currentTarget as HTMLElement).style.color = 'var(--green)'; (e.currentTarget as HTMLElement).style.borderColor = 'transparent'; }}
+                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; }}
+                          >
+                            {reviewing === p.id ? IcoSpin : IcoOk}
+                          </button>
+                          <button
+                            style={{ ...iconBtn }}
+                            onClick={() => { setRejecting(p); setRejectComment('') }}
+                            title="Вернуть на доработку"
+                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'var(--yellow-bg)'; (e.currentTarget as HTMLElement).style.color = 'var(--yellow)'; (e.currentTarget as HTMLElement).style.borderColor = 'transparent'; }}
+                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = 'var(--text-3)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'; }}
+                          >
+                            {IcoBack}
+                          </button>
+                        </>
+                      )}
+                      {canEdit && !needsApproval && (p.status === 'draft' || p.status === 'scheduled') && (
                         <button
                           style={{ ...iconBtn }}
                           onClick={() => handlePublish(p)}
@@ -388,6 +502,46 @@ export default function PostsPage() {
         onConfirm={confirmDelete}
         onCancel={() => setDeleteConfirm(null)}
       />
+
+      {/* Возврат на доработку. Отдельная модалка, а не ConfirmDialog: без
+          замечания возврат бесполезен, поэтому текст обязателен. */}
+      {rejecting && (
+        <div className="overlay" onClick={() => setRejecting(null)}>
+          <div className="modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '20px 22px 6px' }}>
+              <div className="card-title" style={{ marginBottom: 8 }}>Вернуть на доработку</div>
+              {/* Заголовок отдельной строкой, а не в кавычках внутри фразы:
+                  названия постов сами часто написаны в кавычках, и получалось
+                  «Открытие сезона в «Спектре»» — двойные кавычки подряд. */}
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>
+                {rejecting.title}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 14, lineHeight: 1.5 }}>
+                Пост вернётся автору черновиком. Напишите, что нужно поправить — это увидит
+                автор в уведомлении.
+              </div>
+              <textarea
+                value={rejectComment}
+                onChange={e => setRejectComment(e.target.value)}
+                placeholder="Например: уточните дату мероприятия и добавьте адрес"
+                rows={4}
+                style={{ width: '100%', resize: 'vertical' }}
+                autoFocus
+              />
+            </div>
+            <div className="modal-ft">
+              <button className="btn btn-secondary btn-sm" onClick={() => setRejecting(null)}>Отмена</button>
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={confirmReject}
+                disabled={!rejectComment.trim()}
+              >
+                Вернуть автору
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

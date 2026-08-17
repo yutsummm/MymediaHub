@@ -18,6 +18,7 @@ const ANLT_ICONS = [
   <svg key="share" {...S18}><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>,
 ]
 const IcoDownload = <svg {...S14}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+const IcoReport = <svg {...S14}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
 const IcoChevron = <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
 
 const MONTHS_RU = ['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь']
@@ -33,6 +34,23 @@ function buildMonthOptions() {
     const lastDay = isCurrentMonth ? now : new Date(y, m + 1, 0)
     const end = `${lastDay.getFullYear()}-${String(lastDay.getMonth() + 1).padStart(2, '0')}-${String(lastDay.getDate()).padStart(2, '0')}`
     opts.push({ label: `${MONTHS_RU[m]} ${y}${isCurrentMonth ? ' (по сегодня)' : ''}`, startDate: start, endDate: end })
+  }
+  // Кварталы — для отчёта учредителю: он запрашивается именно за квартал, и
+  // складывать три месяца руками человеку незачем.
+  for (let i = 0; i < 4; i++) {
+    const anchor = new Date(now.getFullYear(), now.getMonth() - i * 3, 1)
+    const q = Math.floor(anchor.getMonth() / 3)
+    const y = anchor.getFullYear()
+    const startMonth = q * 3
+    const start = `${y}-${String(startMonth + 1).padStart(2, '0')}-01`
+    const quarterEnd = new Date(y, startMonth + 3, 0)
+    const isCurrent = quarterEnd > now
+    const last = isCurrent ? now : quarterEnd
+    const end = `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`
+    const label = `${q + 1} квартал ${y}${isCurrent ? ' (по сегодня)' : ''}`
+    if (!opts.some(o => o.label === label)) {
+      opts.push({ label, startDate: start, endDate: end })
+    }
   }
   return opts
 }
@@ -106,6 +124,7 @@ export default function AnalyticsPage() {
   const [retryKey, setRetryKey] = useState(0)
   const [period, setPeriod] = useState('month')
   const [exporting, setExporting] = useState(false)
+  const [reporting, setReporting] = useState(false)
   const monthOptions = buildMonthOptions()
   const [selectedMonth, setSelectedMonth] = useState(0)
   const { currentGroup } = useGroup()
@@ -193,6 +212,19 @@ export default function AnalyticsPage() {
     finally { setExporting(false) }
   }
 
+  // Отчёт учредителю — не та же выгрузка под другим именем: там связный текст
+  // «что делали и что из этого вышло», разбивка по направлениям и список
+  // публикаций со ссылками. Аналитика в интерфейсе отвечает на вопросы того,
+  // кто ведёт каналы, а этот документ — на вопросы того, кто их не ведёт.
+  async function handleReport() {
+    if (!gid) return
+    const opt = monthOptions[selectedMonth]
+    setReporting(true)
+    try { await api.downloadGroupReport(gid, opt.startDate, opt.endDate) }
+    catch (e) { alert((e as Error).message) }
+    finally { setReporting(false) }
+  }
+
   const mc = sum ? [
     { label: 'Просмотров',   raw: sum.total_views,     icon: ANLT_ICONS[0] },
     { label: 'Реакций',      raw: sum.total_reactions, icon: ANLT_ICONS[1] },
@@ -256,6 +288,16 @@ export default function AnalyticsPage() {
             <button className="btn btn-sm btn-secondary" onClick={handleExport} disabled={exporting} style={{ gap: 5, flexShrink: 0 }}>
               {exporting ? <div className="ai-spinner" style={{ width: 13, height: 13 }} /> : IcoDownload}
               {exporting ? 'Формируем...' : 'Excel'}
+            </button>
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={handleReport}
+              disabled={reporting}
+              title="Готовый документ для учредителя за выбранный период"
+              style={{ gap: 5, flexShrink: 0 }}
+            >
+              {reporting ? <div className="ai-spinner" style={{ width: 13, height: 13 }} /> : IcoReport}
+              {reporting ? 'Готовим...' : 'Отчёт'}
             </button>
           </div>
         </div>

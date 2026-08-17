@@ -14,6 +14,11 @@
   --accent:       #E8E8E8;
   --accent-2:     #FFFFFF;
   --accent-light: rgba(255,255,255,0.06);
+  /* «На согласовании» — единственный статус, который ждёт решения человека,
+     поэтому он самый заметный из бейджей. Через --accent-light он выходил
+     почти неотличим от черновика. */
+  --review-bg: rgba(255,255,255,0.13);
+  --review-fg: #FFFFFF;
   --accent-glow:  rgba(255,255,255,0.06);
 
   /* ── Text ──
@@ -171,6 +176,8 @@
   --accent:       #0B0B0C;
   --accent-2:     #000000;
   --accent-light: rgba(11,11,12,0.06);
+  --review-bg: rgba(16,16,20,0.10);
+  --review-fg: #101014;
   --accent-glow:  rgba(11,11,12,0.10);
 
   --text:   #14141A;
@@ -815,6 +822,68 @@ button.nav-item {
 .s-scheduled::before { background: var(--yellow); }
 .s-published { background: var(--green-dim);  color: var(--green); }
 .s-published::before { background: var(--green); }
+/* «На согласовании» — состояние ожидания чужого решения, поэтому цвет акцента,
+   а не жёлтый: жёлтый в этой таблице уже занят расписанием, и два ожидания
+   одного оттенка не различались бы взглядом. */
+.s-review    { background: var(--review-bg); color: var(--review-fg); }
+.s-review::before { background: var(--review-fg); }
+/* Точка пульсирует: это единственный статус, который чего-то ждёт от человека. */
+@media (prefers-reduced-motion: no-preference) {
+  .s-review::before { animation: reviewPulse 2s ease-in-out infinite; }
+}
+@keyframes reviewPulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+
+/* ─── Медиатека ─── */
+.media-lib {
+  max-width: 780px; max-height: 84vh;
+  display: flex; flex-direction: column;
+}
+.media-lib-hd {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+  padding: 18px 22px 14px; border-bottom: 1px solid var(--border);
+}
+.media-lib-sub { font-size: 11.5px; color: var(--text-3); margin-top: 4px; max-width: 46ch; }
+.media-lib-bar {
+  display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+  padding: 14px 22px; border-bottom: 1px solid var(--border);
+}
+.media-lib-body { flex: 1; overflow: auto; padding: 16px 22px; }
+.media-lib-empty { text-align: center; padding: 48px 20px; color: var(--text-3); font-size: 13px; }
+.media-lib-grid {
+  display: grid; gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+}
+.media-lib-card {
+  display: flex; flex-direction: column; gap: 6px; padding: 0;
+  background: transparent; border: none; cursor: pointer; text-align: left;
+  border-radius: var(--r-md);
+}
+.media-lib-thumb {
+  position: relative; aspect-ratio: 4 / 3; width: 100%;
+  border-radius: var(--r-md); overflow: hidden;
+  background: var(--surface-2); border: 2px solid transparent;
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color var(--dur-fast);
+}
+.media-lib-card:hover .media-lib-thumb { border-color: var(--border-h, var(--border)); }
+.media-lib-card.selected .media-lib-thumb { border-color: var(--accent); }
+.media-lib-ico { font-size: 30px; }
+.media-lib-check {
+  position: absolute; top: 6px; right: 6px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--accent); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700;
+}
+.media-lib-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.media-lib-label {
+  font-size: 11.5px; font-weight: 600; color: var(--text-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.media-lib-src { font-size: 10.5px; color: var(--text-3); }
 
 /* ─── Platform chips ─── */
 .pchip {
@@ -852,6 +921,30 @@ label {
   display: block; font-size: 10.5px; font-weight: 700;
   color: var(--text-2); margin-bottom: 7px;
   text-transform: uppercase; letter-spacing: 0.08em;
+}
+
+/* Переключатель с пояснением. Глобальный `label` в проекте — это подпись поля:
+   капс, жирный, разрядка. Для строки «галочка + заголовок + абзац объяснения»
+   он не годится совсем: объяснение уходило в верхний регистр и переставало
+   читаться. Здесь стиль подписи снимается, а поведение label (клик по всей
+   строке переключает галочку) остаётся. */
+.opt-toggle {
+  display: flex; align-items: flex-start; gap: 12px; cursor: pointer;
+  font-size: inherit; font-weight: 400; color: inherit;
+  text-transform: none; letter-spacing: normal; margin-bottom: 0;
+}
+.opt-toggle input[type=checkbox] {
+  width: 16px; height: 16px; margin-top: 2px; flex-shrink: 0;
+  accent-color: var(--accent);
+}
+.opt-toggle-ttl {
+  display: block; font-size: 13px; font-weight: 600; color: var(--text);
+  text-transform: none; letter-spacing: normal;
+}
+.opt-toggle-sub {
+  display: block; font-size: 12px; color: var(--text-3); margin-top: 4px;
+  max-width: 62ch; line-height: 1.5;
+  text-transform: none; letter-spacing: normal; font-weight: 400;
 }
 
 input[type=text],
