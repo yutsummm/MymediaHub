@@ -42,19 +42,21 @@ function useCountUp(target: number, duration = 700): number {
   return val
 }
 
+// raw === null — показателя не существует (счётчики не собирали). Это не то же
+// самое, что ноль: «0 %» читается как «людям не заходит», а данных просто нет.
 const StatCard = memo(function StatCard({ label, raw, fmt, icon, index }: {
-  label: string; raw: number; fmt: (n: number) => string; icon: React.ReactNode; index: number
+  label: string; raw: number | null; fmt: (n: number) => string; icon: React.ReactNode; index: number
 }) {
-  const animated = useCountUp(raw)
+  const animated = useCountUp(raw ?? 0)
   return (
     <div className="stat-card anim-in" style={{ animationDelay: `${index * 60}ms` }}>
       <div className="stat-top">
         <div className="stat-label">{label}</div>
         <div className="stat-icon">{icon}</div>
       </div>
-      <div className="stat-value">{fmt(animated)}</div>
+      <div className="stat-value">{raw === null ? '—' : fmt(animated)}</div>
       <div className="stat-delta">
-        {raw > 0 ? 'Данные из VK' : 'Нет данных'}
+        {raw !== null && raw > 0 ? 'Данные из VK' : 'Нет данных'}
       </div>
     </div>
   )
@@ -97,7 +99,10 @@ export default function DashboardPage() {
     // иначе цифры читаются как охват по всем площадкам сразу
     { label: 'Охват ВКонтакте', raw: sum.total_views,   fmt: fmtN },
     { label: 'Реакции ВКонтакте', raw: sum.total_reactions, fmt: fmtN },
-    { label: 'Вовлечённость ВК', raw: Math.round(sum.engagement_rate * 10), fmt: (n: number) => (n / 10).toFixed(1) + '%' },
+    // Десятые доли процента: useCountUp работает с целыми, поэтому считаем в
+    // «промилле» и делим обратно при выводе. null пробрасываем как есть — карточка
+    // покажет прочерк вместо выдуманных нулей.
+    { label: 'Вовлечённость ВК', raw: sum.engagement_rate === null ? null : Math.round(sum.engagement_rate * 10), fmt: (n: number) => (n / 10).toFixed(1) + '%' },
   ] : []
 
   const statusRows = sum ? [

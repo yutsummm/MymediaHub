@@ -3,6 +3,7 @@ import { useEffect, useState, memo } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { useGroup } from '@/contexts/GroupContext'
+import Logo from '@/components/Logo'
 
 type Theme = 'dark' | 'light' | 'system'
 
@@ -157,6 +158,8 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
 const ROLE_CLASS: Record<string, string> = { admin: 'r-admin', editor: 'r-editor', volunteer: 'r-volunteer' }
 const ROLE_LABEL: Record<string, string> = { admin: 'Администратор', editor: 'Редактор', volunteer: 'Волонтёр' }
 const GLOBAL_ROLE_LABEL: Record<string, string> = { admin: 'Администратор системы', member: 'Участник' }
+// Короткие подписи для чипов в сайдбаре: полные названия туда не помещаются.
+const ROLE_SHORT: Record<string, string> = { admin: 'админ группы', editor: 'редактор', volunteer: 'волонтёр' }
 
 function Sidebar({
   unread = 0,
@@ -233,17 +236,14 @@ function Sidebar({
       <div className={`sidebar${open ? ' open' : ''}`}>
         {/* Logo */}
         <div className="sidebar-logo">
-          <svg viewBox="0 0 212 46" xmlns="http://www.w3.org/2000/svg" style={{ display: 'block', flex: 1, minWidth: 0 }}>
-            <rect x="0"  y="3"  width="7" height="36" rx="1.5" fill="white"/>
-            <rect x="10" y="11" width="7" height="28" rx="1.5" fill="rgba(255,255,255,0.48)"/>
-            <rect x="20" y="19" width="7" height="20" rx="1.5" fill="rgba(255,255,255,0.26)"/>
-            <rect x="30" y="11" width="7" height="28" rx="1.5" fill="rgba(255,255,255,0.48)"/>
-            <rect x="40" y="3"  width="7" height="36" rx="1.5" fill="white"/>
-            <rect x="0" y="41" width="47" height="3" rx="1.5" fill={theme === 'light' ? '#5B9EFF' : 'rgba(255,255,255,0.28)'}/>
-            <line x1="57" y1="4" x2="57" y2="40" stroke="rgba(255,255,255,0.10)" strokeWidth="1"/>
-            <text x="66" y="19" fontFamily="'Inter','Arial',sans-serif" fontSize="10" fontWeight="700" fill="white" letterSpacing="0">МЕДИАПРОСТРАНСТВО</text>
-            <text x="66" y="34" fontFamily="'Inter','Arial',sans-serif" fontSize="8.5" fontWeight="400" fill="rgba(255,255,255,0.36)" letterSpacing="0">молодёжных центров</text>
-          </svg>
+          {/* Сайдбар тёмный в обеих темах, поэтому знак белый безусловно.
+              overflow — страховка на время подгрузки Comfortaa: запасной шрифт
+              шире, и без неё знак на миг выталкивал бы кнопку закрытия. */}
+          <Logo
+            size={15}
+            subtitle="молодёжных центров"
+            style={{ flex: 1, minWidth: 0, overflow: 'hidden', color: '#fff' }}
+          />
           <button
             type="button"
             className="sidebar-close"
@@ -325,25 +325,6 @@ function Sidebar({
             <div className="avatar">{user.name[0].toUpperCase()}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="user-name">{user.name}</div>
-              {/* Показываем обе роли: они означают разное, и скрывать это вредно */}
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                {currentGroup && (
-                  <span className={`user-role-lbl ${ROLE_CLASS[currentGroup.role] ?? ''}`}
-                    title={`Роль в группе «${currentGroup.name}»`}>
-                    {ROLE_LABEL[currentGroup.role] ?? currentGroup.role}
-                  </span>
-                )}
-                {user.role === 'admin' && (
-                  <span className="user-role-lbl r-admin" title="Роль в системе">
-                    {GLOBAL_ROLE_LABEL.admin}
-                  </span>
-                )}
-                {!currentGroup && user.role !== 'admin' && (
-                  <span className="user-role-lbl" title="Роль в системе">
-                    {GLOBAL_ROLE_LABEL[user.role] ?? user.role}
-                  </span>
-                )}
-              </div>
             </div>
             <div
               className="theme-toggle"
@@ -365,6 +346,29 @@ function Sidebar({
             >
               ↩
             </button>
+
+            {/* Обе роли показываем сознательно: групповая отвечает за работу с
+                контентом, глобальная — за администрирование системы, и путать их
+                нельзя. Но рядом с именем им доставалось 90 px при нужных 104,
+                поэтому они занимают собственную строку во всю ширину панели. */}
+            <div className="user-roles">
+              {currentGroup && (
+                <span className={`user-role-lbl ${ROLE_CLASS[currentGroup.role] ?? ''}`}
+                  title={`${ROLE_LABEL[currentGroup.role] ?? currentGroup.role} в группе «${currentGroup.name}»`}>
+                  {ROLE_SHORT[currentGroup.role] ?? currentGroup.role}
+                </span>
+              )}
+              {user.role === 'admin' && (
+                <span className="user-role-lbl r-admin" title={`${GLOBAL_ROLE_LABEL.admin} — роль в системе`}>
+                  админ системы
+                </span>
+              )}
+              {!currentGroup && user.role !== 'admin' && (
+                <span className="user-role-lbl" title="Роль в системе">
+                  {GLOBAL_ROLE_LABEL[user.role] ?? user.role}
+                </span>
+              )}
+            </div>
           </div>
         )}
       </div>

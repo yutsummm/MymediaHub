@@ -103,8 +103,10 @@ export interface AnalyticsSummary {
   total_reactions: number
   total_comments: number
   total_shares: number
-  avg_views: number
-  engagement_rate: number
+  /** null — просмотры ни по одной площадке не собирали, среднего не существует */
+  avg_views: number | null
+  /** null — считать вовлечённость не из чего (нет просмотров), а не «ноль процентов» */
+  engagement_rate: number | null
   top_posts: Post[]
   platform_stats: PlatformStat[]
 }
@@ -239,4 +241,47 @@ export interface SessionInfo {
   ip: string | null
   user_agent: string | null
   current: boolean
+}
+
+
+/** Смета удаления группы: что именно исчезнет. Считает сервер. */
+export interface GroupDeletionPreview {
+  name: string
+  /** Фраза, которую нужно набрать для подтверждения — название группы. */
+  confirm_with: string
+  posts: number
+  published_posts: number
+  members: number
+  invites: number
+  volunteer_media: number
+  notifications: number
+  integrations: number
+}
+
+/** Смета удаления пользователя. Посты остаются, у них пропадает автор. */
+export interface UserDeletionPreview {
+  name: string
+  email: string
+  confirm_with: string
+  posts_kept: number
+  groups: number
+  volunteer_media: number
+  sessions: number
+  /** Группы, где он единственный администратор — ими станет некому управлять. */
+  sole_admin_of: string[]
+}
+
+/** Запись журнала действий. */
+export interface AuditEntry {
+  id: number
+  created_at: string
+  actor_id: number | null
+  actor_email: string | null
+  action: string
+  object_type: string | null
+  object_id: number | null
+  object_label: string | null
+  group_id: number | null
+  details: Record<string, unknown> | null
+  ip: string | null
 }

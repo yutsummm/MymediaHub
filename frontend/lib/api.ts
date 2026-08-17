@@ -2,10 +2,35 @@
 // (см. next.config.mjs / BACKEND_URL). Локально NEXT_PUBLIC_API_URL=http://localhost:8000.
 const BASE = (process.env.NEXT_PUBLIC_API_URL ?? '').replace(/\/$/, '')
 
-let _getToken: () => string | null = () => null
+/**
+ * Токен по умолчанию берётся прямо из localStorage, а не отдаётся как null.
+ *
+ * `setTokenGetter` вызывает AuthContext из `useEffect`, а React выполняет
+ * эффекты детей раньше эффектов родителя. Поэтому GroupContext и уведомления
+ * успевали сходить за данными до того, как геттер вообще был установлен:
+ * запрос уходил без заголовка, получал 401 и больше не повторялся — деревья
+ * зависимостей на это не реагируют. Наружу это выглядело так, что человек с
+ * группами при каждой перезагрузке видел «Создайте вашу первую группу» и
+ * пустые уведомления.
+ *
+ * Запасной источник снимает зависимость от порядка эффектов целиком: где бы
+ * ни оказался вызов, токен лежит в том же месте, куда его положил вход.
+ * После выхода ключ удаляется, поэтому запасной путь вернёт null сам.
+ */
+function tokenFromStorage(): string | null {
+  try {
+    return localStorage.getItem('mediahub_token')
+  } catch {
+    return null
+  }
+}
+
+let _getToken: () => string | null = tokenFromStorage
 let _onUnauthorized: () => void = () => {}
 
-export function setTokenGetter(fn: () => string | null) { _getToken = fn }
+export function setTokenGetter(fn: () => string | null) {
+  _getToken = () => fn() ?? tokenFromStorage()
+}
 export function setUnauthorizedHandler(fn: () => void) { _onUnauthorized = fn }
 
 async function req<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -117,7 +142,12 @@ export const api = {
     req<import('./types').User>(`/api/users/${id}/role`, { method: 'PUT', body: body({ role }) }),
   createUser: (name: string, email: string, role: string, password: string) =>
     req<import('./types').User>('/api/users', { method: 'POST', body: body({ name, email, role, password }) }),
-  deleteUser: (id: number) => req<{ ok: boolean }>(`/api/users/${id}`, { method: 'DELETE' }),
+  // Удаление требует подтверждения: confirm — точная почта пользователя.
+  // Без него сервер отвечает 409 и объясняет, что именно на кону.
+  getUserDeletionPreview: (id: number) =>
+    req<import('./types').UserDeletionPreview>(`/api/users/${id}/deletion-preview`),
+  deleteUser: (id: number, confirm: string) =>
+    req<{ ok: boolean }>(`/api/users/${id}?confirm=${encodeURIComponent(confirm)}`, { method: 'DELETE' }),
 
   getPosts: (params?: Record<string, string>) => {
     const qs = params ? '?' + new URLSearchParams(params).toString() : ''
@@ -229,7 +259,22 @@ export const api = {
     req<import('./types').Group>(`/api/groups/${groupId}`, {
       method: 'PUT', body: body(data),
     }),
-  deleteGroup: (groupId: number) => req<{ ok: boolean }>(`/api/groups/${groupId}`, { method: 'DELETE' }),
+  // confirm — точное название группы, см. getUserDeletionPreview.
+  getGroupDeletionPreview: (groupId: number) =>
+    req<import('./types').GroupDeletionPreview>(`/api/groups/${groupId}/deletion-preview`),
+  deleteGroup: (groupId: number, confirm: string) =>
+    req<{ ok: boolean }>(`/api/groups/${groupId}?confirm=${encodeURIComponent(confirm)}`, { method: 'DELETE' }),
+
+  getAuditLog: (params?: Record<string, string>) => {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return req<{ items: import('./types').AuditEntry[] } & import('./types').PageMeta>(`/api/audit${qs}`)
+  },
+  getGroupAuditLog: (groupId: number, params?: Record<string, string>) => {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return req<{ items: import('./types').AuditEntry[] } & import('./types').PageMeta>(
+      `/api/groups/${groupId}/audit${qs}`,
+    )
+  },
 
   // Group members
   getGroupMembers: (groupId: number) =>

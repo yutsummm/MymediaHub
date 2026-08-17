@@ -6,7 +6,8 @@ import { useToast } from '@/contexts/ToastContext'
 import { api } from '@/lib/api'
 import StateWrapper from '@/components/StateWrapper'
 import Pagination from '@/components/Pagination'
-import type { User } from '@/lib/types'
+import ConfirmDialog from '@/components/ConfirmDialog'
+import type { User, UserDeletionPreview } from '@/lib/types'
 
 const S = { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.75, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
 
@@ -32,6 +33,7 @@ export default function UsersPage() {
   const [form, setForm] = useState({ name: '', email: '', password: '', role: 'member' })
   const [offset, setOffset] = useState(0)
   const [meta, setMeta] = useState({ total: 0, limit: PAGE_SIZE, offset: 0 })
+  const [pendingDelete, setPendingDelete] = useState<{ user: User; preview: UserDeletionPreview } | null>(null)
 
   const load = useCallback(() => {
     setError('')
@@ -76,11 +78,26 @@ export default function UsersPage() {
       showToast('Нельзя удалить единственного администратора', 'error')
       return
     }
-    if (!confirm(`Удалить ${target.name} (${target.email})? Действие необратимо.`)) return
+    // Что именно произойдёт, считает сервер: посты остаются, у них пропадает
+    // автор, — и это надо показать до, а не объяснять после.
     setBusy(target.id)
     try {
-      await api.deleteUser(target.id)
+      setPendingDelete({ user: target, preview: await api.getUserDeletionPreview(target.id) })
+    } catch (e: unknown) {
+      showToast((e as Error).message, 'error')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function confirmRemove() {
+    if (!pendingDelete) return
+    const { user: target, preview } = pendingDelete
+    setBusy(target.id)
+    try {
+      await api.deleteUser(target.id, preview.confirm_with)
       showToast('Пользователь удалён', 'success')
+      setPendingDelete(null)
       load()
     } catch (e: unknown) {
       showToast((e as Error).message, 'error')
@@ -254,6 +271,31 @@ export default function UsersPage() {
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Удалить пользователя?"
+        description={pendingDelete
+          ? `${pendingDelete.user.name} потеряет доступ немедленно. Написанные им посты останутся — у них пропадёт автор.`
+          : ''}
+        variant="danger"
+        confirmLabel="Удалить"
+        loading={busy === pendingDelete?.user.id}
+        confirmWith={pendingDelete?.preview.confirm_with}
+        confirmHint={pendingDelete
+          ? <>Для подтверждения введите почту <b>{pendingDelete.preview.email}</b></>
+          : undefined}
+        details={pendingDelete ? [
+          { label: 'Постов сохранится', value: pendingDelete.preview.posts_kept },
+          { label: 'Покинет групп', value: pendingDelete.preview.groups },
+          { label: 'Активных входов оборвётся', value: pendingDelete.preview.sessions },
+          ...(pendingDelete.preview.sole_admin_of.length
+            ? [{ label: 'Останутся без администратора', value: pendingDelete.preview.sole_admin_of.join(', ') }]
+            : []),
+        ] : undefined}
+        onConfirm={confirmRemove}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   )
 }

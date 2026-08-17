@@ -16,14 +16,30 @@
   --accent-light: rgba(255,255,255,0.06);
   --accent-glow:  rgba(255,255,255,0.06);
 
-  /* ── Text ── */
-  --text:   rgba(255,255,255,0.92);
-  --text-2: rgba(255,255,255,0.48);
-  --text-3: rgba(255,255,255,0.24);
+  /* ── Text ──
+     Было 0.48 / 0.24. Четверть непрозрачности на почти чёрном — это контраст
+     около 1.9:1: подписи карточек и служебные строки читались с трудом даже на
+     хорошем экране. Подняли до величин, на которых текст остаётся тихим, но
+     разборчивым. */
+  --text:   rgba(255,255,255,0.94);
+  --text-2: rgba(255,255,255,0.62);
+  --text-3: rgba(255,255,255,0.42);
+  /* Капительные заголовки разделов: тише основного текста, но громче служебного. */
+  --label:  rgba(255,255,255,0.58);
 
   /* ── Borders ── */
-  --border:   rgba(255,255,255,0.07);
-  --border-2: rgba(255,255,255,0.13);
+  --border:   rgba(255,255,255,0.08);
+  --border-2: rgba(255,255,255,0.15);
+
+  /* ── Стекло ──
+     Применяется только к плавающим слоям (шапка, сайдбар, модалки, всплывашки).
+     Под основным текстом стекла нет: размытие снижает контраст ровно там, где
+     он нужнее всего. */
+  --glass:      rgba(22,22,25,0.66);
+  --glass-2:    rgba(28,28,32,0.72);
+  --glass-brd:  rgba(255,255,255,0.11);
+  --glass-edge: rgba(255,255,255,0.07);
+  --glass-blur: 22px;
 
   /* ── Shadows ── */
   --shadow-sm:   0 1px 4px rgba(0,0,0,0.5);
@@ -48,13 +64,17 @@
   /* ── Layout ── */
   --sidebar-w: 252px;
 
-  /* ── Radii ── */
-  --r-xl:   10px;
-  --r-lg:   8px;
-  --r-md:   6px;
-  --r-sm:   3px;
+  /* ── Radii ──
+     Было 10/8/6/3. Мелкие скругления — примета интерфейсов конца десятых;
+     подняли до величин, на которых форма читается, но не превращается в
+     «пузырь». Радиус контрола (12) намеренно меньше радиуса карточки (16),
+     иначе вложенные элементы выглядят выпирающими. */
+  --r-xl:   16px;
+  --r-lg:   12px;
+  --r-md:   9px;
+  --r-sm:   5px;
   --r-full: 9999px;
-  --r:      8px;
+  --r:      12px;
 
   /* ── Duration ── */
   --dur-fast: 130ms;
@@ -69,7 +89,7 @@
   --ease-io:  cubic-bezier(0.77, 0, 0.175, 1);
 
   /* ── Sidebar ── */
-  --sidebar-bg:        #060606;
+  --sidebar-bg:        rgba(10,10,12,0.66);
   --sidebar-active-bg: rgba(255,255,255,0.08);
   --sidebar-indicator: rgba(255,255,255,0.5);
 
@@ -131,110 +151,167 @@
 
 /* ─── Светлая тема ─── */
 :root[data-theme="light"] {
-  --bg:        #F5F5F5;
+  /*
+    Светлая тема — не инверсия тёмной, а её пара по смыслу.
+    В тёмной глубину даёт свет: пятна свечения в чёрной комнате.
+    Здесь обратное — тушь, осевшая в бумагу: мягкие нейтральные затемнения от
+    краёв. Один и тот же материал при двух разных источниках.
+
+    Цвет ровно один — чёрный. Он же текст, он же акцент, он же активное
+    состояние. Синего акцента больше нет: «белая с чёрным» означает, что
+    выделять нечем, кроме тона, и это дисциплинирует всю раскладку.
+  */
+  --bg:        #FAFAF9;   /* бумага, чуть тёплая: ровно белый лист выглядит стерильно */
   --bg-2:      #FFFFFF;
-  --bg-3:      #EFEFEF;
-  --surface:   #FFFFFF;
-  --surface-2: #F5F5F5;
-  --surface-h: rgba(0,0,0,0.03);
+  --bg-3:      #F2F2F0;
+  --surface:   #FFFFFF;   /* поднятый лист — белее подложки, отсюда ощущение слоя */
+  --surface-2: #F4F4F2;
+  --surface-h: rgba(0,0,0,0.04);
 
-  --accent:       #0840B5;
-  --accent-2:     #062F8A;
-  --accent-light: rgba(8,64,181,0.07);
-  --accent-glow:  rgba(8,64,181,0.15);
+  --accent:       #0B0B0C;
+  --accent-2:     #000000;
+  --accent-light: rgba(11,11,12,0.06);
+  --accent-glow:  rgba(11,11,12,0.10);
 
-  --text:   rgba(10,10,10,0.92);
-  --text-2: rgba(10,10,10,0.62);
-  --text-3: rgba(10,10,10,0.44);
+  --text:   #14141A;
+  --text-2: rgba(20,20,26,0.66);
+  --text-3: rgba(20,20,26,0.46);
+  --label:  rgba(20,20,26,0.52);
 
-  --border:   rgba(0,0,0,0.08);
-  --border-2: rgba(0,0,0,0.14);
+  --border:   rgba(17,17,22,0.09);
+  --border-2: rgba(17,17,22,0.17);
 
-  --shadow-sm:   0 1px 3px rgba(0,0,0,0.07);
-  --shadow-md:   0 4px 14px rgba(0,0,0,0.09);
-  --shadow-lg:   0 12px 36px rgba(0,0,0,0.12);
-  --shadow-card: 0 0 0 1px rgba(0,0,0,0.05), 0 4px 16px rgba(0,0,0,0.07);
-  --shadow-glow: 0 0 20px rgba(8,64,181,0.08);
+  /* Стекло в светлом регистре: матовая бумага, а не затемнение.
+     Прозрачность выше, чем в тёмной теме, — на белом фоне контраст
+     теряется быстрее, и заглушать его нельзя. */
+  --glass:      rgba(255,255,255,0.74);
+  --glass-2:    rgba(255,255,255,0.86);
+  --glass-brd:  rgba(17,17,22,0.10);
+  --glass-edge: rgba(255,255,255,0.90);
+  --glass-blur: 20px;
 
-  --green:      #059669;
-  --green-dim:  rgba(5,150,105,0.10);
-  --green-bg:   rgba(5,150,105,0.10);
-  --yellow:     #d97706;
-  --yellow-dim: rgba(217,119,6,0.10);
-  --yellow-bg:  rgba(217,119,6,0.10);
-  --red:        #dc2626;
-  --red-dim:    rgba(220,38,38,0.10);
-  --red-bg:     rgba(220,38,38,0.10);
-  --blue:       #0840B5;
-  --blue-dim:   rgba(8,64,181,0.10);
+  /* Тени нейтральные и очень мягкие: на белом плотная чёрная тень
+     читается как грязь, а не как высота. */
+  --shadow-sm:   0 1px 2px rgba(17,17,22,0.05);
+  --shadow-md:   0 6px 20px rgba(17,17,22,0.08);
+  --shadow-lg:   0 18px 48px rgba(17,17,22,0.12);
+  --shadow-card: 0 0 0 1px rgba(17,17,22,0.05), 0 6px 22px rgba(17,17,22,0.06);
+  --shadow-glow: none;
 
-  --sidebar-bg:        #0A1628;
-  --sidebar-active-bg: rgba(8,64,181,0.40);
-  --sidebar-indicator: #5B9EFF;
+  /* Статусные цвета приглушены под белый: те же значения, что в тёмной,
+     на бумаге кричали бы. Статус — не акцент, он обязан оставаться тише
+     чёрного. */
+  --green:      #0F7A57;
+  --green-dim:  rgba(15,122,87,0.10);
+  --green-bg:   rgba(15,122,87,0.10);
+  --yellow:     #A65D07;
+  --yellow-dim: rgba(166,93,7,0.10);
+  --yellow-bg:  rgba(166,93,7,0.10);
+  --red:        #B42318;
+  --red-dim:    rgba(180,35,24,0.09);
+  --red-bg:     rgba(180,35,24,0.09);
+  --blue:       #14141A;
+  --blue-dim:   rgba(20,20,26,0.08);
 
-  --topbar-bg:     rgba(255,255,255,0.92);
-  --topbar-border: rgba(0,0,0,0.07);
+  /* Боковая панель тоже белая. Это главное решение темы: приложение
+     становится одним листом, а чёрный работает как тушь — на тексте и на
+     активном состоянии, а не как отдельная тёмная стена. */
+  --sidebar-bg:        rgba(255,255,255,0.72);
+  --sidebar-active-bg: #101014;
+  --sidebar-indicator: #101014;
 
-  --stripe-a: #0D4CD3;
-  --stripe-b: #4F94FF;
+  --topbar-bg:     rgba(255,255,255,0.74);
+  --topbar-border: rgba(17,17,22,0.09);
 
-  --focus-ring: rgba(8,64,181,0.08);
-  --focus-bdr:  #0840B5;
+  --stripe-a: #101014;
+  --stripe-b: #8A8A93;
+
+  --focus-ring: rgba(17,17,22,0.10);
+  --focus-bdr:  #101014;
 
   --btn-primary-fg: #FFFFFF;
 
-  --skeleton-from: rgba(0,0,0,0.04);
-  --skeleton-to:   rgba(0,0,0,0.08);
+  --skeleton-from: rgba(17,17,22,0.05);
+  --skeleton-to:   rgba(17,17,22,0.10);
 }
 
 /* ── Светлая тема: точечные правки ── */
-:root[data-theme="light"] body::after { opacity: 0.008; }
+:root[data-theme="light"] body::after { opacity: 0.006; }
+:root[data-theme="light"] body {
+  background-image:
+    radial-gradient(54% 44% at 12% -6%,  rgba(17,17,22,0.055), transparent 66%),
+    radial-gradient(44% 38% at 96% 2%,   rgba(17,17,22,0.035), transparent 68%),
+    radial-gradient(66% 52% at 56% 108%, rgba(17,17,22,0.05),  transparent 66%);
+}
 
+/* ── Светлая тема: боковая панель тоже белая ──
+   Раньше она была тёмно-синей, поэтому весь текст в ней принудительно
+   красился в белый. Теперь панель — часть того же листа, и белые литералы
+   пришлось убрать: они давали белое по белому. */
 :root[data-theme="light"] .sidebar-logo,
-:root[data-theme="light"] .sidebar-user { border-color: rgba(255,255,255,0.07); }
+:root[data-theme="light"] .sidebar-user { border-color: var(--border); }
 
-:root[data-theme="light"] .logo-text  { color: #fff; }
-:root[data-theme="light"] .logo-sub   { color: rgba(255,255,255,0.48); }
+:root[data-theme="light"] .sidebar-logo .logo-mark,
+:root[data-theme="light"] .logo-text  { color: var(--text); }
+:root[data-theme="light"] .logo-sub   { color: var(--text-3); }
 :root[data-theme="light"] .nav-group,
-:root[data-theme="light"] .nav-section { color: rgba(255,255,255,0.36); }
-:root[data-theme="light"] .nav-item   { color: rgba(255,255,255,0.65); }
-:root[data-theme="light"] .nav-item:hover { background: rgba(255,255,255,0.07); color: #fff; }
-:root[data-theme="light"] .nav-item.active { background: rgba(8,64,181,0.45); color: #fff; }
-:root[data-theme="light"] .user-name { color: #fff; }
-:root[data-theme="light"] .user-role-lbl.r-admin { background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.65); }
-:root[data-theme="light"] .sidebar .btn-ghost { color: rgba(255,255,255,0.48); }
-:root[data-theme="light"] .sidebar .btn-ghost:hover { background: rgba(255,255,255,0.07); color: #fff; }
+:root[data-theme="light"] .nav-section { color: var(--text-3); }
+:root[data-theme="light"] .nav-item   { color: var(--text-2); }
+:root[data-theme="light"] .nav-item:hover { background: rgba(17,17,22,0.05); color: var(--text); }
+
+/* Единственное место, где чёрный заливкой. Вся смелость темы потрачена сюда:
+   активный пункт — сплошная тушь, всё остальное остаётся бумагой и волосяными
+   линиями. */
+:root[data-theme="light"] .nav-item.active {
+  background: #101014; color: #FFFFFF;
+  box-shadow: 0 2px 10px rgba(17,17,22,0.18);
+}
+:root[data-theme="light"] .nav-item.active svg { color: #FFFFFF; }
+
+:root[data-theme="light"] .user-name { color: var(--text); }
+:root[data-theme="light"] .user-role-lbl.r-admin { background: rgba(17,17,22,0.06); color: var(--text-2); }
+:root[data-theme="light"] .sidebar .btn-ghost { color: var(--text-3); }
+:root[data-theme="light"] .sidebar .btn-ghost:hover { background: rgba(17,17,22,0.05); color: var(--text); }
+
+/* Логотип в панели задан белым инлайном (сайдбар в тёмной теме тёмный всегда),
+   поэтому на светлой перекрываем здесь. */
+:root[data-theme="light"] .sidebar-logo > span { color: var(--text) !important; }
 
 :root[data-theme="light"] .pltoggle.on { border-color: var(--accent); background: var(--accent-light); color: var(--accent); }
 :root[data-theme="light"] .tag-chip { background: var(--accent-light); color: var(--accent); }
 :root[data-theme="light"] .login-eyebrow { color: var(--accent); }
-:root[data-theme="light"] .avatar { background: linear-gradient(135deg, #0840B5, #3B82F6); color: #fff; }
+:root[data-theme="light"] .avatar { background: #101014; color: #fff; }
 
+/* Тушь вместо свечения: на светлой теме углы не светятся, а слегка темнеют.
+   Тот же приём, что в тёмной, только источник обратный. */
 :root[data-theme="light"] .login-orb-1 {
-  background: radial-gradient(circle, rgba(8,64,181,0.12) 0%, transparent 65%);
+  background: radial-gradient(circle, rgba(17,17,22,0.10) 0%, rgba(17,17,22,0.04) 42%, transparent 70%);
 }
 :root[data-theme="light"] .login-orb-2 {
-  background: radial-gradient(circle, rgba(5,150,105,0.07) 0%, transparent 65%);
+  background: radial-gradient(circle, rgba(17,17,22,0.07) 0%, rgba(17,17,22,0.03) 42%, transparent 70%);
 }
 :root[data-theme="light"] .login-shell {
-  background: rgba(255,255,255,0.7);
-  box-shadow: 0 12px 40px rgba(0,0,0,0.10);
+  background: rgba(255,255,255,0.55);
+  border-color: var(--glass-brd);
+  box-shadow: 0 24px 60px rgba(17,17,22,0.10);
 }
 :root[data-theme="light"] .login-card {
-  background: #fff;
-  box-shadow: inset 0 1px 1px rgba(0,0,0,0.02);
+  /* Матовая бумага: стекло здесь тоже есть, но светлое — карточка не
+     затемняет то, что под ней, а размывает. */
+  background: var(--glass-2);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
 }
 
 /* ─── Theme toggle ─── */
 .theme-toggle {
   width: 38px; height: 22px;
   border-radius: var(--r-full);
-  background: rgba(255,255,255,0.07);
-  border: 1px solid rgba(255,255,255,0.10);
+  background: var(--surface-h);
+  border: 1px solid var(--border);
   position: relative; cursor: pointer; flex-shrink: 0;
   transition: background var(--dur-base) var(--spring);
 }
-.theme-toggle:hover { background: rgba(255,255,255,0.11); }
+.theme-toggle:hover { border-color: var(--border-2); }
 .theme-toggle-thumb {
   position: absolute; top: 1px; left: 1px;
   width: 18px; height: 18px;
@@ -245,10 +322,12 @@
   box-shadow: 0 2px 6px rgba(0,0,0,0.5);
   transition: transform var(--dur-mid) var(--spring), background var(--dur-mid) var(--spring);
 }
+/* Пуговица была синей от прежнего акцента. В теме «бумага и тушь» синему
+   места нет — она чёрная, как и всё остальное активное. */
 :root[data-theme="light"] .theme-toggle-thumb,
 .theme-toggle[data-theme-state="light"] .theme-toggle-thumb {
   transform: translateX(16px);
-  background: linear-gradient(135deg, #0840B5, #3B82F6);
+  background: #101014;
   color: #fff;
 }
 .theme-toggle[data-theme-state="system"] .theme-toggle-thumb {
@@ -258,13 +337,33 @@
 }
 
 /* ─── Base ─── */
+/*
+  Фон — не плоская заливка, а три очень слабых световых пятна.
+  Без них стекло бессмысленно: размытие поверх ровного чёрного даёт просто
+  другой оттенок серого, преломлять нечего. Пятна дают то, что стекло может
+  собрать — градиент, который смещается под полупрозрачным слоем.
+  Держим их на грани заметности: это подложка, а не декорация.
+  attachment: fixed — чтобы при прокрутке свет оставался на месте и не «ехал»
+  вместе с содержимым.
+*/
+html { background: var(--bg); }
 html, body {
   height: 100%;
-  background: var(--bg);
+  background-color: var(--bg);
   color: var(--text);
   font-family: var(--font-sans,'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-image:
+    radial-gradient(52% 44% at 14% -6%,  rgba(132,156,255,0.22), transparent 64%),
+    radial-gradient(44% 38% at 94% 2%,   rgba(255,255,255,0.11),  transparent 66%),
+    radial-gradient(66% 54% at 56% 108%, rgba(116,138,200,0.18),  transparent 64%),
+    radial-gradient(38% 30% at 62% 6%,   rgba(150,168,255,0.10),  transparent 68%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
 }
 
 /* Grain texture */
@@ -323,6 +422,11 @@ small, .text-small { font-size: var(--text-sm); color: var(--text-2); }
 .sidebar {
   width: var(--sidebar-w); min-height: 100vh;
   background: var(--sidebar-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(170%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(170%);
+  /* Правая кромка вместо сплошной границы: панель отделяется светом, а не
+     линией, и остаётся частью одного полотна с содержимым. */
+  box-shadow: inset -1px 0 0 var(--glass-brd);
   display: flex; flex-direction: column; flex-shrink: 0;
   position: fixed; top: 0; left: 0; bottom: 0; z-index: 100;
   padding-top: 3px;
@@ -407,10 +511,13 @@ button.nav-item {
   to   { transform: scale(1); opacity: 1; }
 }
 
+/* Роли переехали на собственную строку. В одной строке с именем им доставалось
+   90 px при нужных 104 — отсюда и «АДМИН СИСТ…». Внизу блока их ширина равна
+   ширине всей панели, и обе подписи читаются целиком. */
 .sidebar-user {
   padding: 12px 14px 16px;
   border-top: 1px solid rgba(255,255,255,0.06);
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
 }
 
 .avatar {
@@ -427,10 +534,15 @@ button.nav-item {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
+.user-roles {
+  flex-basis: 100%; order: 9;
+  display: flex; gap: 5px; min-width: 0; margin-top: 2px;
+}
 .user-role-lbl {
-  font-size: 9px; font-weight: 700; padding: 2px 7px;
+  font-size: 8.5px; font-weight: 700; padding: 2px 7px;
   border-radius: var(--r-full); text-transform: uppercase;
-  letter-spacing: 0.07em; display: inline-block; margin-top: 2px;
+  letter-spacing: 0.04em; display: block; max-width: 100%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .r-admin     { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.45); }
 .r-editor    { background: rgba(16,185,129,0.14); color: #6ee7b7; }
@@ -452,12 +564,16 @@ button.nav-item {
 .main-layout { margin-left: var(--sidebar-w); flex: 1; display: flex; flex-direction: column; min-height: 100vh; }
 
 .topbar {
-  background: var(--topbar-bg);
-  border-bottom: 1px solid var(--topbar-border);
-  padding: 0 28px; height: 54px;
+  background: var(--glass);
+  border-bottom: 1px solid var(--glass-brd);
+  padding: 0 28px; height: 60px;
   display: flex; align-items: center; justify-content: space-between;
   position: sticky; top: 2px; z-index: 50;
-  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(180%);
+  /* Светлая кромка по верхнему краю — то, из-за чего слой читается как
+     физическое стекло, а не как полупрозрачный прямоугольник. */
+  box-shadow: inset 0 1px 0 var(--glass-edge);
   transition: background var(--dur-base), border-color var(--dur-base);
 }
 .topbar-title {
@@ -538,8 +654,18 @@ button.nav-item {
 .content { padding: 28px 32px; flex: 1; }
 
 /* ─── Cards ─── */
+/*
+  Карточки содержимого сознательно НЕ стеклянные. Стекло под сплошным текстом
+  и таблицами съедает контраст и заставляет глаз бороться с тем, что просвечивает
+  снизу. Читаемость дороже эффекта, поэтому здесь плотная поверхность, а стекло
+  оставлено плавающим слоям — шапке, сайдбару, модалкам.
+  Вместо прозрачности карточка получает едва заметный верхний блик: он даёт
+  ощущение объёма, ничего не размывая.
+*/
 .card {
-  background: var(--surface);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.028), rgba(255,255,255,0) 90px),
+    var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-xl);
   box-shadow: var(--shadow-sm);
@@ -552,25 +678,34 @@ button.nav-item {
 @media (hover: hover) and (pointer: fine) {
   .card:hover { border-color: var(--border-2); transform: translateY(-1px); box-shadow: var(--shadow-md); }
 }
-.card-p { padding: 22px; }
+.card-p { padding: 24px; }
 .card-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 22px; border-bottom: 1px solid var(--border);
+  padding: 18px 24px; border-bottom: 1px solid var(--border);
 }
+/* Было 10.5px цветом --text-3 (0.24) — заголовок раздела, который приходилось
+   выискивать. Капитель оставляем, но даём ей вес и различимый цвет.
+   Цвет через токен, а не литералом: белым значением заголовки пропадали
+   на светлой теме целиком. */
 .card-title {
-  font-size: 10.5px; font-weight: 700; color: var(--text-3);
-  text-transform: uppercase; letter-spacing: 0.08em;
+  font-size: 11px; font-weight: 700; color: var(--label);
+  text-transform: uppercase; letter-spacing: 0.09em;
 }
 
 /* ─── Stats ─── */
-.stats-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; margin-bottom: 24px; }
+.stats-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 28px; }
 
+/* Единственная карточка содержимого со стеклом: ряд показателей стоит первым,
+   ничего не перекрывает и держит крупные цифры — контрасту это не вредит,
+   а верхний слой сразу задаёт материал, к которому приучает интерфейс. */
 .stat-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--glass);
+  backdrop-filter: blur(18px) saturate(170%);
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+  border: 1px solid var(--glass-brd);
   border-radius: var(--r-xl);
-  padding: 20px 22px;
-  box-shadow: var(--shadow-sm);
+  padding: 22px 24px;
+  box-shadow: inset 0 1px 0 var(--glass-edge), var(--shadow-sm);
   position: relative; overflow: hidden;
   transition:
     transform var(--dur-base) var(--ease-out),
@@ -594,7 +729,18 @@ button.nav-item {
 .stat-icon { width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; color: var(--text-3); flex-shrink: 0; }
 .stat-value { font-size: 32px; font-weight: 800; line-height: 1; color: var(--text); letter-spacing: -0.05em; }
 .stat-label { font-size: 10px; color: var(--text-3); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; margin-top: 6px; }
-.stat-delta { font-size: 11px; font-weight: 600; margin-top: 10px; color: var(--green); }
+/* Было зелёным. Зелёный в системе означает «хорошо» — а здесь это просто
+   пометка об источнике цифры, повторённая под каждым из четырёх показателей.
+   Четыре зелёные строки подряд не сообщают ничего и перетягивают внимание с
+   самих чисел. Оставляем служебным цветом. */
+.stat-delta {
+  font-size: 11px; font-weight: 500; margin-top: 12px; color: var(--text-3);
+  display: flex; align-items: center; gap: 6px;
+}
+.stat-delta::before {
+  content: ''; width: 5px; height: 5px; border-radius: 50%;
+  background: currentColor; opacity: 0.6; flex: none;
+}
 
 /* ─── Buttons ─── */
 .btn {
@@ -875,10 +1021,17 @@ select option { background: var(--bg-2); color: var(--text); }
   padding: 20px; animation: fadeIn var(--dur-base) var(--ease-o);
 }
 .modal {
-  background: var(--bg-2); border: 1px solid var(--border-2);
-  border-radius: var(--r-xl); width: 100%; max-width: 580px;
+  /* Второй по плотности стеклянный слой: модалка обязана быть заметно ближе
+     фона, поэтому она плотнее и светлее шапки. */
+  background: var(--glass-2);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid var(--glass-brd);
+  border-radius: 20px; width: 100%; max-width: 580px;
   max-height: 90vh; overflow-y: auto;
-  box-shadow: var(--shadow-lg), var(--shadow-glow);
+  box-shadow:
+    inset 0 1px 0 var(--glass-edge),
+    0 24px 70px rgba(0,0,0,0.66);
   animation: slideUp var(--dur-mid) var(--spring);
 }
 .modal-hd {
@@ -1153,6 +1306,26 @@ select option { background: var(--bg-2); color: var(--text); }
   border-top: 1px solid var(--border);
 }
 
+/* Смета удаления: что именно исчезнет */
+.confirm-details {
+  margin: 0 22px 4px; padding: 10px 12px;
+  background: var(--red-dim); border-radius: 10px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.confirm-details-row {
+  display: flex; justify-content: space-between; gap: 12px;
+  font-size: 12px; color: var(--text-2);
+}
+.confirm-details-row b { color: var(--text); font-weight: 700; }
+
+/* Поле для набора точного названия */
+.confirm-typebox { padding: 12px 22px 0; }
+.confirm-typebox-label {
+  display: block; font-size: 12px; color: var(--text-2);
+  line-height: 1.5; margin-bottom: 6px;
+}
+.confirm-typebox-label b { color: var(--text); font-weight: 700; }
+
 /* ─── Copy feedback ─── */
 .copy-feedback {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
@@ -1249,26 +1422,31 @@ select option { background: var(--bg-2); color: var(--text); }
 .login-orb { position: fixed; border-radius: 50%; pointer-events: none; }
 .login-orb-1 {
   width: 900px; height: 900px;
-  background: radial-gradient(circle, rgba(80,80,80,0.10) 0%, rgba(80,80,80,0.04) 40%, transparent 72%);
-  filter: blur(80px); top: -350px; right: -150px;
+  background: radial-gradient(circle, rgba(150,170,255,0.30) 0%, rgba(120,140,220,0.12) 42%, transparent 72%);
+  filter: blur(90px); top: -340px; right: -160px;
   animation: orbDrift 14s ease-in-out infinite alternate;
 }
 .login-orb-2 {
   width: 700px; height: 700px;
-  background: radial-gradient(circle, rgba(16,185,129,0.07) 0%, rgba(16,185,129,0.03) 40%, transparent 72%);
-  filter: blur(80px); bottom: -280px; left: -120px;
+  background: radial-gradient(circle, rgba(255,255,255,0.16) 0%, rgba(190,200,235,0.07) 42%, transparent 72%);
+  filter: blur(90px); bottom: -300px; left: -140px;
   animation: orbDrift 18s ease-in-out infinite alternate-reverse;
 }
 .login-shell {
-  background: rgba(255,255,255,0.03); border: 1px solid var(--border);
-  border-radius: 20px; padding: 2px;
-  box-shadow: var(--shadow-card), var(--shadow-glow);
+  background: rgba(255,255,255,0.05); border: 1px solid var(--glass-brd);
+  border-radius: 26px; padding: 2px;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.55);
   width: 100%; max-width: 408px;
   animation: loginEntry 0.6s var(--spring) both; position: relative; z-index: 1;
 }
+/* Вход — единственный экран, где стекло работает в полную силу: за карточкой
+   два световых пятна и ничего больше, читаемость страдать не от чего. */
 .login-card {
-  background: var(--bg-2); border-radius: 18px; padding: 38px 36px;
-  box-shadow: inset 0 1px 1px rgba(255,255,255,0.05);
+  background: var(--glass-2);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  border-radius: 24px; padding: 38px 36px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.09);
 }
 .login-eyebrow {
   display: inline-flex; align-items: center;
@@ -1620,7 +1798,14 @@ select option { background: var(--bg-2); color: var(--text); }
 .nav-burger:hover { background: var(--surface-h); border-color: var(--border-2); }
 .nav-burger span { display: block; height: 2px; width: 100%; background: var(--text); border-radius: 2px; }
 
-.bento-grid { display: grid; grid-template-columns: 1fr 320px; gap: 16px; }
+/* Боковая колонка шире (было 320): в 320 px заголовки постов в «Топ постов»
+   обрывались на середине. Карточки выравниваются по своему содержимому —
+   растягивать список на всю высоту не стоит: с пятью постами получается
+   большая пустая карточка, что хуже, чем просто короткая страница. */
+.bento-grid {
+  display: grid; grid-template-columns: 1fr 340px; gap: 16px;
+  align-items: start;
+}
 
 /* ─── Responsive ─── */
 @media (max-width: 1100px) {
