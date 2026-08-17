@@ -10,6 +10,7 @@ import os
 import requests as http_requests
 from psycopg2.extras import Json
 
+import content
 from stats import serialize_post
 from utils import (
     UPLOAD_DIR,
@@ -43,6 +44,23 @@ def _notify(c, user_id, message: str, kind: str) -> None:
         "INSERT INTO notifications (user_id, message, type, is_read) VALUES (%s, %s, %s, 0)",
         (user_id, message, kind),
     )
+
+
+def _group_content_settings(c, group_id: int | None) -> dict:
+    """
+    Настройки группы, влияющие на исходящий текст.
+
+    Пост вне группы (легаси-область одиночного воркспейса) ни переменных, ни
+    меток не получает: задавать их там негде.
+    """
+    if group_id is None:
+        return {"variables": {}, "utm_enabled": False}
+    c.execute("SELECT variables, utm_enabled FROM groups WHERE id=%s", (group_id,))
+    row = c.fetchone()
+    if not row:
+        return {"variables": {}, "utm_enabled": False}
+    variables = row["variables"] if isinstance(row["variables"], dict) else {}
+    return {"variables": variables, "utm_enabled": bool(row["utm_enabled"])}
 
 
 def _media_bytes(item: dict) -> bytes:
@@ -110,6 +128,18 @@ def perform_publish(conn, post_row, group_id: int | None = None) -> dict:
     author_id = post.get("author_id") or 1
     title = post.get("title") or "без названия"
 
+    # Переменные и UTM живут на группе и применяются здесь, на выпуске:
+    # хранимый текст обязан остаться тем, что человек написал, а метки к тому
+    # же зависят от площадки — в одном тексте они не помещаются.
+    group_settings = _group_content_settings(c, group_id)
+
+    def outgoing(platform: str) -> str:
+        return content.prepare(
+            post.get("content", ""), platform=platform,
+            variables=group_settings["variables"], tags=post.get("tags"),
+            utm_enabled=group_settings["utm_enabled"],
+        )
+
     c.execute(
         "UPDATE posts SET status='published', published_at=%s WHERE id=%s",
         (app_now(), post_id),
@@ -134,7 +164,8 @@ def perform_publish(conn, post_row, group_id: int | None = None) -> dict:
         vk = decrypt_row_secret(c.fetchone(), "access_token")
         if vk:
             try:
-                vk_post_id, photo_errors = _publish_to_vk(c, post, vk)
+                vk_post_id, photo_errors = _publish_to_vk(
+                    c, {**post, "content": outgoing("vk")}, vk)
                 if photo_errors:
                     _notify(c, author_id, (
                         f"Пост «{title}» опубликован в ВКонтакте, но "
@@ -159,7 +190,8 @@ def perform_publish(conn, post_row, group_id: int | None = None) -> dict:
         tg = decrypt_row_secret(c.fetchone(), "bot_token")
         if tg:
             try:
-                text = f"{title}\n\n{post['content']}" if post.get("title") else post.get("content", "")
+                body = outgoing("telegram")
+                text = f"{title}\n\n{body}" if post.get("title") else body
                 tg_message_ids = tg_send_post(
                     tg["bot_token"], tg["chat_id"], text,
                     post.get("media") or [], backend_base(),

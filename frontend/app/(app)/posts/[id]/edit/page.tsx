@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { useGroup } from '@/contexts/GroupContext'
 import type { Post } from '@/lib/types'
 import PostEditor from '@/components/PostEditor'
+import PostHistory from '@/components/PostHistory'
 
 export default function EditPostPage() {
   const { id } = useParams<{ id: string }>()
@@ -30,5 +31,18 @@ export default function EditPostPage() {
       </div>
     </div>
   )
-  return <PostEditor editPost={post} />
+  return (
+    <>
+      <PostEditor editPost={post} />
+      {/* Лента событий под редактором: замечание рецензента жило в одном
+          уведомлении, которое легко смахнуть и больше не найти. */}
+      <div className="content" style={{ paddingTop: 0 }}>
+        {/* Та же ширина, что у редактора выше: лента на всю страницу
+            выглядела бы отдельным разделом, а это продолжение карточки. */}
+        <div style={{ maxWidth: 720, margin: '0 auto' }}>
+          <PostHistory postId={post.id} />
+        </div>
+      </div>
+    </>
+  )
 }

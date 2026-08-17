@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useGroup } from '@/contexts/GroupContext'
 import { useToast } from '@/contexts/ToastContext'
 import ConfirmDialog from '@/components/ConfirmDialog'
+import GroupContentSettings from '@/components/GroupContentSettings'
 import StateWrapper from '@/components/StateWrapper'
 import type { VkSettings, TgSettings, GroupMember, InviteLink, GroupDeletionPreview } from '@/lib/types'
 
@@ -451,6 +452,11 @@ export default function SettingsPage() {
             </label>
           </div>
         </div>
+      )}
+
+      {/* Расписание, метки, подстановки — «как мы публикуем» */}
+      {isAdmin && currentGroup && (
+        <GroupContentSettings group={currentGroup} onSaved={refreshGroups} />
       )}
 
       {/* Invite links */}

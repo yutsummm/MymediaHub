@@ -6,7 +6,15 @@ from psycopg2.extras import Json
 
 import audit
 import review
-from models import AIEnhanceRequest, GenerateRequest, PostCreate, PostUpdate, ReviewReject
+import slots as publishing_slots
+from models import (
+    AIEnhanceRequest,
+    GenerateRequest,
+    PostCreate,
+    PostQueue,
+    PostUpdate,
+    ReviewReject,
+)
 from publish_queue import enqueue, get_job, job_for_post
 from stats import save_platform_stats, serialize_post, serialize_posts
 from utils import (
@@ -15,6 +23,7 @@ from utils import (
     as_json_list,
     check_rate_limit,
     decrypt_row_secret,
+    fmt_dt,
     get_current_user_id,
     get_db,
     like_pattern,
@@ -38,7 +47,7 @@ router = APIRouter()
 POST_COLUMNS = (
     "title", "content", "status", "platforms", "tags", "scheduled_at",
     "location_address", "location_lat", "location_lng", "author_id",
-    "template_type", "media",
+    "template_type", "media", "auto_delete_at",
 )
 
 
@@ -56,6 +65,7 @@ def _post_values(body, user_id: int) -> dict:
         "author_id": user_id,
         "template_type": body.template_type,
         "media": media_for_storage(body.media),
+        "auto_delete_at": parse_dt(body.auto_delete_at),
     }
 
 
@@ -227,6 +237,11 @@ def update_post(post_id: int, body: PostUpdate, user_id: int = Depends(get_curre
     if body.location_lng is not None:
         updates.append("location_lng=%s")
         params.append(body.location_lng)
+    if body.auto_delete_at is not None:
+        # Пустая строка — «снимать не надо»: интерфейсу нужен способ убрать
+        # ранее назначенный срок, а не только назначить новый.
+        updates.append("auto_delete_at=%s")
+        params.append(parse_dt(body.auto_delete_at))
     if updates:
         params.append(post_id)
         c.execute(f"UPDATE posts SET {', '.join(updates)} WHERE id=%s", params)
@@ -418,6 +433,11 @@ def update_group_post(gid: int, post_id: int, body: PostUpdate, user_id: int = D
     if body.location_lng is not None:
         updates.append("location_lng=%s")
         params.append(body.location_lng)
+    if body.auto_delete_at is not None:
+        # Пустая строка — «снимать не надо»: интерфейсу нужен способ убрать
+        # ранее назначенный срок, а не только назначить новый.
+        updates.append("auto_delete_at=%s")
+        params.append(parse_dt(body.auto_delete_at))
     if updates:
         params.append(post_id)
         c.execute(f"UPDATE posts SET {', '.join(updates)} WHERE id=%s", params)
@@ -469,6 +489,129 @@ def publish_group_post(gid: int, post_id: int, user_id: int = Depends(get_curren
         # статусы, мы оставили бы дверь рядом открытой.
         review.check_may_release(conn, gid, role, "published")
         return enqueue(conn, post_id, gid, user_id)
+    finally:
+        conn.close()
+
+
+# ── Очередь по расписанию ────────────────────────────────────────────────────
+
+@router.post("/api/groups/{gid}/posts/{post_id}/queue")
+def queue_group_post(
+    gid: int, post_id: int, body: PostQueue,
+    user_id: int = Depends(get_current_user_id),
+):
+    """
+    Ставит пост в ближайшее свободное окно расписания.
+
+    Отдельная ручка, а не «передайте scheduled_at»: смысл очереди в том, что
+    время считает сервер по расписанию группы, и считать его на клиенте
+    значило бы держать копию правил в двух местах.
+
+    Пост получает обычный `scheduled_at` и обычный статус `scheduled` —
+    очередь не становится вторым механизмом публикации рядом с планировщиком.
+    Там, где нужна виза, статус остаётся прежним: окно занято, но выпустит
+    пост администратор.
+    """
+    conn = get_db()
+    try:
+        role = require_group_member(gid, user_id, conn)
+        if role == "volunteer":
+            raise HTTPException(403, "Наблюдатели не могут планировать посты")
+        c = conn.cursor()
+        c.execute("SELECT id, status FROM posts WHERE id=%s AND group_id=%s", (post_id, gid))
+        post = c.fetchone()
+        if not post:
+            raise HTTPException(404, "Пост не найден")
+        if post["status"] == "published":
+            raise HTTPException(409, "Опубликованный пост в очередь не ставится")
+
+        at = publishing_slots.next_free_slot(conn, gid, exclude_post_id=post_id)
+        may_release = review.may_release(conn, gid, role)
+        status = "scheduled" if may_release else post["status"]
+        c.execute(
+            "UPDATE posts SET scheduled_at=%s, status=%s, auto_delete_at=%s WHERE id=%s",
+            (at, status, parse_dt(body.auto_delete_at), post_id),
+        )
+        conn.commit()
+        c.execute("SELECT * FROM posts WHERE id=%s", (post_id,))
+        result = serialize_post(conn, c.fetchone())
+        # Отдельно говорим, дошло ли дело до расписания: при обязательном
+        # согласовании окно занято, но выйдет пост только после визы, и
+        # интерфейс обязан сказать об этом прямо.
+        result["queued"] = may_release
+        return result
+    finally:
+        conn.close()
+
+
+# ── История поста ────────────────────────────────────────────────────────────
+
+def _post_history(conn, post: dict) -> list[dict]:
+    """
+    Что с постом происходило: создание, согласование, публикация, снятие.
+
+    Часть событий выводится из самого поста (создан, опубликован, снят), часть
+    берётся из журнала действий. Заводить записи журнала на создание поста
+    ради ленты не стали: `posts.created_at` и так знает, когда это было, а
+    журнал существует для необратимого — засорять его обычной работой значит
+    сделать бесполезным поиск по нему.
+    """
+    events: list[dict] = []
+    if post.get("created_at"):
+        events.append({"at": fmt_dt(post["created_at"]), "action": "created",
+                       "label": "Создан", "actor": post.get("author_name"), "details": None})
+
+    c = conn.cursor()
+    # Имя, а не почта: в ленте событий «irina-640e38@demo.local» читается как
+    # техническая строка. Почта остаётся запасным вариантом — автора могли
+    # удалить, и тогда в журнале от него останется только она.
+    c.execute(
+        "SELECT a.created_at, a.action, a.details, "
+        "       COALESCE(u.name, a.actor_email) AS actor "
+        "FROM audit_log a LEFT JOIN users u ON u.id = a.actor_id "
+        "WHERE a.object_type='post' AND a.object_id=%s ORDER BY a.id",
+        (post["id"],),
+    )
+    LABELS = {
+        "post.submitted": "Отправлен на согласование",
+        "post.approved": "Согласован",
+        "post.rejected": "Возвращён на доработку",
+        "post.deleted": "Удалён",
+    }
+    for row in c.fetchall():
+        details = row["details"] or {}
+        events.append({
+            "at": fmt_dt(row["created_at"]),
+            "action": row["action"],
+            "label": LABELS.get(row["action"], row["action"]),
+            "actor": row["actor"],
+            "details": details.get("замечание") or details.get("выпуск"),
+        })
+
+    if post.get("published_at"):
+        events.append({"at": fmt_dt(post["published_at"]), "action": "published",
+                       "label": "Опубликован", "actor": None,
+                       "details": post.get("publish_error")})
+    if post.get("removed_at"):
+        events.append({"at": fmt_dt(post["removed_at"]), "action": "removed",
+                       "label": "Снят с публикации", "actor": None, "details": None})
+
+    events.sort(key=lambda e: e["at"] or "")
+    return events
+
+
+@router.get("/api/posts/{post_id}/history")
+def get_post_history(post_id: int, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    try:
+        require_post_access(post_id, user_id, conn)
+        c = conn.cursor()
+        c.execute(
+            "SELECT p.*, u.name as author_name FROM posts p "
+            "LEFT JOIN users u ON u.id = p.author_id WHERE p.id=%s",
+            (post_id,),
+        )
+        return {"events": _post_history(conn, dict(c.fetchone()))}
     finally:
         conn.close()
 

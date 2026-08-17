@@ -55,6 +55,10 @@ export interface Post {
   reviewed_at?: string | null
   reviewed_by?: number | null
   review_comment?: string | null
+  /** Когда убрать запись из соцсети и когда убрали на самом деле */
+  auto_delete_at?: string | null
+  removed_at?: string | null
+  remove_error?: string | null
 }
 
 /**
@@ -199,9 +203,40 @@ export interface Group {
   avatar: string
   /** Посты выходят только после визы администратора группы */
   require_approval?: boolean
+  /** Размечать ли ссылки UTM-метками на выпуске */
+  utm_enabled?: boolean
+  /** Подстановки {{ключ}} в тексте поста */
+  variables?: Record<string, string>
+  /** Именованные наборы хештегов */
+  hashtag_sets?: HashtagSet[]
   role: GroupRole
   created_by?: number
   created_at: string
+}
+
+export interface HashtagSet {
+  name: string
+  tags: string
+}
+
+/**
+ * Окно расписания публикаций. weekday: 0 — понедельник, как у
+ * datetime.weekday() на бэкенде: считать дни недели двумя способами нельзя.
+ */
+export interface PublishingSlot {
+  id?: number
+  weekday: number
+  at: string
+  weekday_label?: string
+}
+
+/** Событие в истории поста: создание, согласование, публикация, снятие. */
+export interface PostHistoryEvent {
+  at: string | null
+  action: string
+  label: string
+  actor: string | null
+  details: string | null
 }
 
 export interface GroupMember {

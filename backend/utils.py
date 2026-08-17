@@ -77,7 +77,7 @@ JSON_FIELDS = ("platforms", "tags", "media", "tg_message_ids")
 DATE_FIELDS = (
     "created_at", "scheduled_at", "published_at", "vk_stats_updated_at",
     "joined_at", "connected_at", "updated_at", "finished_at",
-    "submitted_at", "reviewed_at",
+    "submitted_at", "reviewed_at", "auto_delete_at", "removed_at",
 )
 
 
@@ -1278,3 +1278,52 @@ YOUTH_CENTERS_MOCK: list[dict] = [
     {"id": 17, "name": "IT-Куб", "address": "ул. Железнодорожников, 22Д", "coordinates": [56.025183, 92.841650]},
     {"id": 18, "name": "Дом науки и техники", "address": "ул. Урицкого, 61", "coordinates": [56.009287, 92.875364]},
 ]
+
+
+def vk_wall_delete(access_token: str, group_id: str, post_id: str | int) -> None:
+    """
+    Убирает запись со стены сообщества.
+
+    Отдельно разбираем «записи уже нет»: пост могли снять руками в самом ВК, и
+    для нас это не ошибка, а ровно тот результат, которого мы добивались.
+    """
+    clean_id = str(group_id).lstrip("-")
+    r = http_requests.post(
+        "https://api.vk.com/method/wall.delete",
+        data={
+            "owner_id": f"-{clean_id}",
+            "post_id": post_id,
+            "access_token": access_token,
+            "v": VK_API_VERSION,
+        },
+        timeout=15,
+    )
+    data = r.json()
+    if "error" in data:
+        message = data["error"].get("error_msg", "VK wall.delete error")
+        if data["error"].get("error_code") in VK_ALREADY_GONE:
+            return
+        raise ValueError(message)
+
+
+# Коды ВК, означающие «записи уже нет»: 210 — нет доступа к записи (в том
+# числе к удалённой), 100 — неверный параметр, чем ВК отвечает на
+# несуществующий post_id.
+VK_ALREADY_GONE = (100, 210)
+
+
+def tg_delete_messages(bot_token: str, chat_id: str, message_ids: list) -> None:
+    """
+    Удаляет сообщения канала. Бот обязан быть администратором с правом удаления.
+
+    Отсутствующее сообщение пропускаем: сообщение могли удалить руками, и это
+    не повод считать снятие неудавшимся.
+    """
+    for message_id in message_ids or []:
+        try:
+            tg_api(bot_token, "deleteMessage",
+                   data={"chat_id": chat_id, "message_id": message_id})
+        except ValueError as e:
+            if "not found" in str(e).lower() or "message to delete" in str(e).lower():
+                continue
+            raise

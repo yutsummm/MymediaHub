@@ -2,9 +2,17 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from psycopg2.extras import Json
 
 import audit
-from models import GroupCreate, GroupMemberRoleUpdate, GroupUpdate, InviteLinkCreate
+import slots as publishing_slots
+from models import (
+    GroupCreate,
+    GroupMemberRoleUpdate,
+    GroupUpdate,
+    InviteLinkCreate,
+    SlotsUpdate,
+)
 from utils import (
     GROUP_ROLES,
     get_current_user_id,
@@ -30,7 +38,7 @@ def create_group(req: GroupCreate, user_id: int = Depends(get_current_user_id)):
         (gid, user_id),
     )
     conn.commit()
-    c.execute("SELECT id, name, description, avatar, require_approval, created_by, created_at FROM groups WHERE id=%s", (gid,))
+    c.execute("SELECT id, name, description, avatar, require_approval, utm_enabled, variables, hashtag_sets, created_by, created_at FROM groups WHERE id=%s", (gid,))
     group = c.fetchone()
     conn.close()
     result = dict(group)
@@ -43,7 +51,7 @@ def get_my_groups(user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
     c.execute(
-        "SELECT g.id, g.name, g.description, g.avatar, g.require_approval, gm.role, g.created_at "
+        "SELECT g.id, g.name, g.description, g.avatar, g.require_approval, g.utm_enabled, g.variables, g.hashtag_sets, gm.role, g.created_at "
         "FROM groups g JOIN group_members gm ON g.id = gm.group_id WHERE gm.user_id=%s ORDER BY g.id",
         (user_id,),
     )
@@ -57,7 +65,7 @@ def get_group(gid: int, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
     c = conn.cursor()
     role = require_group_member(gid, user_id, conn)
-    c.execute("SELECT id, name, description, avatar, require_approval, created_by, created_at FROM groups WHERE id=%s", (gid,))
+    c.execute("SELECT id, name, description, avatar, require_approval, utm_enabled, variables, hashtag_sets, created_by, created_at FROM groups WHERE id=%s", (gid,))
     group = c.fetchone()
     conn.close()
     if not group:
@@ -65,6 +73,45 @@ def get_group(gid: int, user_id: int = Depends(get_current_user_id)):
     result = dict(group)
     result["role"] = role
     return result
+
+
+@router.get("/api/groups/{gid}/slots")
+def get_slots(gid: int, user_id: int = Depends(get_current_user_id)):
+    """Расписание публикаций группы: когда она обычно выкладывает посты."""
+    conn = get_db()
+    try:
+        require_group_member(gid, user_id, conn)
+        return {"slots": publishing_slots.list_slots(conn, gid)}
+    finally:
+        conn.close()
+
+
+@router.put("/api/groups/{gid}/slots")
+def update_slots(gid: int, req: SlotsUpdate, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    try:
+        role = require_group_member(gid, user_id, conn)
+        if role != "admin":
+            raise HTTPException(403, "Расписание публикаций меняет администратор группы")
+        return {"slots": publishing_slots.replace_slots(
+            conn, gid, [s.dict() for s in req.slots])}
+    finally:
+        conn.close()
+
+
+@router.get("/api/groups/{gid}/slots/next")
+def get_next_slot(gid: int, user_id: int = Depends(get_current_user_id)):
+    """
+    Ближайшее свободное окно — интерфейс показывает его до постановки в
+    очередь, чтобы человек заранее видел, когда пост выйдет.
+    """
+    conn = get_db()
+    try:
+        require_group_member(gid, user_id, conn)
+        from utils import fmt_dt
+        return {"at": fmt_dt(publishing_slots.next_free_slot(conn, gid))}
+    finally:
+        conn.close()
 
 
 @router.put("/api/groups/{gid}")
@@ -77,16 +124,19 @@ def update_group(gid: int, req: GroupUpdate, user_id: int = Depends(get_current_
         raise HTTPException(403, "Только администратор может изменять параметры группы")
     updates: list[str] = []
     params: list = []
+    # variables и hashtag_sets — jsonb: без обёртки psycopg2 отправит dict как
+    # строку его питоновского представления, и в колонке окажется мусор.
+    JSON_COLUMNS = ("variables", "hashtag_sets")
     for field, value in req.dict(exclude_unset=True).items():
         updates.append(f"{field}=%s")
-        params.append(value)
+        params.append(Json(value) if field in JSON_COLUMNS else value)
     if not updates:
         conn.close()
         return get_group(gid, user_id)
     params.append(gid)
     c.execute(f"UPDATE groups SET {', '.join(updates)} WHERE id=%s", params)
     conn.commit()
-    c.execute("SELECT id, name, description, avatar, require_approval, created_by, created_at FROM groups WHERE id=%s", (gid,))
+    c.execute("SELECT id, name, description, avatar, require_approval, utm_enabled, variables, hashtag_sets, created_by, created_at FROM groups WHERE id=%s", (gid,))
     group = c.fetchone()
     conn.close()
     result = dict(group)
@@ -340,7 +390,7 @@ def accept_invite(token: str, user_id: int = Depends(get_current_user_id)):
         raise
     conn.commit()
     c.execute(
-        "SELECT g.id, g.name, g.description, g.avatar, g.require_approval, gm.role, g.created_at "
+        "SELECT g.id, g.name, g.description, g.avatar, g.require_approval, g.utm_enabled, g.variables, g.hashtag_sets, gm.role, g.created_at "
         "FROM groups g JOIN group_members gm ON g.id = gm.group_id WHERE gm.user_id=%s AND g.id=%s",
         (user_id, gid),
     )

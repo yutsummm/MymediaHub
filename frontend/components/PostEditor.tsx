@@ -72,7 +72,7 @@ const AI_MODIFIERS_CONFIG: { id: AiModifier; icon: ReactNode; title: string; sho
  * действия (уведомить администраторов, записать в журнал), и вешать их на
  * обычное сохранение нельзя.
  */
-type EditorStatus = 'draft' | 'on_review' | 'scheduled' | 'published'
+type EditorStatus = 'draft' | 'on_review' | 'scheduled' | 'queued' | 'published'
 
 type PostEditorProps = {
   editPost?: Post
@@ -162,8 +162,32 @@ export default function PostEditor({
   const [libItems, setLibItems] = useState<import('@/lib/types').MediaLibraryItem[] | null>(null)
   const [libQuery, setLibQuery] = useState('')
   const [libSource, setLibSource] = useState<'' | 'volunteer' | 'post'>('')
+  // Очередь по расписанию: время считает сервер, мы только показываем, какое
+  // окно достанется. Держать копию правил расписания на клиенте значило бы
+  // однажды с ними разойтись.
+  const [nextSlot, setNextSlot] = useState<string | null>(null)
+  const [slotsAvailable, setSlotsAvailable] = useState(false)
+  const [autoDeleteAt, setAutoDeleteAt] = useState(
+    editPost?.auto_delete_at ? editPost.auto_delete_at.slice(0, 16) : '')
 
   useEffect(() => { api.getTemplates().then(setTmpls).catch(console.error) }, [])
+
+  // Расписание группы: если окон нет, вариант «в очередь» не предлагаем вовсе —
+  // пустой пункт меню, который отвечает ошибкой, хуже отсутствующего.
+  useEffect(() => {
+    if (!currentGroup) { setSlotsAvailable(false); return }
+    api.getSlots(currentGroup.id)
+      .then(d => setSlotsAvailable(d.slots.length > 0))
+      .catch(() => setSlotsAvailable(false))
+  }, [currentGroup])
+
+  useEffect(() => {
+    if (status !== 'queued' || !currentGroup) return
+    setNextSlot(null)
+    api.getNextSlot(currentGroup.id)
+      .then(d => setNextSlot(d.at))
+      .catch(() => setNextSlot(null))
+  }, [status, currentGroup])
 
   // Пост мог прийти из календаря сразу «на публикацию», а группа требует визы —
   // тогда в списке не окажется выбранного варианта, и поле молча покажет не то,
@@ -201,6 +225,42 @@ export default function PostEditor({
     finally { setGen(false) }
   }
 
+  const hashtagSets = currentGroup?.hashtag_sets ?? []
+  const variableKeys = Object.keys(currentGroup?.variables ?? {})
+  // Что реально подставится в этом тексте — показываем только использованные
+  // ключи: перечислять весь словарь значило бы утопить полезное в шуме.
+  const usedVariables = Object.entries(currentGroup?.variables ?? {})
+    .filter(([key]) => content.includes(`{{${key}}}`))
+
+  function appendText(chunk: string) {
+    setContent(prev => (prev.trimEnd() + '\n\n' + chunk).trimStart())
+  }
+
+  function insertAtCursor(chunk: string) {
+    const el = textareaRef.current
+    if (!el) { appendText(chunk); return }
+    const start = el.selectionStart ?? content.length
+    const end = el.selectionEnd ?? content.length
+    setContent(content.slice(0, start) + chunk + content.slice(end))
+    requestAnimationFrame(() => {
+      el.focus()
+      el.setSelectionRange(start + chunk.length, start + chunk.length)
+    })
+  }
+
+  /**
+   * Что сказать после постановки в очередь. Там, где нужна виза, окно занято,
+   * но пост сам не выйдет — умолчать об этом значило бы обмануть автора.
+   */
+  function queuedToast(post: import('@/lib/types').Post & { queued: boolean }):
+    [string, 'success' | 'info', string] {
+    const when = post.scheduled_at ? post.scheduled_at.replace('T', ', ') : 'ближайшее окно'
+    return post.queued
+      ? ['Пост в очереди', 'success', `Выйдет ${when}`]
+      : ['Окно занято, ждём согласования', 'info',
+         `После одобрения пост выйдет ${when}`]
+  }
+
   async function save() {
     if (!title.trim()) { showToast('Введите заголовок', 'error'); return }
     if (!content.trim()) { showToast('Введите текст', 'error'); return }
@@ -209,9 +269,15 @@ export default function PostEditor({
       // on_review в тело не кладём: пост сохраняется черновиком, а на
       // согласование его отправляет отдельная ручка — она же уведомляет
       // администраторов и пишет в журнал.
+      // Ни on_review, ни queued в тело не кладём: оба перехода делают
+      // отдельные ручки — у них есть побочные действия (уведомить
+      // администраторов; занять окно расписания), и вешать их на обычное
+      // сохранение значило бы, что любой PUT их запускает.
       const body = {
-        title, content, status: status === 'on_review' ? 'draft' : status,
+        title, content,
+        status: (status === 'on_review' || status === 'queued') ? 'draft' : status,
         platforms, tags, media,
+        auto_delete_at: autoDeleteAt || null,
         // Желаемое время нужно и при согласовании: одобряющий по нему решает,
         // ставить пост в расписание или выпускать сразу.
         scheduled_at: (status === 'scheduled' || status === 'on_review') ? (schedAt || null) : null,
@@ -227,6 +293,9 @@ export default function PostEditor({
           await api.submitGroupPost(currentGroup.id, editPost!.id)
           showToast('Отправлено на согласование', 'success',
                     'Администратор группы получит уведомление')
+        } else if (status === 'queued' && currentGroup) {
+          const queued = await api.queueGroupPost(currentGroup.id, editPost!.id, autoDeleteAt || null)
+          showToast(...queuedToast(queued))
         } else {
           showToast('Пост обновлён!', 'success')
         }
@@ -238,6 +307,9 @@ export default function PostEditor({
           await api.submitGroupPost(currentGroup.id, newPost.id)
           showToast('Отправлено на согласование', 'success',
                     'Администратор группы получит уведомление')
+        } else if (status === 'queued' && currentGroup) {
+          const queued = await api.queueGroupPost(currentGroup.id, newPost.id, autoDeleteAt || null)
+          showToast(...queuedToast(queued))
         } else if (status === 'published' && currentGroup) {
           try {
             // Ставим в очередь и ждём воркера: сама отправка идёт вне запроса
@@ -647,6 +719,38 @@ export default function PostEditor({
                   </div>
                 )}
               </div>
+            {/* Наборы хештегов и подстановки группы. Одно и то же набирается
+                заново в каждом втором посте; здесь это одно нажатие. */}
+            {(hashtagSets.length > 0 || variableKeys.length > 0) && (
+              <div className="fg">
+                <label>Готовые вставки</label>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {hashtagSets.map(set => (
+                    <button key={set.name} type="button" className="tag"
+                      style={{ cursor: 'pointer' }}
+                      title={set.tags}
+                      onClick={() => appendText(set.tags)}>
+                      # {set.name}
+                    </button>
+                  ))}
+                  {variableKeys.map(key => (
+                    <button key={key} type="button" className="tag"
+                      style={{ cursor: 'pointer' }}
+                      title={`Подставится при публикации: ${currentGroup?.variables?.[key] ?? ''}`}
+                      onClick={() => insertAtCursor(`{{${key}}}`)}>
+                      {'{{'}{key}{'}}'}
+                    </button>
+                  ))}
+                </div>
+                {usedVariables.length > 0 && (
+                  <div className="ts tg" style={{ marginTop: 8 }}>
+                    При публикации подставится: {usedVariables.map(
+                      ([k, v]) => `${k} → ${v}`).join(', ')}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Media upload */}
             <div className="fg">
               <label>Фото, видео и документы</label>
@@ -771,6 +875,9 @@ export default function PostEditor({
               <label>Статус</label>
               <select value={status} onChange={e => setStatus(e.target.value as EditorStatus)}>
                 <option value="draft">Черновик</option>
+                {/* «В очередь» показываем, только когда расписание задано:
+                    пункт меню, который отвечает ошибкой, хуже отсутствующего. */}
+                {slotsAvailable && <option value="queued">В очередь по расписанию</option>}
                 {needsApproval ? (
                   <option value="on_review">Отправить на согласование</option>
                 ) : (
@@ -786,6 +893,22 @@ export default function PostEditor({
                 </div>
               )}
             </div>
+
+            {status === 'queued' && (
+              <div className="fg">
+                <label>Ближайшее свободное окно</label>
+                <div className="ts tg">
+                  {nextSlot
+                    ? `Пост выйдет ${nextSlot.replace('T', ' в ')}` +
+                      (needsApproval ? ' — после согласования' : '')
+                    : 'Считаем свободное окно...'}
+                </div>
+                <div className="ts tg" style={{ marginTop: 6 }}>
+                  Время берётся из расписания группы. Занятые окна пропускаются, чтобы два
+                  поста не вышли в одну минуту и не перебили друг друга в ленте.
+                </div>
+              </div>
+            )}
 
             {(status === 'scheduled' || status === 'on_review') && (
               <div className="fg">
@@ -829,6 +952,21 @@ export default function PostEditor({
               )}
             </div>
 
+            <div className="fg">
+              <label>Снять с публикации (необязательно)</label>
+              <input type="datetime-local" value={autoDeleteAt}
+                onChange={e => setAutoDeleteAt(e.target.value)} />
+              <div className="ts tg" style={{ marginTop: 6 }}>
+                Запись исчезнет из соцсетей в указанное время — удобно для анонсов:
+                прошедшее мероприятие не будет висеть в ленте и путать людей.
+                У нас пост останется и продолжит учитываться в отчётах.
+              </div>
+              {autoDeleteAt && (
+                <button type="button" className="btn btn-ghost btn-sm" style={{ marginTop: 8 }}
+                  onClick={() => setAutoDeleteAt('')}>Не снимать</button>
+              )}
+            </div>
+
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Предпросмотр</div>
               <div className="preview">{content}</div>
@@ -841,6 +979,7 @@ export default function PostEditor({
                   : status === 'published' ? 'Опубликовать'
                   : status === 'scheduled' ? 'Запланировать'
                   : status === 'on_review' ? 'На согласование'
+                  : status === 'queued' ? 'В очередь'
                   : 'Сохранить'}
                 {!saving && <span className="btn-icon">{status === 'published' ? IcoSend : IcoCheck}</span>}
               </button>

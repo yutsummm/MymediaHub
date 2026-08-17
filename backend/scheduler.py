@@ -16,6 +16,7 @@ from datetime import timedelta
 from health import beat
 from logs import get_logger
 from publish_queue import enqueue, process_jobs, requeue_stuck_jobs
+from retention import process_due
 from telegram_stats import (
     TELEGRAM_POLL_INTERVAL,
     TELEGRAM_STATS_ENABLED,
@@ -35,6 +36,10 @@ MAX_PER_TICK = int(os.getenv("SCHEDULER_MAX_PER_TICK", "10"))
 MAX_DELAY_MINUTES = int(os.getenv("SCHEDULER_MAX_DELAY_MINUTES", "120"))
 # Очередь публикации разбирается чаще: человек нажал «Опубликовать» и ждёт.
 PUBLISH_POLL_INTERVAL = int(os.getenv("PUBLISH_POLL_SECONDS", "3"))
+# Автоснятие постов. Минута точности здесь никому не нужна: «убрать анонс
+# через неделю» — не та задача, где важны секунды, а лишний такт означает
+# лишний проход по таблице.
+RETENTION_INTERVAL = int(os.getenv("RETENTION_POLL_SECONDS", "300"))
 
 log = get_logger("scheduler")
 
@@ -207,6 +212,11 @@ async def publish_worker_loop():
     await _run_loop("publish_worker", process_jobs, PUBLISH_POLL_INTERVAL)
 
 
+async def retention_loop():
+    """Снимает с публикации посты, которым вышел срок."""
+    await _run_loop("retention", process_due, RETENTION_INTERVAL)
+
+
 async def telegram_stats_loop():
     """
     Отдельный такт: реакции Telegram нельзя запросить задним числом, их надо
@@ -229,6 +239,8 @@ def start(app) -> None:
     app.state.publish_worker_task = asyncio.create_task(publish_worker_loop())
     log.info(f"📮  воркер публикации запущен, очередь раз в {PUBLISH_POLL_INTERVAL} с")
     log.info(f"⏰  планировщик запущен, проверка каждые {SCHEDULER_INTERVAL} с")
+    app.state.retention_task = asyncio.create_task(retention_loop())
+    log.info(f"🧹  автоснятие постов запущено, раз в {RETENTION_INTERVAL} с")
     if TELEGRAM_STATS_ENABLED:
         app.state.telegram_stats_task = asyncio.create_task(telegram_stats_loop())
         log.info(f"📊  сбор реакций Telegram запущен, раз в {TELEGRAM_POLL_INTERVAL} с")
