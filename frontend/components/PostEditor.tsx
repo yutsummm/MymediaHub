@@ -47,6 +47,11 @@ const IcoSend  = <svg {...S16}><line x1="22" y1="2" x2="11" y2="13"/><polygon po
 const IcoAI    = <svg {...S16}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3z"/></svg>
 const IcoSmile = <svg {...S14}><circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
 
+const PLATFORM_LABEL: Record<string, string> = { vk: 'ВКонтакте', telegram: 'Telegram' }
+// Предел не для обрезки — резать чужой текст нельзя, — а чтобы сказать автору,
+// что сообщение не поместится, пока он ещё может его сократить.
+const PLATFORM_LIMIT: Record<string, number> = { vk: 16000, telegram: 4096 }
+
 const STEPS = [{ n: 1, l: 'Шаблон' }, { n: 2, l: 'Данные' }, { n: 3, l: 'Редактор' }, { n: 4, l: 'Публикация' }]
 
 type AiMode = 'creative' | 'formal' | 'calltoaction'
@@ -169,6 +174,15 @@ export default function PostEditor({
   const [slotsAvailable, setSlotsAvailable] = useState(false)
   const [autoDeleteAt, setAutoDeleteAt] = useState(
     editPost?.auto_delete_at ? editPost.auto_delete_at.slice(0, 16) : '')
+  // Свой текст под площадку. Пустое значение означает «взять общий» — то же
+  // поведение, что было до появления переопределений.
+  const [overrides, setOverrides] = useState<Record<string, string>>(
+    editPost?.content_overrides ?? {})
+  const [firstComment, setFirstComment] = useState(editPost?.first_comment ?? '')
+  // Предпросмотр показывает то, что реально уйдёт: свой текст площадки, если
+  // он задан, и подставленные значения переменных.
+  const [previewPlatform, setPreviewPlatform] = useState<string>(
+    editPost?.platforms?.[0] ?? 'vk')
 
   useEffect(() => { api.getTemplates().then(setTmpls).catch(console.error) }, [])
 
@@ -197,6 +211,13 @@ export default function PostEditor({
       setStatus('on_review')
     }
   }, [needsApproval, status])
+
+  // Площадку сняли — предпросмотр не должен показывать то, куда пост не пойдёт
+  useEffect(() => {
+    if (platforms.length && !platforms.includes(previewPlatform)) {
+      setPreviewPlatform(platforms[0])
+    }
+  }, [platforms, previewPlatform])
   useEffect(() => {
     return () => {
       if (emojiCloseTimerRef.current) clearTimeout(emojiCloseTimerRef.current)
@@ -223,6 +244,20 @@ export default function PostEditor({
       setContent(d.text); setTitle(d.title); setStep(3)
     } catch (e: unknown) { showToast((e as Error).message, 'error') }
     finally { setGen(false) }
+  }
+
+  const previewText = (overrides[previewPlatform] ?? '').trim() || content
+
+  function substitute(text: string): string {
+    const values = currentGroup?.variables ?? {}
+    // Ключ — что угодно, кроме пробелов и скобок. Через \w нельзя: в
+    // JavaScript это только латиница и цифры, а ключи у нас русские
+    // («центр», «адрес»), и подстановка в предпросмотре молчала бы, хотя на
+    // выпуске срабатывала — Python считает \w с учётом Unicode.
+    // Неизвестный ключ остаётся как есть, ровно как и на сервере: видимый
+    // {{ключ}} честнее молча пропавшего куска фразы.
+    return text.replace(/\{\{\s*([^\s{}]+)\s*\}\}/g,
+      (whole, key: string) => values[key] || whole)
   }
 
   const hashtagSets = currentGroup?.hashtag_sets ?? []
@@ -275,6 +310,11 @@ export default function PostEditor({
       // сохранение значило бы, что любой PUT их запускает.
       const body = {
         title, content,
+        // Пустые переопределения не отправляем: «стёр текст для Telegram»
+        // означает «верните общий», а не «опубликуйте там пустоту».
+        content_overrides: Object.fromEntries(
+          Object.entries(overrides).filter(([, v]) => v.trim())),
+        first_comment: firstComment.trim() || null,
         status: (status === 'on_review' || status === 'queued') ? 'draft' : status,
         platforms, tags, media,
         auto_delete_at: autoDeleteAt || null,
@@ -529,7 +569,10 @@ export default function PostEditor({
             {STEPS.map((s, i) => (
               <div key={s.n} style={{ display: 'flex', alignItems: 'center' }}>
                 <div className={`step${step === s.n ? ' active' : step > s.n ? ' done' : ''}`}>
-                  <div className="step-num" onClick={() => step > s.n && setStep(s.n)}>
+                  {/* При редактировании пост уже заполнен целиком, поэтому
+                      ходить можно в обе стороны; при создании — только назад,
+                      к тому, что уже прошли. */}
+                  <div className="step-num" onClick={() => (isEdit ? s.n >= 3 : step > s.n) && setStep(s.n)}>
                     {step > s.n ? IcoCheck : s.n}
                   </div>
                   <span className="step-lbl">{s.l}</span>
@@ -823,13 +866,24 @@ export default function PostEditor({
               </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
               {!isEdit && <button className="btn btn-secondary" onClick={() => setStep(tmplType ? 2 : 1)}>← Назад</button>}
               {isEdit && <button className="btn btn-secondary" onClick={() => router.push('/posts')}>Отмена</button>}
-              <button className="btn btn-primary" onClick={() => isEdit ? save() : setStep(4)} disabled={saving}>
-                {isEdit ? (saving ? 'Сохраняем...' : 'Сохранить') : 'Далее'}
-                {!saving && <span className="btn-icon">{isEdit ? IcoCheck : '→'}</span>}
-              </button>
+              <div style={{ display: 'flex', gap: 10, marginLeft: 'auto', flexWrap: 'wrap' }}>
+                {/* При редактировании шаг «Настройки публикации» был недостижим:
+                    вперёд вела только кнопка «Далее» при создании. То есть у
+                    сохранённого поста нельзя было поменять ни статус, ни дату,
+                    ни текст под площадку — всё это живёт на четвёртом шаге. */}
+                {isEdit && (
+                  <button className="btn btn-secondary" onClick={() => setStep(4)} disabled={saving}>
+                    Настройки публикации <span className="btn-icon">→</span>
+                  </button>
+                )}
+                <button className="btn btn-primary" onClick={() => isEdit ? save() : setStep(4)} disabled={saving}>
+                  {isEdit ? (saving ? 'Сохраняем...' : 'Сохранить') : 'Далее'}
+                  {!saving && <span className="btn-icon">{isEdit ? IcoCheck : '→'}</span>}
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -849,6 +903,87 @@ export default function PostEditor({
                 ))}
               </div>
             </div>
+
+            {/* Свой текст под площадку. Один текст на все площадки неверен по
+                существу: у Telegram другая длина и разметка, хештеги там
+                выглядят чужеродно, а ВКонтакте режет охват записям со ссылками. */}
+            {platforms.length > 0 && (
+              <div className="fg">
+                <label>Текст по площадкам</label>
+                <div className="ts tg" style={{ marginBottom: 10 }}>
+                  По умолчанию везде выходит общий текст. Отдельный нужен там, где
+                  формат площадки другой.
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {platforms.map(pl => {
+                    const label = PLATFORM_LABEL[pl] ?? pl
+                    const limit = PLATFORM_LIMIT[pl]
+                    const own = overrides[pl] ?? ''
+                    const effective = own.trim() ? own : content
+                    const over = limit ? effective.length > limit : false
+                    return (
+                      <div key={pl} className="plat-text">
+                        <div className="plat-text-hd">
+                          <span className="plat-text-name">{label}</span>
+                          {limit && (
+                            <span className={`plat-text-count${over ? ' over' : ''}`}>
+                              {effective.length} / {limit}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => setOverrides(prev => {
+                              const next = { ...prev }
+                              if (own.trim()) delete next[pl]
+                              else next[pl] = content
+                              return next
+                            })}
+                          >
+                            {own.trim() ? 'Вернуть общий' : 'Свой текст'}
+                          </button>
+                        </div>
+                        {own.trim() ? (
+                          <textarea
+                            value={own}
+                            rows={5}
+                            onChange={e => setOverrides(prev => ({ ...prev, [pl]: e.target.value }))}
+                            style={{ width: '100%', resize: 'vertical' }}
+                          />
+                        ) : (
+                          <div className="plat-text-same">Как общий текст</div>
+                        )}
+                        {over && (
+                          <div className="plat-text-warn">
+                            Не поместится в {label}: сообщение обрежется при отправке.
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Первый комментарий — приём против среза охвата во ВКонтакте */}
+            {platforms.includes('vk') && (
+              <div className="fg">
+                <label>Первый комментарий (необязательно)</label>
+                <textarea
+                  value={firstComment}
+                  rows={2}
+                  placeholder="Записаться: https://..."
+                  onChange={e => setFirstComment(e.target.value)}
+                  style={{ width: '100%', resize: 'vertical' }}
+                />
+                <div className="ts tg" style={{ marginTop: 6 }}>
+                  Уйдёт комментарием под записью сразу после публикации. ВКонтакте показывает
+                  записи со ссылками меньшему числу людей, поэтому ссылку на регистрацию
+                  лучше уводить из текста сюда. Только для ВКонтакте: в Telegram ссылки
+                  охват не режут.
+                </div>
+              </div>
+            )}
 
             <div className="fg">
               <label>Теги / рубрики</label>
@@ -969,7 +1104,22 @@ export default function PostEditor({
 
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Предпросмотр</div>
-              <div className="preview">{content}</div>
+              {/* С подставленными значениями: подстановки применяются на выпуске,
+                  и без предпросмотра человек не увидел бы финального текста
+                  до самой публикации. */}
+              <div className="preview">{substitute(previewText)}</div>
+              {platforms.length > 1 && (
+                <div className="ts tg" style={{ marginTop: 6 }}>
+                  Показан текст для {PLATFORM_LABEL[previewPlatform] ?? previewPlatform}.
+                  {' '}
+                  {platforms.filter(pl => pl !== previewPlatform).map(pl => (
+                    <button key={pl} type="button" className="linklike"
+                      onClick={() => setPreviewPlatform(pl)}>
+                      Показать {PLATFORM_LABEL[pl] ?? pl}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>

@@ -47,7 +47,7 @@ router = APIRouter()
 POST_COLUMNS = (
     "title", "content", "status", "platforms", "tags", "scheduled_at",
     "location_address", "location_lat", "location_lng", "author_id",
-    "template_type", "media", "auto_delete_at",
+    "template_type", "media", "auto_delete_at", "content_overrides", "first_comment",
 )
 
 
@@ -66,6 +66,8 @@ def _post_values(body, user_id: int) -> dict:
         "template_type": body.template_type,
         "media": media_for_storage(body.media),
         "auto_delete_at": parse_dt(body.auto_delete_at),
+        "content_overrides": Json(body.content_overrides or {}),
+        "first_comment": body.first_comment,
     }
 
 
@@ -242,6 +244,14 @@ def update_post(post_id: int, body: PostUpdate, user_id: int = Depends(get_curre
         # ранее назначенный срок, а не только назначить новый.
         updates.append("auto_delete_at=%s")
         params.append(parse_dt(body.auto_delete_at))
+    if body.content_overrides is not None:
+        # Пустые значения не храним: «стёр текст для Telegram» означает
+        # «вернуть общий», а не «опубликовать там пустоту».
+        updates.append("content_overrides=%s")
+        params.append(Json({k: v for k, v in body.content_overrides.items() if v.strip()}))
+    if body.first_comment is not None:
+        updates.append("first_comment=%s")
+        params.append(body.first_comment.strip() or None)
     if updates:
         params.append(post_id)
         c.execute(f"UPDATE posts SET {', '.join(updates)} WHERE id=%s", params)
@@ -438,6 +448,14 @@ def update_group_post(gid: int, post_id: int, body: PostUpdate, user_id: int = D
         # ранее назначенный срок, а не только назначить новый.
         updates.append("auto_delete_at=%s")
         params.append(parse_dt(body.auto_delete_at))
+    if body.content_overrides is not None:
+        # Пустые значения не храним: «стёр текст для Telegram» означает
+        # «вернуть общий», а не «опубликовать там пустоту».
+        updates.append("content_overrides=%s")
+        params.append(Json({k: v for k, v in body.content_overrides.items() if v.strip()}))
+    if body.first_comment is not None:
+        updates.append("first_comment=%s")
+        params.append(body.first_comment.strip() or None)
     if updates:
         params.append(post_id)
         c.execute(f"UPDATE posts SET {', '.join(updates)} WHERE id=%s", params)

@@ -24,6 +24,12 @@ class PostCreate(BaseModel):
     # Когда убрать запись из соцсети. Анонс прошедшего мероприятия
     # висит в ленте и путает людей.
     auto_delete_at: str | None = None
+    # Свой текст под площадку: {"telegram": "..."}. Пустое значение —
+    # «взять общий текст», как было до появления переопределений.
+    content_overrides: dict[str, str] | None = None
+    # Ссылка уходит первым комментарием, а не в тело записи: ВКонтакте
+    # режет охват записям со ссылками.
+    first_comment: str | None = None
 
 
 class PostUpdate(BaseModel):
@@ -40,6 +46,12 @@ class PostUpdate(BaseModel):
     # Когда убрать запись из соцсети. Анонс прошедшего мероприятия
     # висит в ленте и путает людей.
     auto_delete_at: str | None = None
+    # Свой текст под площадку: {"telegram": "..."}. Пустое значение —
+    # «взять общий текст», как было до появления переопределений.
+    content_overrides: dict[str, str] | None = None
+    # Ссылка уходит первым комментарием, а не в тело записи: ВКонтакте
+    # режет охват записям со ссылками.
+    first_comment: str | None = None
 
 
 class PostQueue(BaseModel):

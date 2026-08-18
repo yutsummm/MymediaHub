@@ -101,6 +101,29 @@ def apply_utm(text: str, platform: str, tags: list | None) -> str:
     return URL_RE.sub(replace, text)
 
 
+# Предел длины сообщения на площадке. Нужен не для обрезки — резать чужой
+# текст нельзя, — а чтобы сказать автору в редакторе, что в Telegram это
+# сообщение не поместится, пока он ещё может его сократить.
+PLATFORM_LIMITS = {"vk": 16000, "telegram": 4096}
+
+
+def for_platform(post: dict, platform: str) -> str:
+    """
+    Текст поста для конкретной площадки.
+
+    Пустое переопределение означает «взять общий текст» — ровно то поведение,
+    что было до появления переопределений. Пустая строка тоже считается
+    отсутствием: «я стёр текст для Telegram» и «я хочу опубликовать там
+    пустоту» — это первое, а не второе.
+    """
+    overrides = post.get("content_overrides")
+    if isinstance(overrides, dict):
+        value = overrides.get(platform)
+        if isinstance(value, str) and value.strip():
+            return value
+    return post.get("content") or ""
+
+
 def prepare(text: str, *, platform: str, variables: dict | None,
             tags: list | None, utm_enabled: bool) -> str:
     """
