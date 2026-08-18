@@ -1280,6 +1280,32 @@ YOUTH_CENTERS_MOCK: list[dict] = [
 ]
 
 
+def vk_wall_create_comment(access_token: str, group_id: str, post_id, message: str) -> int:
+    """
+    Первый комментарий под записью — от имени сообщества.
+
+    `from_group` обязателен: без него комментарий уходит от лица человека, чей
+    токен используется, и под записью центра появляется реплика постороннего.
+    """
+    clean_id = str(group_id).lstrip("-")
+    r = http_requests.post(
+        "https://api.vk.com/method/wall.createComment",
+        data={
+            "owner_id": f"-{clean_id}",
+            "post_id": post_id,
+            "from_group": clean_id,
+            "message": message,
+            "access_token": access_token,
+            "v": VK_API_VERSION,
+        },
+        timeout=15,
+    )
+    data = r.json()
+    if "error" in data:
+        raise ValueError(data["error"].get("error_msg", "VK wall.createComment error"))
+    return data["response"]["comment_id"]
+
+
 def vk_wall_delete(access_token: str, group_id: str, post_id: str | int) -> None:
     """
     Убирает запись со стены сообщества.

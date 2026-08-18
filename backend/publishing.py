@@ -22,6 +22,7 @@ from utils import (
     vk_upload_doc_to_wall,
     vk_upload_photo_to_wall,
     vk_upload_video_to_wall,
+    vk_wall_create_comment,
     vk_wall_post,
 )
 
@@ -72,6 +73,28 @@ def _media_bytes(item: dict) -> bytes:
     resp = http_requests.get(f"{backend_base()}{item['url']}", timeout=120)
     resp.raise_for_status()
     return resp.content
+
+
+def _add_first_comment(post: dict, settings: dict, vk_post_id, text: str):
+    """
+    Оставляет первый комментарий под записью.
+
+    Приём против среза охвата: ВКонтакте показывает записи со ссылками
+    заметно меньшему числу людей, поэтому ссылку на регистрацию уводят из
+    тела записи в комментарий под ней.
+
+    Неудача комментария не отменяет публикацию: запись уже на стене, и
+    откатывать её из-за не оставленного комментария бессмысленно. Ошибку
+    возвращаем — она попадёт туда же, где живут ошибки по отдельным файлам.
+    """
+    if not text.strip() or vk_post_id is None:
+        return None, None
+    try:
+        comment_id = vk_wall_create_comment(
+            settings["access_token"], settings["group_id"], vk_post_id, text)
+        return comment_id, None
+    except Exception as e:
+        return None, f"первый комментарий не оставлен: {e}"
 
 
 def _publish_to_vk(c, post: dict, settings: dict) -> tuple[int | None, list[str]]:
@@ -133,9 +156,11 @@ def perform_publish(conn, post_row, group_id: int | None = None) -> dict:
     # же зависят от площадки — в одном тексте они не помещаются.
     group_settings = _group_content_settings(c, group_id)
 
-    def outgoing(platform: str) -> str:
+    def outgoing(platform: str, text: str | None = None) -> str:
+        """Текст, готовый к отправке: свой для площадки, с подстановками и метками."""
+        source = content.for_platform(post, platform) if text is None else text
         return content.prepare(
-            post.get("content", ""), platform=platform,
+            source, platform=platform,
             variables=group_settings["variables"], tags=post.get("tags"),
             utm_enabled=group_settings["utm_enabled"],
         )
@@ -148,6 +173,7 @@ def perform_publish(conn, post_row, group_id: int | None = None) -> dict:
 
     platforms = post.get("platforms") or []
     vk_post_id = None
+    vk_comment_id = None
     vk_error = None
     photo_errors: list[str] = []
     tg_message_ids: list[int] = []
@@ -166,6 +192,10 @@ def perform_publish(conn, post_row, group_id: int | None = None) -> dict:
             try:
                 vk_post_id, photo_errors = _publish_to_vk(
                     c, {**post, "content": outgoing("vk")}, vk)
+                vk_comment_id, comment_error = _add_first_comment(
+                    post, vk, vk_post_id, outgoing("vk", post.get("first_comment") or ""))
+                if comment_error:
+                    photo_errors.append(comment_error)
                 if photo_errors:
                     _notify(c, author_id, (
                         f"Пост «{title}» опубликован в ВКонтакте, но "
@@ -205,6 +235,9 @@ def perform_publish(conn, post_row, group_id: int | None = None) -> dict:
 
     if vk_post_id is not None:
         c.execute("UPDATE posts SET vk_post_id=%s WHERE id=%s", (str(vk_post_id), post_id))
+    if vk_comment_id is not None:
+        c.execute("UPDATE posts SET vk_comment_id=%s WHERE id=%s",
+                  (str(vk_comment_id), post_id))
     if tg_message_ids:
         c.execute(
             "UPDATE posts SET tg_message_ids=%s WHERE id=%s",

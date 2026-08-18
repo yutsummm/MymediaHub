@@ -55,6 +55,14 @@ export interface Post {
   reviewed_at?: string | null
   reviewed_by?: number | null
   review_comment?: string | null
+  /**
+   * Свой текст под площадку: {"telegram": "..."}. Пустое значение означает
+   * «взять общий текст» — так же, как было до появления переопределений.
+   */
+  content_overrides?: Record<string, string>
+  /** Ссылка уходит первым комментарием, а не в тело записи (только ВКонтакте) */
+  first_comment?: string | null
+  vk_comment_id?: string | null
   /** Когда убрать запись из соцсети и когда убрали на самом деле */
   auto_delete_at?: string | null
   removed_at?: string | null
