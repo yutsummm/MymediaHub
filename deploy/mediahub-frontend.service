@@ -1,0 +1,36 @@
+# Веб-интерфейс медиаПространства (Next.js).
+#
+# Копировать в /etc/systemd/system/, затем:
+#   systemctl daemon-reload && systemctl enable --now mediahub-frontend
+
+[Unit]
+Description=медиаПространство — веб-интерфейс
+After=network-online.target mediahub-backend.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=mediahub
+Group=mediahub
+WorkingDirectory=/srv/mediahub/frontend
+EnvironmentFile=/srv/mediahub/frontend/.env
+# next start поднимает уже собранное приложение. Сборка делается заранее,
+# в update.sh: собирать при старте значит держать сервис недоступным минуту
+# и рисковать тем, что сборка упадёт уже после остановки старой версии.
+ExecStart=/usr/bin/npm run start -- --port 3000 --hostname 127.0.0.1
+
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/mediahub/frontend/.next
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mediahub-frontend
+
+[Install]
+WantedBy=multi-user.target

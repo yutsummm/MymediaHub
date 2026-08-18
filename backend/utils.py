@@ -1175,6 +1175,12 @@ def _resolve_media_bytes(item: dict, backend_base: str) -> tuple[bytes, str]:
     if os.path.exists(fpath):
         with open(fpath, "rb") as f:
             return f.read(), item.get("filename") or fname
+    if not backend_base:
+        raise ValueError(
+            f"Файла {fname} нет в {UPLOAD_DIR}, а забрать его по сети неоткуда: "
+            "не задан BACKEND_URL. Проверьте UPLOAD_DIR — скорее всего "
+            "приложение смотрит не в тот каталог."
+        )
     file_url = f"{backend_base}{item['url']}"
     resp = http_requests.get(file_url, timeout=120)
     resp.raise_for_status()

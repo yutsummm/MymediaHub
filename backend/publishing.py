@@ -35,9 +35,25 @@ _VK_TOKEN_HINTS = (
 
 
 def backend_base() -> str:
-    return os.getenv(
-        "BACKEND_URL", "https://backend-production-30d6.up.railway.app"
-    ).rstrip("/")
+    """
+    Собственный адрес приложения — запасной путь к своим же файлам.
+
+    В соцсети медиа уходит байтами, загрузкой: ни ВКонтакте, ни Telegram к нам
+    за файлами не ходят. Этот адрес нужен только тогда, когда файла нет на
+    локальном диске и его приходится забрать у себя же по HTTP — так бывает,
+    если инстансов несколько или том с загрузками не смонтирован.
+
+    Умолчание на railway-домен действует только внутри самого Railway. На чужом
+    сервере оно было бы худшим из возможных: приложение не упало бы, а молча
+    полезло за файлами на посторонний хост. Поэтому вне Railway пусто, а
+    отсутствие адреса разбирается там, где он реально понадобился.
+    """
+    configured = os.getenv("BACKEND_URL", "").strip().rstrip("/")
+    if configured:
+        return configured
+    if os.getenv("RAILWAY_ENVIRONMENT"):
+        return "https://backend-production-30d6.up.railway.app"
+    return ""
 
 
 def _notify(c, user_id, message: str, kind: str) -> None:
@@ -65,12 +81,19 @@ def _group_content_settings(c, group_id: int | None) -> dict:
 
 
 def _media_bytes(item: dict) -> bytes:
-    """Файл с диска, а если его там нет — по подписанной ссылке."""
+    """Файл с диска, а если его там нет — по подписанной ссылке у себя же."""
     fpath = os.path.join(UPLOAD_DIR, upload_filename(item["url"]))
     if os.path.exists(fpath):
         with open(fpath, "rb") as f:
             return f.read()
-    resp = http_requests.get(f"{backend_base()}{item['url']}", timeout=120)
+    base = backend_base()
+    if not base:
+        raise ValueError(
+            f"Файла {upload_filename(item['url'])} нет в {UPLOAD_DIR}, а забрать "
+            "его по сети неоткуда: не задан BACKEND_URL. Проверьте UPLOAD_DIR — "
+            "скорее всего приложение смотрит не в тот каталог."
+        )
+    resp = http_requests.get(f"{base}{item['url']}", timeout=120)
     resp.raise_for_status()
     return resp.content
 

@@ -603,6 +603,25 @@ def check_upload_storage():
         log.info(f"📁  загрузки: {UPLOAD_DIR} (файлов: {len(files)})")
 
 
+def check_public_url() -> None:
+    """
+    Предупреждает, если собственный адрес приложения не задан.
+
+    В соцсети медиа уходит байтами, поэтому при файлах на локальном диске
+    адрес не нужен вовсе. Он выручает в одном случае: файла на диске не
+    оказалось, и его надо забрать у себя же по HTTP. Ронять старт из-за этого
+    нельзя, но сказать заранее стоит — иначе о нём вспомнят в тот момент,
+    когда что-то уже пошло не так.
+    """
+    if os.getenv("BACKEND_URL", "").strip() or os.getenv("RAILWAY_ENVIRONMENT"):
+        return
+    log.warning(
+        "⚠️   BACKEND_URL не задан. Пока файлы лежат в UPLOAD_DIR, это ни на "
+        "что не влияет; но если файла там не окажется, забрать его будет "
+        "неоткуда. Укажите внешний адрес приложения."
+    )
+
+
 # Локально миграции удобно катить при старте; на Railway их двигает
 # preDeployCommand, и приложение обязано только проверить, что схема доехала.
 MIGRATE_ON_STARTUP = os.getenv("MIGRATE_ON_STARTUP", "1").strip().lower() not in (
@@ -635,6 +654,7 @@ def startup():
     except Exception as e:
         log.error(f"❌  не удалось зашифровать токены интеграций: {e}")
         raise
+    check_public_url()
     try:
         check_upload_storage()
     except Exception as e:
