@@ -149,6 +149,7 @@ async def unhandled_error(request: Request, exc: Exception):
 from routers.analytics import router as analytics_router
 from routers.audit_log import router as audit_router
 from routers.auth import router as auth_router
+from routers.comments import router as comments_router
 from routers.groups import router as groups_router
 from routers.notifications import router as notifications_router
 from routers.posts import router as posts_router
@@ -165,6 +166,7 @@ app.include_router(settings_router)
 app.include_router(volunteer_media_router)
 app.include_router(notifications_router)
 app.include_router(analytics_router)
+app.include_router(comments_router)
 app.include_router(users_router)
 app.include_router(yc_router)
 app.include_router(upload_router)

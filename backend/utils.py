@@ -1286,7 +1286,8 @@ YOUTH_CENTERS_MOCK: list[dict] = [
 ]
 
 
-def vk_wall_create_comment(access_token: str, group_id: str, post_id, message: str) -> int:
+def vk_wall_create_comment(access_token: str, group_id: str, post_id, message: str,
+                           reply_to_comment=None) -> int:
     """
     Первый комментарий под записью — от имени сообщества.
 
@@ -1301,6 +1302,9 @@ def vk_wall_create_comment(access_token: str, group_id: str, post_id, message: s
             "post_id": post_id,
             "from_group": clean_id,
             "message": message,
+            # Без адресата ответ ложится отдельной репликой в конец ветки, и
+            # человек не понимает, что отвечают именно ему.
+            **({"reply_to_comment": reply_to_comment} if reply_to_comment else {}),
             "access_token": access_token,
             "v": VK_API_VERSION,
         },
@@ -1359,3 +1363,37 @@ def tg_delete_messages(bot_token: str, chat_id: str, message_ids: list) -> None:
             if "not found" in str(e).lower() or "message to delete" in str(e).lower():
                 continue
             raise
+
+
+def vk_get_comments(access_token: str, group_id: str, post_id, count: int = 100) -> dict:
+    """
+    Комментарии под записью вместе с именами авторов.
+
+    `extended=1` просим не для красоты: без него в ответе только числовые
+    идентификаторы, и очередь обращений показывала бы «id 42163» вместо имени
+    человека — работать с такой очередью нельзя.
+
+    Порядок `asc`: ответ считается ответом только на то, что было раньше него,
+    и разбирать ветку удобнее с начала.
+    """
+    clean_id = str(group_id).lstrip("-")
+    r = http_requests.get(
+        "https://api.vk.com/method/wall.getComments",
+        params={
+            "owner_id": f"-{clean_id}",
+            "post_id": post_id,
+            "count": min(count, 100),
+            "sort": "asc",
+            "extended": 1,
+            "need_likes": 0,
+            # Ответы внутри веток тоже нужны: именно ими чаще всего и отвечают.
+            "thread_items_count": 10,
+            "access_token": access_token,
+            "v": VK_API_VERSION,
+        },
+        timeout=20,
+    )
+    data = r.json()
+    if "error" in data:
+        raise ValueError(data["error"].get("error_msg", "VK wall.getComments error"))
+    return data["response"]

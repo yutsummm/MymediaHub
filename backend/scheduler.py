@@ -13,6 +13,7 @@ import asyncio
 import os
 from datetime import timedelta
 
+import comments as comments_service
 from health import beat
 from logs import get_logger
 from publish_queue import enqueue, process_jobs, requeue_stuck_jobs
@@ -40,6 +41,9 @@ PUBLISH_POLL_INTERVAL = int(os.getenv("PUBLISH_POLL_SECONDS", "3"))
 # через неделю» — не та задача, где важны секунды, а лишний такт означает
 # лишний проход по таблице.
 RETENTION_INTERVAL = int(os.getenv("RETENTION_POLL_SECONDS", "300"))
+# Сбор обращений под публикациями. Срок ответа считается часами, поэтому
+# минута точности не нужна, а каждый такт — это запрос к ВК на каждый пост.
+COMMENTS_INTERVAL = comments_service.POLL_INTERVAL
 
 log = get_logger("scheduler")
 
@@ -217,6 +221,11 @@ async def retention_loop():
     await _run_loop("retention", process_due, RETENTION_INTERVAL)
 
 
+async def comments_loop():
+    """Вычитывает комментарии и предупреждает о приближении срока ответа."""
+    await _run_loop("comments", comments_service.collect, COMMENTS_INTERVAL)
+
+
 async def telegram_stats_loop():
     """
     Отдельный такт: реакции Telegram нельзя запросить задним числом, их надо
@@ -241,6 +250,9 @@ def start(app) -> None:
     log.info(f"⏰  планировщик запущен, проверка каждые {SCHEDULER_INTERVAL} с")
     app.state.retention_task = asyncio.create_task(retention_loop())
     log.info(f"🧹  автоснятие постов запущено, раз в {RETENTION_INTERVAL} с")
+    if comments_service.COMMENTS_ENABLED:
+        app.state.comments_task = asyncio.create_task(comments_loop())
+        log.info(f"💬  сбор обращений запущен, раз в {COMMENTS_INTERVAL} с")
     if TELEGRAM_STATS_ENABLED:
         app.state.telegram_stats_task = asyncio.create_task(telegram_stats_loop())
         log.info(f"📊  сбор реакций Telegram запущен, раз в {TELEGRAM_POLL_INTERVAL} с")

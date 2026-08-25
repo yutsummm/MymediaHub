@@ -5,6 +5,7 @@ import { api } from '@/lib/api'
 import { useAuth } from '@/contexts/AuthContext'
 import { useGroup } from '@/contexts/GroupContext'
 import QuickPostModal from '@/components/QuickPostModal'
+import Onboarding from '@/components/Onboarding'
 import type { AnalyticsSummary, Post } from '@/lib/types'
 
 const fmtN = (n: number) => n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n)
@@ -113,6 +114,9 @@ export default function DashboardPage() {
 
   return (
     <div className="content">
+      {/* Подсказка о ненайденных функциях. Исчезает сама, когда основное
+          настроено: подсказка, которая не подсказывает, — шум. */}
+      <Onboarding />
       {quickModal && <QuickPostModal onClose={() => setQuickModal(false)} />}
 
       {/* Stat cards */}

@@ -272,7 +272,7 @@ export const api = {
   getGroup: (groupId: number) => req<import('./types').Group>(`/api/groups/${groupId}`),
   updateGroup: (groupId: number, data: {
     name?: string; description?: string; avatar?: string
-    require_approval?: boolean; utm_enabled?: boolean
+    require_approval?: boolean; utm_enabled?: boolean; reply_sla_hours?: number
     variables?: Record<string, string>
     hashtag_sets?: import('./types').HashtagSet[]
   }) =>
@@ -391,6 +391,24 @@ export const api = {
 
   getPostHistory: (postId: number) =>
     req<{ events: import('./types').PostHistoryEvent[] }>(`/api/posts/${postId}/history`),
+
+  // Обращения под публикациями и срок ответа на них
+  getComments: (groupId: number, params?: Record<string, string>) => {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return req<{ items: import('./types').PostComment[]; sla_hours: number }
+      & import('./types').PageMeta>(`/api/groups/${groupId}/comments${qs}`)
+  },
+  getCommentsSummary: (groupId: number) =>
+    req<import('./types').CommentsSummary>(`/api/groups/${groupId}/comments/summary`),
+  replyToComment: (groupId: number, commentId: number, text: string) =>
+    req<{ ok: boolean; answered_at: string }>(
+      `/api/groups/${groupId}/comments/${commentId}/reply`, {
+        method: 'POST', body: body({ text }),
+      }),
+
+  // Что в группе ещё не настроено. Считается на сервере по данным.
+  getOnboarding: (groupId: number) =>
+    req<import('./types').OnboardingProgress>(`/api/groups/${groupId}/onboarding`),
 
   // Медиатека: одобренные материалы волонтёров плюс файлы из прошлых постов
   getMediaLibrary: (groupId: number, params?: Record<string, string>) => {

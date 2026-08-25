@@ -12,7 +12,13 @@
 
 set -euo pipefail
 
-APP_DIR="${APP_DIR:-/srv/mediahub}"
+# Где лежит проект. Определяем по расположению самого скрипта, а не жёстким
+# путём: репозиторий клонируют куда придётся, и скрипт, ищущий файлы по
+# адресу, где его нет, падает уже на середине установки — с сообщением про
+# отсутствующий requirements.txt, по которому причина совершенно не видна.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+APP_DIR="${APP_DIR:-$REPO_ROOT}"
 DATA_DIR="${DATA_DIR:-/var/lib/mediahub}"
 APP_USER="${APP_USER:-mediahub}"
 DB_NAME="${DB_NAME:-mediahub}"
@@ -22,6 +28,26 @@ say()  { printf '\n\033[1m▸ %s\033[0m\n' "$*"; }
 warn() { printf '\033[33m⚠  %s\033[0m\n' "$*"; }
 
 [[ $EUID -eq 0 ]] || { echo "Запускайте от root: sudo bash deploy/install.sh" >&2; exit 1; }
+
+# Проверяем всё нужное сразу, а не по ходу дела: упасть на середине, поставив
+# половину пакетов, хуже, чем не начать.
+for required in backend/requirements.txt frontend/package.json deploy/update.sh; do
+    [[ -f "$APP_DIR/$required" ]] || {
+        echo "Не найден $APP_DIR/$required" >&2
+        echo "Похоже, $APP_DIR — не каталог с проектом. Запускайте скрипт из" >&2
+        echo "распакованного репозитория: cd <папка проекта> && sudo bash deploy/install.sh" >&2
+        exit 1
+    }
+done
+
+# Юниты systemd и конфиг nginx содержат /srv/mediahub. Если проект лежит не
+# там, они не заработают — и об этом честнее сказать сейчас, чем оставить
+# человека разбираться, почему служба не стартует.
+if [[ "$APP_DIR" != "/srv/mediahub" ]]; then
+    warn "Проект лежит в $APP_DIR, а не в /srv/mediahub."
+    warn "В deploy/mediahub-*.service и deploy/nginx-mediahub.conf путь прописан"
+    warn "как /srv/mediahub — замените его там на $APP_DIR перед установкой служб."
+fi
 
 say "Устанавливаем пакеты"
 export DEBIAN_FRONTEND=noninteractive
