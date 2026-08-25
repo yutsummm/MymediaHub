@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
+import comments
 from utils import (
     app_now,
     as_json_list,
@@ -285,7 +286,8 @@ def _post_link(post: dict, community: str | None) -> str:
 
 
 def _report_summary_text(org: str, period: str, s: dict, published: int,
-                         platforms: list[dict], top_tag: str | None) -> list[str]:
+                         platforms: list[dict], top_tag: str | None,
+                         replies: dict | None = None) -> list[str]:
     """Связный текст вместо таблицы: с этого учредитель начинает читать."""
     lines = [
         # Кавычки вокруг названия не ставим: названия учреждений сплошь и рядом
@@ -335,12 +337,22 @@ def _report_summary_text(org: str, period: str, s: dict, published: int,
     if top_tag:
         lines.append(f"Больше всего материалов вышло по направлению «{top_tag}».")
 
+    if replies and replies["total"]:
+        answered = replies["answered"]
+        line = (f"На публикации поступило {_spaced(replies['total'])} "
+                f"{_plural(replies['total'], 'обращение', 'обращения', 'обращений')} "
+                f"от жителей, отвечено на {_spaced(answered)}")
+        if replies["avg_reply_hours"] is not None:
+            hours = replies["avg_reply_hours"]
+            line += (f"; среднее время ответа — {hours:.1f}".replace(".", ",") + " ч")
+        lines.append(line + ".")
+
     return lines
 
 
 def _build_report(org: str, dt_start, dt_end, s: dict, published: int,
                   platforms: list[dict], tags: list[dict], posts: list[dict],
-                  community: str | None):
+                  community: str | None, replies: dict | None = None):
     INK = "101014"
     MUTED = "6B7280"
     RULE = "D4D4D8"
@@ -367,7 +379,7 @@ def _build_report(org: str, dt_start, dt_end, s: dict, published: int,
 
     row = 4
     for line in _report_summary_text(org, period, s, published, platforms,
-                                     tags[0]["tag"] if tags else None):
+                                     tags[0]["tag"] if tags else None, replies):
         ws.cell(row=row, column=1, value=line)
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=4)
         ws.cell(row=row, column=1).alignment = Alignment(wrap_text=True, vertical="top")
@@ -391,6 +403,14 @@ def _build_report(org: str, dt_start, dt_end, s: dict, published: int,
         ("Отклик на просмотр",
          f"{s['engagement']:.1f} %".replace(".", ",") if s["engagement"] is not None else NO_DATA),
     ]
+    if replies and replies["total"]:
+        figures += [
+            ("Обращений от жителей", _spaced(replies["total"])),
+            ("Из них отвечено", _spaced(replies["answered"])),
+            ("Среднее время ответа, ч",
+             f"{replies['avg_reply_hours']:.1f}".replace(".", ",")
+             if replies["avg_reply_hours"] is not None else NO_DATA),
+        ]
     for label, value in figures:
         ws.cell(row=row, column=1, value=label).font = Font(size=11, color=INK)
         cell = ws.cell(row=row, column=2, value=value)
@@ -536,6 +556,11 @@ def _report(c, where: str, params: list, org: str, start_date: str, end_date: st
         "engagement": _engagement(views, row["r"], row["cm"]),
     }
 
+    # Обращения граждан: для учреждения это не «ещё одна метрика», а предмет
+    # отдельного спроса — отвечать в комментариях оно обязано.
+    replies = comments.stats(c.connection, gid, dt_start, dt_end + timedelta(days=1)) \
+        if gid is not None else None
+
     platforms = _platform_stats(c, period, period_params)
     for pl in platforms:
         pl["platform"] = "ВКонтакте" if pl["platform"] == "vk" else "Telegram"
@@ -552,7 +577,7 @@ def _report(c, where: str, params: list, org: str, start_date: str, end_date: st
     posts = [dict(r) for r in c.fetchall()]
 
     wb = _build_report(org, dt_start, dt_end, summary, published, platforms, tags,
-                       posts, _vk_community(c, gid))
+                       posts, _vk_community(c, gid), replies)
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)

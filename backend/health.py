@@ -105,6 +105,8 @@ def _loops() -> dict:
         "publish_worker": scheduler.PUBLISH_POLL_INTERVAL,
         "retention": scheduler.RETENTION_INTERVAL,
     }
+    if scheduler.comments_service.COMMENTS_ENABLED:
+        expected["comments"] = scheduler.COMMENTS_INTERVAL
     if scheduler.TELEGRAM_STATS_ENABLED:
         expected["telegram_stats"] = scheduler.TELEGRAM_POLL_INTERVAL
 

@@ -2073,3 +2073,73 @@ select option { background: var(--bg-2); color: var(--text); }
   .stat-card:hover { transform: none; }
   .tmpl-card:hover { transform: none; }
 }
+
+/* ─── Обращения под публикациями ─── */
+.comment-card {
+  padding: 14px 18px;
+  /* Полоска слева несёт срочность: просроченное видно, не читая текста. */
+  border-left: 3px solid transparent;
+}
+.comment-card.soon { border-left-color: var(--yellow); }
+.comment-card.over { border-left-color: var(--red); }
+.comment-card.done { opacity: 0.72; }
+.comment-hd {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.comment-author { font-size: 13px; font-weight: 700; color: var(--text); }
+.comment-when { font-size: 11.5px; color: var(--text-3); }
+.comment-post {
+  font-size: 11.5px; color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 34ch;
+}
+.comment-flag {
+  margin-left: auto; font-size: 11px; font-weight: 600;
+  letter-spacing: 0.04em; white-space: nowrap;
+  /* Спокойный по умолчанию. Раньше жёлтым горело всё неотвеченное — включая
+     то, у чего в запасе семь часов, — и цвет переставал что-либо значить
+     ровно тогда, когда должен был кричать. */
+  color: var(--text-3);
+}
+.comment-flag.soon { color: var(--yellow); font-weight: 700; }
+.comment-flag.over { color: var(--red); font-weight: 700; }
+.comment-flag.done { color: var(--green); font-weight: 600; }
+.comment-text {
+  font-size: 13.5px; color: var(--text-2); line-height: 1.55;
+  white-space: pre-wrap; word-break: break-word; max-width: 78ch;
+}
+.comment-reply { margin-top: 12px; }
+
+/* ─── Начало работы ─── */
+.onb-head {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.onb-bar {
+  flex: 1; min-width: 120px; height: 4px; border-radius: 2px;
+  background: var(--surface-2); overflow: hidden;
+}
+.onb-bar i { display: block; height: 100%; background: var(--accent); transition: width .4s; }
+.onb-count {
+  font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.onb-list { display: flex; flex-direction: column; }
+.onb-step {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 11px 0; border-bottom: 1px solid var(--border);
+  text-decoration: none; color: inherit;
+}
+.onb-list .onb-step:last-child { border-bottom: none; }
+.onb-step:hover .onb-ttl { text-decoration: underline; text-underline-offset: 3px; }
+.onb-mark {
+  width: 17px; height: 17px; border-radius: 50%; flex-shrink: 0; margin-top: 2px;
+  border: 1.5px solid var(--border-h, var(--text-3)); display: flex;
+  align-items: center; justify-content: center; font-size: 10px; font-weight: 700;
+}
+.onb-step.done .onb-mark { background: var(--green); border-color: var(--green); color: #fff; }
+.onb-step.done .onb-ttl { color: var(--text-3); text-decoration: line-through; }
+.onb-ttl { font-size: 13px; font-weight: 600; color: var(--text); display: block; }
+.onb-hint { font-size: 11.5px; color: var(--text-3); margin-top: 2px; display: block; max-width: 62ch; }
+.onb-opt {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-3); border: 1px solid var(--border); border-radius: var(--r-full);
+  padding: 1px 7px; margin-left: 8px; white-space: nowrap;
+}

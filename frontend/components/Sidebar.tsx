@@ -61,6 +61,11 @@ const NAV_ICONS: Record<string, React.ReactNode> = {
     </svg>
   ),
   /* Колокол со стержнем — «уведомления» */
+  comments: (
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+    </svg>
+  ),
   notifications: (
     <svg {...S}>
       <line x1="12" y1="2" x2="12" y2="4"/>
@@ -142,6 +147,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   {
     label: 'Аналитика',
     items: [
+      { href: '/comments',      icon: 'comments',       label: 'Обращения', groupRoles: ['admin', 'editor'] },
       { href: '/analytics',     icon: 'analytics',      label: 'Аналитика' },
       { href: '/notifications', icon: 'notifications',  label: 'Уведомления' },
     ],
@@ -163,10 +169,13 @@ const ROLE_SHORT: Record<string, string> = { admin: 'админ группы', e
 
 function Sidebar({
   unread = 0,
+  pendingComments = 0,
   open = false,
   onClose,
 }: {
   unread?: number
+  /** Сколько обращений ждёт ответа: у них есть срок, и о нём нужно помнить. */
+  pendingComments?: number
   open?: boolean
   onClose?: () => void
 }) {
@@ -309,6 +318,9 @@ function Sidebar({
                     {NAV_ICONS[item.icon as keyof typeof NAV_ICONS]}
                   </span>
                   {item.label}
+                  {item.href === '/comments' && pendingComments > 0 && (
+                    <span className="nav-badge">{pendingComments}</span>
+                  )}
                   {item.href === '/notifications' && unread > 0 && (
                     <span className="nav-badge">{unread}</span>
                   )}

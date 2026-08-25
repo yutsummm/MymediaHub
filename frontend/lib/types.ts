@@ -217,6 +217,8 @@ export interface Group {
   variables?: Record<string, string>
   /** Именованные наборы хештегов */
   hashtag_sets?: HashtagSet[]
+  /** За сколько часов положено ответить на обращение под публикацией */
+  reply_sla_hours?: number
   role: GroupRole
   created_by?: number
   created_at: string
@@ -245,6 +247,47 @@ export interface PostHistoryEvent {
   label: string
   actor: string | null
   details: string | null
+}
+
+/**
+ * Обращение под публикацией. minutes_left — сколько осталось до срока ответа;
+ * отрицательное значит просрочено, null — у отвеченных, где срок уже неприменим.
+ */
+export interface PostComment {
+  id: number
+  post_id: number
+  post_title: string | null
+  platform: string
+  author_name: string | null
+  text: string
+  created_at: string | null
+  answered_at: string | null
+  due_at: string | null
+  minutes_left: number | null
+  overdue: boolean
+}
+
+export interface CommentsSummary {
+  pending: number
+  overdue: number
+  sla_hours: number
+}
+
+/** Шаг начала работы. Состояние считается по данным, а не хранится флагом. */
+export interface OnboardingStep {
+  key: string
+  title: string
+  hint: string
+  done: boolean
+  href: string
+  optional: boolean
+}
+
+export interface OnboardingProgress {
+  steps: OnboardingStep[]
+  done: number
+  total: number
+  complete: boolean
 }
 
 export interface GroupMember {

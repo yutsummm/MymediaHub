@@ -15,6 +15,7 @@ const TITLES: Record<string, string> = {
   '/youth-centers':              'Молодёжные центры рядом',
   '/posts':                      'Посты',
   '/posts/new':                  'Создать пост',
+  '/comments':                   'Обращения',
   '/analytics':                  'Аналитика',
   '/settings':                   'Настройки',
   '/notifications':              'Уведомления',
@@ -25,10 +26,11 @@ const TITLES: Record<string, string> = {
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth()
-  const { groups, loading: groupsLoading } = useGroup()
+  const { groups, currentGroup, loading: groupsLoading } = useGroup()
   const router = useRouter()
   const pathname = usePathname()
   const [unread, setUnread] = useState(0)
+  const [pendingComments, setPendingComments] = useState(0)
   const [navOpen, setNavOpen] = useState(false)
   const [groupModalDismissed, setGroupModalDismissed] = useState(false)
 
@@ -46,6 +48,16 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     }
   }, [user, pathname])
 
+  // Обращения ждут ответа в срок, поэтому их число видно в меню всегда, а не
+  // только на самой странице. Наблюдателям очередь недоступна — тихо глотаем
+  // отказ, чтобы не показывать им ошибку на каждой странице.
+  useEffect(() => {
+    if (!user || !currentGroup) { setPendingComments(0); return }
+    api.getCommentsSummary(currentGroup.id)
+      .then(s => setPendingComments(s.pending))
+      .catch(() => setPendingComments(0))
+  }, [user, currentGroup, pathname])
+
   // Хук обязан вызываться до раннего return — иначе количество хуков между
   // рендерами меняется и React падает.
   const closeNav = useCallback(() => setNavOpen(false), [])
@@ -58,7 +70,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', width: '100%' }}>
       <div className="top-stripe" />
-      <Sidebar unread={unread} open={navOpen} onClose={closeNav} />
+      <Sidebar unread={unread} pendingComments={pendingComments} open={navOpen} onClose={closeNav} />
 
       <div className="main-layout">
         {/* Topbar */}

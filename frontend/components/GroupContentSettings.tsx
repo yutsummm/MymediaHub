@@ -30,6 +30,7 @@ export default function GroupContentSettings({ group, onSaved }: Props) {
   const [newSlotAt, setNewSlotAt] = useState('12:00')
 
   const [utmSaving, setUtmSaving] = useState(false)
+  const [slaSaving, setSlaSaving] = useState(false)
 
   const [vars, setVars] = useState<[string, string][]>([])
   const [sets, setSets] = useState<HashtagSet[]>([])
@@ -70,6 +71,17 @@ export default function GroupContentSettings({ group, onSaved }: Props) {
     }
     catch (e: unknown) { showToast((e as Error).message, 'error') }
     finally { setUtmSaving(false) }
+  }
+
+  async function saveSla(hours: number) {
+    setSlaSaving(true)
+    try {
+      await api.updateGroup(group.id, { reply_sla_hours: hours })
+      await onSaved()
+      showToast(`Срок ответа — ${hours} ч`, 'success')
+    }
+    catch (e: unknown) { showToast((e as Error).message, 'error') }
+    finally { setSlaSaving(false) }
   }
 
   async function saveLibrary() {
@@ -168,6 +180,32 @@ export default function GroupContentSettings({ group, onSaved }: Props) {
               </span>
             </span>
           </label>
+        </div>
+      </div>
+
+      {/* ─── Срок ответа на обращения ─── */}
+      <div className="card anim-in" style={{ marginBottom: 12 }}>
+        <div className="card-header">
+          <span className="card-title">Обращения жителей</span>
+        </div>
+        <div style={{ padding: '16px 20px' }}>
+          <div className="ts tg" style={{ marginBottom: 14, maxWidth: '68ch' }}>
+            Учреждение обязано отвечать на вопросы под своими публикациями. Система собирает
+            комментарии из ВКонтакте в раздел «Обращения», считает, сколько каждый ждёт ответа,
+            и напоминает, когда срок подходит к концу.
+          </div>
+          <div className="fg" style={{ maxWidth: 320, marginBottom: 0 }}>
+            <label>Отвечать в течение</label>
+            <select
+              value={group.reply_sla_hours ?? 8}
+              disabled={slaSaving}
+              onChange={e => saveSla(Number(e.target.value))}
+            >
+              <option value={4}>4 часов — как для срочных обращений</option>
+              <option value={8}>8 часов — обычный срок</option>
+              <option value={24}>24 часов — максимальный срок</option>
+            </select>
+          </div>
         </div>
       </div>
 

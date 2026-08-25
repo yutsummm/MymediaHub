@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from psycopg2.extras import Json
 
 import audit
+import onboarding
 import slots as publishing_slots
 from models import (
     GroupCreate,
@@ -73,6 +74,22 @@ def get_group(gid: int, user_id: int = Depends(get_current_user_id)):
     result = dict(group)
     result["role"] = role
     return result
+
+
+@router.get("/api/groups/{gid}/onboarding")
+def get_onboarding(gid: int, user_id: int = Depends(get_current_user_id)):
+    """
+    Что в этой группе ещё не настроено.
+
+    Считается по данным на каждый запрос: флаг «уже сделал» умеет разойтись с
+    реальностью — интеграцию отключили, а галочка осталась.
+    """
+    conn = get_db()
+    try:
+        role = require_group_member(gid, user_id, conn)
+        return onboarding.progress(conn, gid, role)
+    finally:
+        conn.close()
 
 
 @router.get("/api/groups/{gid}/slots")

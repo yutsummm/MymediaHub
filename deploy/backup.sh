@@ -12,7 +12,13 @@
 
 set -euo pipefail
 
-APP_DIR="${APP_DIR:-/srv/mediahub}"
+# Где лежит проект. Определяем по расположению самого скрипта, а не жёстким
+# путём: репозиторий клонируют куда придётся, и скрипт, ищущий файлы по
+# адресу, где его нет, падает уже на середине установки — с сообщением про
+# отсутствующий requirements.txt, по которому причина совершенно не видна.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+APP_DIR="${APP_DIR:-$REPO_ROOT}"
 DATA_DIR="${DATA_DIR:-/var/lib/mediahub}"
 BACKUP_DIR="${BACKUP_DIR:-$DATA_DIR/backups}"
 KEEP_DAYS="${KEEP_DAYS:-14}"

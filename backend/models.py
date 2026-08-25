@@ -59,6 +59,11 @@ class PostQueue(BaseModel):
     auto_delete_at: str | None = None
 
 
+class CommentReply(BaseModel):
+    """Ответ на обращение под публикацией."""
+    text: str
+
+
 class ReviewReject(BaseModel):
     # Возврат без причины бесполезен: автор увидит «доработайте» и не узнает,
     # что именно не так.
@@ -169,6 +174,8 @@ class GroupUpdate(BaseModel):
     require_approval: bool | None = None
     # Размечать ли ссылки UTM-метками на выпуске.
     utm_enabled: bool | None = None
+    # За сколько часов положено ответить на обращение под публикацией.
+    reply_sla_hours: int | None = None
     # Подстановки {{ключ}} в тексте поста и именованные наборы хештегов.
     variables: dict[str, str] | None = None
     hashtag_sets: list[HashtagSet] | None = None
