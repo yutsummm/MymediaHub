@@ -361,3 +361,81 @@ def test_onboarding_endpoint_is_closed_to_outsiders(client, group, make_user):
     stranger, _ = make_user("ob-stranger")
     assert client.get(f"/api/groups/{group['gid']}/onboarding",
                       headers=auth(stranger)).status_code == 403
+
+
+# ── Первое вычитывание ──────────────────────────────────────────────────────
+
+def test_first_pass_stores_history_without_shouting(client, group, monkeypatch):
+    """
+    При первом вычитывании приходит история за две недели. Предупреждать о
+    каждом давно провисевшем обращении значило бы вывалить архив в уведомления
+    как новости — администратор перестал бы их читать вообще.
+
+    В очередь такие обращения попадают и помечаются просроченными; там им и
+    место.
+    """
+    import comments as service
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO vk_settings (workspace_id, group_id, access_token) "
+              "VALUES (%s,'42','tkn') ON CONFLICT DO NOTHING", (group["gid"],))
+    conn.commit()
+    conn.close()
+
+    long_ago = int((app_now() - timedelta(days=3)).timestamp())
+    monkeypatch.setattr(service, "vk_get_comments", lambda *a, **kw: {
+        "items": [{"id": 900, "from_id": 12, "date": long_ago, "text": "давний вопрос"}],
+        "profiles": [{"id": 12, "first_name": "Пётр", "last_name": "И."}],
+        "groups": [],
+    })
+
+    service.collect()
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT warned_at FROM post_comments WHERE external_id='900'")
+    stored = c.fetchone()
+    c.execute("SELECT COUNT(*) n FROM notifications WHERE type='comment_due' AND group_id=%s",
+              (group["gid"],))
+    noise = c.fetchone()["n"]
+    conn.close()
+
+    assert stored is not None, "историю вообще не сохранили"
+    assert stored["warned_at"] is not None, "давнее обращение оставили под предупреждение"
+    assert noise == 0, "первое вычитывание вывалило историю в уведомления"
+
+    # Но в очереди оно есть и честно помечено просроченным
+    items = client.get(f"/api/groups/{group['gid']}/comments",
+                       headers=auth(group["token"])).json()["items"]
+    assert any(i["text"] == "давний вопрос" and i["overdue"] for i in items)
+
+
+def test_second_pass_warns_as_usual(client, group, monkeypatch):
+    """Молчание касается только самого первого прохода, дальше всё как обычно."""
+    import comments as service
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO vk_settings (workspace_id, group_id, access_token) "
+              "VALUES (%s,'42','tkn') ON CONFLICT DO NOTHING", (group["gid"],))
+    conn.commit()
+    conn.close()
+    # Группа уже известна сборщику
+    add_comment(group["post_id"], group["gid"], "seen", minutes_ago=5)
+
+    stale = int((app_now() - timedelta(hours=7)).timestamp())
+    monkeypatch.setattr(service, "vk_get_comments", lambda *a, **kw: {
+        "items": [{"id": 901, "from_id": 13, "date": stale, "text": "новый вопрос"}],
+        "profiles": [{"id": 13, "first_name": "Анна", "last_name": "К."}],
+        "groups": [],
+    })
+    service.collect()
+
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("SELECT COUNT(*) n FROM notifications WHERE type='comment_due' AND group_id=%s",
+              (group["gid"],))
+    warned = c.fetchone()["n"]
+    conn.close()
+    assert warned > 0, "о приближении срока никого не предупредили"

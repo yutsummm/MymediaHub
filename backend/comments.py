@@ -95,7 +95,24 @@ def _names(response: dict) -> dict:
     return names
 
 
-def _store(conn, post: dict, gid: int, vk_group_id: str, response: dict) -> int:
+def _first_pass(conn, gid: int) -> bool:
+    """
+    Видим эту группу впервые?
+
+    При первом вычитывании приходит вся история за две недели, и часть её —
+    давно провисевшие без ответа обращения. Предупреждать о каждом значило бы
+    вывалить архив в уведомления как новости: администратор получил бы два
+    десятка сообщений о том, чего уже не поправить, и перестал бы читать их
+    вообще. В очереди эти обращения видны и помечены просроченными — там им
+    и место.
+    """
+    c = conn.cursor()
+    c.execute("SELECT 1 FROM post_comments WHERE group_id=%s LIMIT 1", (gid,))
+    return c.fetchone() is None
+
+
+def _store(conn, post: dict, gid: int, vk_group_id: str, response: dict,
+           first_pass: bool = False) -> int:
     """Кладёт вычитанные комментарии. Возвращает число новых."""
     from datetime import datetime
 
@@ -115,9 +132,10 @@ def _store(conn, post: dict, gid: int, vk_group_id: str, response: dict) -> int:
 
         c.execute(
             "INSERT INTO post_comments (post_id, group_id, platform, external_id, "
-            "  parent_external_id, author_external_id, author_name, text, created_at, from_group) "
+            "  parent_external_id, author_external_id, author_name, text, created_at, "
+            "  from_group, warned_at) "
             "VALUES (%(post_id)s, %(gid)s, 'vk', %(external_id)s, %(parent)s, %(author)s, "
-            "        %(name)s, %(text)s, %(created)s, %(from_group)s) "
+            "        %(name)s, %(text)s, %(created)s, %(from_group)s, %(warned)s) "
             # Текст комментария в ВК можно поправить, поэтому обновляем — но
             # только его: остальное неизменно, а answered_at трогать нельзя,
             # иначе повторное вычитывание сбрасывало бы отметку об ответе.
@@ -126,7 +144,10 @@ def _store(conn, post: dict, gid: int, vk_group_id: str, response: dict) -> int:
             {"post_id": post["id"], "gid": gid, "external_id": external_id,
              "parent": str(parent) if parent else None, "author": author,
              "name": names.get(author, "Пользователь"), "text": item.get("text") or "",
-             "created": created, "from_group": from_group},
+             "created": created, "from_group": from_group,
+             # На первом проходе отметку о предупреждении ставим сразу: это
+             # история, а не событие, и уведомлять о ней некого и незачем.
+             "warned": app_now() if first_pass else None},
         )
         row = c.fetchone()
         if row and row["inserted"]:
@@ -229,6 +250,10 @@ def collect() -> int:
     total_new = 0
     try:
         for group in _connected_groups(conn):
+            first_pass = _first_pass(conn, group["id"])
+            if first_pass:
+                log.info(f"💬  первое вычитывание группы «{group['name']}»: "
+                         "историю кладём молча, без уведомлений")
             for post in _recent_posts(conn, group["id"]):
                 try:
                     response = vk_get_comments(
@@ -238,7 +263,8 @@ def collect() -> int:
                     # Это не повод бросать обход остальных.
                     log.warning(f"комментарии поста #{post['id']} не прочитаны: {e}")
                     continue
-                total_new += _store(conn, post, group["id"], group["vk_group_id"], response)
+                total_new += _store(conn, post, group["id"], group["vk_group_id"],
+                                    response, first_pass)
                 resolve_answers(conn, post["id"])
                 conn.commit()
             _warn_about_deadlines(conn, group)
