@@ -70,6 +70,19 @@ class ReviewReject(BaseModel):
     comment: str
 
 
+class TemplateSave(BaseModel):
+    """
+    Свой шаблон группы. Поля не описываются отдельно — они выводятся из
+    самого текста по разметке {поле}: просить человека завести список ключей
+    с подписями значит просить его поработать программистом.
+    """
+    name: str
+    description: str = ""
+    template_text: str
+    # Заготовка заголовка. Без неё у своего шаблона заголовок брать неоткуда.
+    title_template: str | None = None
+
+
 class GenerateRequest(BaseModel):
     template_type: str
     fields: dict

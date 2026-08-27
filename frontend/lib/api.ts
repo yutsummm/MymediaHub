@@ -199,6 +199,16 @@ export const api = {
     req<import('./types').YouthCenter[]>(`/api/youth-centers?lat=${lat}&lon=${lon}`),
 
   getTemplates: () => req<import('./types').Template[]>('/api/templates'),
+  // Свой шаблон группы. Поля не описываются отдельно — сервер выводит их из
+  // текста по разметке {поле}.
+  saveTemplate: (groupId: number, data: {
+    name: string; description?: string; template_text: string; title_template?: string | null
+  }) =>
+    req<import('./types').Template>(`/api/groups/${groupId}/templates`, {
+      method: 'POST', body: body(data),
+    }),
+  deleteTemplate: (groupId: number, templateId: number) =>
+    req<{ ok: boolean }>(`/api/groups/${groupId}/templates/${templateId}`, { method: 'DELETE' }),
   generateText: (template_type: string, fields: Record<string, string>) =>
     req<{ text: string; title: string }>('/api/generate-text', {
       method: 'POST', body: body({ template_type, fields }),

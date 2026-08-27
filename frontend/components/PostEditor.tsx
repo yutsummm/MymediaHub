@@ -167,6 +167,12 @@ export default function PostEditor({
   const [libItems, setLibItems] = useState<import('@/lib/types').MediaLibraryItem[] | null>(null)
   const [libQuery, setLibQuery] = useState('')
   const [libSource, setLibSource] = useState<'' | 'volunteer' | 'post'>('')
+  // Свой шаблон группы: заготовка, которую центр использует постоянно.
+  const [tmplModalOpen, setTmplModalOpen] = useState(false)
+  const [tmplName, setTmplName] = useState('')
+  const [tmplTitle, setTmplTitle] = useState('')
+  const [tmplText, setTmplText] = useState('')
+  const [tmplSaving, setTmplSaving] = useState(false)
   // Очередь по расписанию: время считает сервер, мы только показываем, какое
   // окно достанется. Держать копию правил расписания на клиенте значило бы
   // однажды с ними разойтись.
@@ -266,6 +272,69 @@ export default function PostEditor({
   // ключи: перечислять весь словарь значило бы утопить полезное в шуме.
   const usedVariables = Object.entries(currentGroup?.variables ?? {})
     .filter(([key]) => content.includes(`{{${key}}}`))
+
+  // Поля шаблона видны прямо в тексте: {дата}, {место}. Двойные скобки —
+  // подстановки группы, их заполняет система, и в поля они не попадают.
+  const TMPL_FIELD_RE = /(?<!\{)\{([^{}\n]{1,60})\}(?!\})/g
+  const tmplFieldNames = Array.from(
+    new Set(Array.from(`${tmplText} ${tmplTitle}`.matchAll(TMPL_FIELD_RE), m => m[1].trim()))
+  ).filter(Boolean)
+
+  async function saveTemplate() {
+    if (!currentGroup) return
+    setTmplSaving(true)
+    try {
+      const created = await api.saveTemplate(currentGroup.id, {
+        name: tmplName.trim(),
+        template_text: tmplText.trim(),
+        title_template: tmplTitle.trim() || null,
+      })
+      const fresh = await api.getTemplates()
+      setTmpls(fresh)
+      setTmplType(created.type)
+      setTmplModalOpen(false)
+      setTmplName(''); setTmplTitle(''); setTmplText('')
+      showToast('Шаблон сохранён', 'success', 'Теперь он в списке при создании поста')
+    }
+    catch (e: unknown) { showToast((e as Error).message, 'error') }
+    finally { setTmplSaving(false) }
+  }
+
+  async function removeTemplate(t: Template) {
+    if (!currentGroup) return
+    try {
+      await api.deleteTemplate(currentGroup.id, t.id)
+      setTmpls(prev => prev.filter(x => x.id !== t.id))
+      if (tmplType === t.type) setTmplType('')
+      showToast('Шаблон удалён', 'success')
+    }
+    catch (e: unknown) { showToast((e as Error).message, 'error') }
+  }
+
+  const LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/
+  const hasLinks = LINK_RE.test(content)
+
+  /**
+   * Оборачивает выделенное в разметку ссылки. Если ничего не выделено —
+   * вставляет заготовку и ставит курсор туда, где ждут адрес: пустая
+   * заготовка без подсказки, куда писать, бесполезна.
+   */
+  function insertLink() {
+    const el = textareaRef.current
+    const start = el?.selectionStart ?? content.length
+    const end = el?.selectionEnd ?? content.length
+    const selected = content.slice(start, end).trim()
+    const label = selected || 'текст ссылки'
+    const chunk = `[${label}](https://)`
+    setContent(content.slice(0, start) + chunk + content.slice(end))
+    requestAnimationFrame(() => {
+      if (!el) return
+      el.focus()
+      // Курсор — сразу после https://, чтобы можно было дописывать адрес
+      const caret = start + chunk.length - 1
+      el.setSelectionRange(caret, caret)
+    })
+  }
 
   function appendText(chunk: string) {
     setContent(prev => (prev.trimEnd() + '\n\n' + chunk).trimStart())
@@ -592,10 +661,22 @@ export default function PostEditor({
               {tmpls.map(t => (
                 <div key={t.type} className={`tmpl-card${tmplType === t.type ? ' sel' : ''}`} onClick={() => setTmplType(t.type)}>
                   <div className="tmpl-icon">{TSVG[t.type] ?? TSVG_BLANK}</div>
-                  <div>
-                    <div className="tmpl-name">{t.name}</div>
-                    <div className="tmpl-desc">{t.description}</div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div className="tmpl-name">
+                      {t.name}
+                      {t.editable && <span className="tmpl-own">свой</span>}
+                    </div>
+                    <div className="tmpl-desc">{t.description || 'Шаблон группы'}</div>
                   </div>
+                  {/* Удалять можно только свои: встроенные общие для всех групп */}
+                  {t.editable && currentGroup && (
+                    <button
+                      type="button"
+                      className="tmpl-del"
+                      title="Удалить шаблон"
+                      onClick={e => { e.stopPropagation(); removeTemplate(t) }}
+                    >×</button>
+                  )}
                 </div>
               ))}
               <div className={`tmpl-card${tmplType === '' ? ' sel' : ''}`} onClick={() => setTmplType('')}>
@@ -605,6 +686,15 @@ export default function PostEditor({
                   <div className="tmpl-desc">Написать пост самостоятельно</div>
                 </div>
               </div>
+              {currentGroup && currentGroup.role !== 'volunteer' && (
+                <div className="tmpl-card tmpl-new" onClick={() => setTmplModalOpen(true)}>
+                  <div className="tmpl-icon">+</div>
+                  <div>
+                    <div className="tmpl-name">Свой шаблон</div>
+                    <div className="tmpl-desc">Заготовка, которую вы используете постоянно</div>
+                  </div>
+                </div>
+              )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button className="btn btn-primary" onClick={() => setStep(tmplType ? 2 : 3)}>
@@ -762,6 +852,30 @@ export default function PostEditor({
                   </div>
                 )}
               </div>
+            {/* Ссылка внутри текста. ВКонтакте гиперссылок в записях не умеет
+                вовсе, поэтому там она развернётся в «подпись (адрес)» — об этом
+                честнее сказать сразу, а не после публикации. */}
+            <div className="fg">
+              <label>Ссылка в тексте</label>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={insertLink}>
+                  🔗 Вставить ссылку
+                </button>
+                <span className="ts tg" style={{ margin: 0 }}>
+                  Выделите слово и нажмите — текст станет кликабельным
+                </span>
+              </div>
+              {hasLinks && (
+                <div className="ts tg" style={{ marginTop: 8 }}>
+                  {platforms.includes('vk') && platforms.includes('telegram')
+                    ? 'В Telegram ссылка будет под текстом, во ВКонтакте — адресом в скобках: гиперссылки в записях там не поддерживаются.'
+                    : platforms.includes('vk')
+                      ? 'Во ВКонтакте адрес появится в скобках после подписи: гиперссылки в записях там не поддерживаются.'
+                      : 'В Telegram текст станет кликабельным.'}
+                </div>
+              )}
+            </div>
+
             {/* Наборы хештегов и подстановки группы. Одно и то же набирается
                 заново в каждом втором посте; здесь это одно нажатие. */}
             {(hashtagSets.length > 0 || variableKeys.length > 0) && (
@@ -1137,6 +1251,61 @@ export default function PostEditor({
           </div>
         )}
       </div>
+      {tmplModalOpen && (
+        <div className="overlay" onClick={() => setTmplModalOpen(false)}>
+          <div className="modal" style={{ maxWidth: 620 }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '20px 22px 6px' }}>
+              <div className="card-title" style={{ marginBottom: 6 }}>Свой шаблон</div>
+              <div className="ts tg" style={{ marginBottom: 16, maxWidth: '62ch' }}>
+                Заготовка, которую вы используете постоянно. В местах, которые меняются
+                от поста к посту, поставьте фигурные скобки: <code>{'{дата}'}</code>,
+                {' '}<code>{'{место}'}</code>. При создании поста система спросит именно их.
+              </div>
+
+              <div className="fg">
+                <label>Название шаблона</label>
+                <input type="text" value={tmplName} onChange={e => setTmplName(e.target.value)}
+                  placeholder="Клуб настольных игр" autoFocus />
+              </div>
+
+              <div className="fg">
+                <label>Заголовок поста (необязательно)</label>
+                <input type="text" value={tmplTitle} onChange={e => setTmplTitle(e.target.value)}
+                  placeholder="Настолки {дата}" />
+                <div className="ts tg" style={{ marginTop: 6 }}>
+                  Если не заполнить, заголовком станет название шаблона
+                </div>
+              </div>
+
+              <div className="fg">
+                <label>Текст шаблона</label>
+                <textarea value={tmplText} onChange={e => setTmplText(e.target.value)} rows={6}
+                  placeholder="В субботу в {время} ждём вас на настольные игры в {место}. Вход свободный."
+                  style={{ width: '100%', resize: 'vertical' }} />
+                {tmplFieldNames.length > 0 && (
+                  <>
+                    <div className="ts tg" style={{ marginTop: 8 }}>
+                      Спросим при создании поста:
+                    </div>
+                    <div className="tmpl-fields">
+                      {tmplFieldNames.map(f => <span key={f} className="tmpl-field">{f}</span>)}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="modal-ft">
+              <button className="btn btn-secondary btn-sm"
+                onClick={() => setTmplModalOpen(false)}>Отмена</button>
+              <button className="btn btn-primary btn-sm" onClick={saveTemplate}
+                disabled={tmplSaving || !tmplName.trim() || !tmplText.trim()}>
+                {tmplSaving ? 'Сохраняем...' : 'Сохранить шаблон'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {libOpen && (
         <div className="overlay" onClick={() => setLibOpen(false)}>
           <div className="modal media-lib" onClick={e => e.stopPropagation()}>
