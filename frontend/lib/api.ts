@@ -379,6 +379,17 @@ export const api = {
       method: 'POST', body: body({ comment }),
     }),
 
+  // Как пост будет выглядеть на каждой площадке. Считает тот же код, что и
+  // публикация: собирать предпросмотр на клиенте значило бы завести вторую
+  // копию правил, и она разошлась бы с настоящей.
+  previewPost: (groupId: number, draft: {
+    title?: string; content?: string
+    content_overrides?: Record<string, string>
+    tags?: string[]; platforms?: string[]; first_comment?: string | null
+  }) =>
+    req<{ previews: import('./types').PlatformPreview[] }>(
+      `/api/groups/${groupId}/posts/preview`, { method: 'POST', body: body(draft) }),
+
   // Расписание публикаций: правится целиком, как сетка недели
   getSlots: (groupId: number) =>
     req<{ slots: import('./types').PublishingSlot[] }>(`/api/groups/${groupId}/slots`),

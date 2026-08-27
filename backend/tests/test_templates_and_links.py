@@ -404,3 +404,125 @@ def test_group_variables_work_in_the_title_too(client, group, monkeypatch):
 
     assert "Новости «Спектр»" in sent["vk"]
     assert "{{центр}}" not in sent["vk"]
+
+
+# ── Предпросмотр ────────────────────────────────────────────────────────────
+
+def test_preview_shows_what_each_platform_will_actually_get(client, group):
+    """
+    Предпросмотр обязан считать тот же код, что и публикация. Отдельная сборка
+    на клиенте была бы второй копией правил — она разошлась бы с настоящей, и
+    человек увидел бы одно, а в паблик ушло другое.
+    """
+    gid, token = group["gid"], group["token"]
+    client.put(f"/api/groups/{gid}", headers=auth(token),
+               json={"variables": {"центр": "«Спектр»"}, "utm_enabled": True})
+
+    r = client.post(f"/api/groups/{gid}/posts/preview", headers=auth(token), json={
+        "title": "Набор в {{центр}}",
+        "content": "Записаться [по ссылке](https://s.ru/reg).",
+        "tags": ["вакансии"],
+        "platforms": ["vk", "telegram"],
+    })
+    assert r.status_code == 200, r.text
+    by_platform = {p["platform"]: p for p in r.json()["previews"]}
+
+    def flat(preview: dict) -> str:
+        return "".join(s["text"] for s in preview["segments"])
+
+    # Подстановка сработала на обеих площадках, включая заголовок
+    assert "«Спектр»" in flat(by_platform["vk"])
+    assert "«Спектр»" in flat(by_platform["telegram"])
+
+    # ВКонтакте: адрес виден, ссылки как куска нет — там её не бывает
+    vk_text = flat(by_platform["vk"])
+    assert "по ссылке (https://s.ru/reg" in vk_text
+    assert all(s["kind"] == "text" for s in by_platform["vk"]["segments"])
+
+    # Telegram: ссылка приходит отдельным куском, адрес в тексте не виден
+    links = [s for s in by_platform["telegram"]["segments"] if s["kind"] == "link"]
+    assert len(links) == 1
+    assert links[0]["text"] == "по ссылке"
+    assert "s.ru/reg" in links[0]["url"]
+    assert "https://s.ru/reg" not in flat(by_platform["telegram"])
+
+
+def test_preview_includes_the_utm_marks_because_vk_shows_them(client, group):
+    """
+    Во ВКонтакте адрес виден целиком, и метки делают его заметно длиннее.
+    Прятать их в предпросмотре значило бы показывать не то, что выйдет.
+    """
+    gid, token = group["gid"], group["token"]
+    client.put(f"/api/groups/{gid}", json={"utm_enabled": True}, headers=auth(token))
+    r = client.post(f"/api/groups/{gid}/posts/preview", headers=auth(token), json={
+        "content": "Запись [тут](https://s.ru/reg)", "tags": ["мероприятия"],
+        "platforms": ["vk"]})
+    text = "".join(s["text"] for s in r.json()["previews"][0]["segments"])
+    assert "utm_source=vk" in text
+
+
+def test_preview_uses_the_platform_specific_text(client, group):
+    r = client.post(f"/api/groups/{group['gid']}/posts/preview",
+                    headers=auth(group["token"]), json={
+                        "content": "Общий текст",
+                        "content_overrides": {"telegram": "Текст для канала"},
+                        "platforms": ["vk", "telegram"]})
+    by_platform = {p["platform"]: "".join(s["text"] for s in p["segments"])
+                   for p in r.json()["previews"]}
+    assert by_platform["vk"] == "Общий текст"
+    assert by_platform["telegram"] == "Текст для канала"
+
+
+def test_preview_warns_when_the_message_will_not_fit(client, group):
+    """Сообщение длиннее предела Telegram обрежется при отправке."""
+    r = client.post(f"/api/groups/{group['gid']}/posts/preview",
+                    headers=auth(group["token"]),
+                    json={"content": "я" * 5000, "platforms": ["vk", "telegram"]})
+    by_platform = {p["platform"]: p for p in r.json()["previews"]}
+    assert by_platform["telegram"]["over_limit"] is True
+    assert by_platform["telegram"]["limit"] == 4096
+    assert by_platform["vk"]["over_limit"] is False
+
+
+def test_preview_matches_what_publishing_sends(client, group, monkeypatch):
+    """
+    Главная проверка: предпросмотр и публикация обязаны совпасть до символа.
+    Разойдутся — и предпросмотр начнёт врать, а полагаться на него будут.
+    """
+    import publishing
+
+    gid, token = group["gid"], group["token"]
+    client.put(f"/api/groups/{gid}", headers=auth(token),
+               json={"variables": {"центр": "«Спектр»"}, "utm_enabled": True})
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO vk_settings (workspace_id, group_id, access_token) "
+              "VALUES (%s,'42','tkn') ON CONFLICT DO NOTHING", (gid,))
+    conn.commit()
+
+    draft = {"title": "Набор в {{центр}}",
+             "content": "Записаться [по ссылке](https://s.ru/reg).",
+             "tags": ["вакансии"], "platforms": ["vk"]}
+
+    preview = client.post(f"/api/groups/{gid}/posts/preview",
+                          headers=auth(token), json=draft).json()["previews"][0]
+    shown = "".join(s["text"] for s in preview["segments"])
+
+    r = client.post(f"/api/groups/{gid}/posts", headers=auth(token),
+                    json={**draft, "status": "draft"})
+    pid = r.json()["id"]
+    sent: dict = {}
+    monkeypatch.setattr(publishing, "vk_wall_post",
+                        lambda *a, **kw: (sent.update(vk=a[2]), 1)[1])
+    c.execute("SELECT * FROM posts WHERE id=%s", (pid,))
+    publishing.perform_publish(conn, c.fetchone(), group_id=gid)
+    conn.close()
+
+    assert shown == sent["vk"], "предпросмотр разошёлся с тем, что реально ушло"
+
+
+def test_preview_is_closed_to_outsiders(client, group, make_user):
+    stranger, _ = make_user("prev-stranger")
+    r = client.post(f"/api/groups/{group['gid']}/posts/preview",
+                    headers=auth(stranger), json={"content": "текст", "platforms": ["vk"]})
+    assert r.status_code == 403

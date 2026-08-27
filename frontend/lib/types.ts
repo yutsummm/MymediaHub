@@ -297,6 +297,26 @@ export interface OnboardingProgress {
   complete: boolean
 }
 
+/**
+ * Кусок предпросмотра. Ссылки приходят отдельными кусками, а не готовым HTML:
+ * интерфейс их отрисовывает, а не вставляет чужую разметку внутрь страницы.
+ */
+export interface PreviewSegment {
+  kind: 'text' | 'link'
+  text: string
+  url: string
+}
+
+export interface PlatformPreview {
+  platform: string
+  label: string
+  segments: PreviewSegment[]
+  length: number
+  limit: number
+  over_limit: boolean
+  first_comment?: string
+}
+
 export interface GroupMember {
   id: number
   name: string

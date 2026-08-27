@@ -48,9 +48,6 @@ const IcoAI    = <svg {...S16}><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L
 const IcoSmile = <svg {...S14}><circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
 
 const PLATFORM_LABEL: Record<string, string> = { vk: 'ВКонтакте', telegram: 'Telegram' }
-// Предел не для обрезки — резать чужой текст нельзя, — а чтобы сказать автору,
-// что сообщение не поместится, пока он ещё может его сократить.
-const PLATFORM_LIMIT: Record<string, number> = { vk: 16000, telegram: 4096 }
 
 const STEPS = [{ n: 1, l: 'Шаблон' }, { n: 2, l: 'Данные' }, { n: 3, l: 'Редактор' }, { n: 4, l: 'Публикация' }]
 
@@ -190,6 +187,8 @@ export default function PostEditor({
   // он задан, и подставленные значения переменных.
   const [previewPlatform, setPreviewPlatform] = useState<string>(
     editPost?.platforms?.[0] ?? 'vk')
+  const [previews, setPreviews] = useState<import('@/lib/types').PlatformPreview[]>([])
+  const [previewError, setPreviewError] = useState('')
 
   useEffect(() => { api.getTemplates().then(setTmpls).catch(console.error) }, [])
 
@@ -218,6 +217,24 @@ export default function PostEditor({
       setStatus('on_review')
     }
   }, [needsApproval, status])
+
+  // Собираем только на шаге публикации: на предыдущих его не видно, а запрос
+  // на каждую букву в редакторе — лишняя работа и лишний шум в логах.
+  useEffect(() => {
+    if (step !== 4 || !currentGroup || platforms.length === 0) return
+    const t = setTimeout(() => {
+      api.previewPost(currentGroup.id, {
+        title, content,
+        content_overrides: Object.fromEntries(
+          Object.entries(overrides).filter(([, v]) => v.trim())),
+        tags, platforms, first_comment: firstComment.trim() || null,
+      })
+        .then(d => { setPreviews(d.previews); setPreviewError('') })
+        .catch(e => setPreviewError((e as Error).message))
+    }, 400)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, currentGroup, title, content, overrides, tags, platforms, firstComment])
 
   // Площадку сняли — предпросмотр не должен показывать то, куда пост не пойдёт
   useEffect(() => {
@@ -253,19 +270,7 @@ export default function PostEditor({
     finally { setGen(false) }
   }
 
-  const previewText = (overrides[previewPlatform] ?? '').trim() || content
-
-  function substitute(text: string): string {
-    const values = currentGroup?.variables ?? {}
-    // Ключ — что угодно, кроме пробелов и скобок. Через \w нельзя: в
-    // JavaScript это только латиница и цифры, а ключи у нас русские
-    // («центр», «адрес»), и подстановка в предпросмотре молчала бы, хотя на
-    // выпуске срабатывала — Python считает \w с учётом Unicode.
-    // Неизвестный ключ остаётся как есть, ровно как и на сервере: видимый
-    // {{ключ}} честнее молча пропавшего куска фразы.
-    return text.replace(/\{\{\s*([^\s{}]+)\s*\}\}/g,
-      (whole, key: string) => values[key] || whole)
-  }
+  const shownPreview = previews.find(p => p.platform === previewPlatform) ?? previews[0]
 
   const hashtagSets = currentGroup?.hashtag_sets ?? []
   const variableKeys = Object.keys(currentGroup?.variables ?? {})
@@ -1044,19 +1049,17 @@ export default function PostEditor({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   {platforms.map(pl => {
                     const label = PLATFORM_LABEL[pl] ?? pl
-                    const limit = PLATFORM_LIMIT[pl]
                     const own = overrides[pl] ?? ''
-                    const effective = own.trim() ? own : content
-                    const over = limit ? effective.length > limit : false
                     return (
                       <div key={pl} className="plat-text">
                         <div className="plat-text-hd">
                           <span className="plat-text-name">{label}</span>
-                          {limit && (
-                            <span className={`plat-text-count${over ? ' over' : ''}`}>
-                              {effective.length} / {limit}
-                            </span>
-                          )}
+                          {/* Счётчик отсюда убран намеренно. Он считал длину
+                              разметки, а предпросмотр ниже — длину того, что
+                              реально увидят: два числа с одним знаменателем на
+                              одном экране расходились, и верить было нечему.
+                              Длину теперь показывает предпросмотр, и только он. */}
+                          <span style={{ marginLeft: 'auto' }} />
                           <button
                             type="button"
                             className="btn btn-ghost btn-sm"
@@ -1079,11 +1082,6 @@ export default function PostEditor({
                           />
                         ) : (
                           <div className="plat-text-same">Как общий текст</div>
-                        )}
-                        {over && (
-                          <div className="plat-text-warn">
-                            Не поместится в {label}: сообщение обрежется при отправке.
-                          </div>
                         )}
                       </div>
                     )
@@ -1229,23 +1227,62 @@ export default function PostEditor({
               )}
             </div>
 
+            {/* Предпросмотр считает сервер — тем же кодом, что и публикация.
+                Собирать его здесь значило бы завести вторую копию правил
+                (подстановки, метки, разворот ссылок), и она разошлась бы с
+                настоящей: человек видел бы одно, а в паблик уходило другое. */}
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.1em' }}>Предпросмотр</div>
-              {/* С подставленными значениями: подстановки применяются на выпуске,
-                  и без предпросмотра человек не увидел бы финального текста
-                  до самой публикации. */}
-              <div className="preview">{substitute(previewText)}</div>
-              {platforms.length > 1 && (
-                <div className="ts tg" style={{ marginTop: 6 }}>
-                  Показан текст для {PLATFORM_LABEL[previewPlatform] ?? previewPlatform}.
-                  {' '}
-                  {platforms.filter(pl => pl !== previewPlatform).map(pl => (
-                    <button key={pl} type="button" className="linklike"
-                      onClick={() => setPreviewPlatform(pl)}>
-                      Показать {PLATFORM_LABEL[pl] ?? pl}
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                Как это будет выглядеть
+              </div>
+
+              {previews.length > 1 && (
+                <div className="period-seg" style={{ marginBottom: 10 }}>
+                  {previews.map(p => (
+                    <button key={p.platform} type="button"
+                      className={`period-seg-btn${previewPlatform === p.platform ? ' active' : ''}`}
+                      onClick={() => setPreviewPlatform(p.platform)}>
+                      {p.label}
                     </button>
                   ))}
                 </div>
+              )}
+
+              {previewError ? (
+                <div className="preview" style={{ color: 'var(--text-3)' }}>{previewError}</div>
+              ) : shownPreview ? (
+                <>
+                  <div className="preview">
+                    {shownPreview.segments.map((seg, i) =>
+                      seg.kind === 'link'
+                        ? <span key={i} className="preview-link" title={seg.url}>{seg.text}</span>
+                        : <span key={i}>{seg.text}</span>
+                    )}
+                  </div>
+                  <div className="preview-meta">
+                    <span className={shownPreview.over_limit ? 'over' : ''}>
+                      {shownPreview.length} / {shownPreview.limit}
+                    </span>
+                    {shownPreview.over_limit && (
+                      <span className="over">
+                        Не поместится — при отправке сообщение обрежется
+                      </span>
+                    )}
+                    {shownPreview.platform === 'telegram'
+                      ? <span>Подчёркнутое станет кликабельным</span>
+                      : <span>Адреса видны: гиперссылок в записях ВКонтакте нет</span>}
+                  </div>
+                  {shownPreview.first_comment && (
+                    <div style={{ marginTop: 10 }}>
+                      <div className="ts tg" style={{ marginBottom: 4 }}>
+                        Первым комментарием под записью:
+                      </div>
+                      <div className="preview">{shownPreview.first_comment}</div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="preview" style={{ color: 'var(--text-3)' }}>Собираем...</div>
               )}
             </div>
 

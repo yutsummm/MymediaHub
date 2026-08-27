@@ -5,13 +5,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from psycopg2.extras import Json
 
 import audit
+import publishing
 import review
+import richtext
 import slots as publishing_slots
 import templates
 from models import (
     AIEnhanceRequest,
     GenerateRequest,
     PostCreate,
+    PostPreview,
     PostQueue,
     PostUpdate,
     ReviewReject,
@@ -508,6 +511,66 @@ def publish_group_post(gid: int, post_id: int, user_id: int = Depends(get_curren
         # статусы, мы оставили бы дверь рядом открытой.
         review.check_may_release(conn, gid, role, "published")
         return enqueue(conn, post_id, gid, user_id)
+    finally:
+        conn.close()
+
+
+# ── Предпросмотр ─────────────────────────────────────────────────────────────
+
+# Предел длины сообщения на площадке — тот же, что применяется при отправке.
+PLATFORM_LIMITS = {"vk": 16000, "telegram": 4096}
+PLATFORM_NAMES = {"vk": "ВКонтакте", "telegram": "Telegram"}
+
+
+@router.post("/api/groups/{gid}/posts/preview")
+def preview_post(gid: int, body: PostPreview, user_id: int = Depends(get_current_user_id)):
+    """
+    Как пост будет выглядеть на каждой площадке.
+
+    Считает тот же код, что и публикация (`publishing.compose`). Собирать
+    предпросмотр отдельно на клиенте значило бы завести вторую копию правил —
+    подстановок, меток, разворота ссылок, — и она разошлась бы с настоящей.
+    Предпросмотр, который врёт, хуже отсутствующего: на него полагаются.
+
+    Ссылки отдаются кусками, а не готовым HTML: интерфейсу нужно их
+    отрисовать, а не вставить чужую разметку внутрь страницы.
+    """
+    conn = get_db()
+    try:
+        role = require_group_member(gid, user_id, conn)
+        if role == "volunteer":
+            raise HTTPException(403, "Наблюдателям предпросмотр недоступен")
+        c = conn.cursor()
+        settings = publishing._group_content_settings(c, gid)
+        draft = {
+            "title": body.title,
+            "content": body.content,
+            "content_overrides": body.content_overrides or {},
+            "tags": body.tags,
+        }
+
+        result = []
+        for platform in body.platforms:
+            if platform not in PLATFORM_NAMES:
+                continue
+            text = publishing.compose(draft, settings, platform)
+            limit = PLATFORM_LIMITS[platform]
+            length = richtext.visible_length(text)
+            item = {
+                "platform": platform,
+                "label": PLATFORM_NAMES[platform],
+                "segments": [{"kind": kind, "text": chunk, "url": url}
+                             for kind, chunk, url in richtext.segments(text)],
+                "length": length,
+                "limit": limit,
+                "over_limit": length > limit,
+            }
+            if platform == "vk" and (body.first_comment or "").strip():
+                comment = publishing.compose(
+                    {"content": body.first_comment, "tags": body.tags}, settings, "vk")
+                item["first_comment"] = comment
+            result.append(item)
+        return {"previews": result}
     finally:
         conn.close()
 

@@ -64,6 +64,19 @@ class CommentReply(BaseModel):
     text: str
 
 
+class PostPreview(BaseModel):
+    """
+    Черновик для предпросмотра. Поля те же, что у поста, но пост ещё не
+    сохранён: человек хочет увидеть результат до того, как решит сохранять.
+    """
+    title: str = ""
+    content: str = ""
+    content_overrides: dict[str, str] | None = None
+    tags: list[str] = []
+    platforms: list[str] = ["vk"]
+    first_comment: str | None = None
+
+
 class ReviewReject(BaseModel):
     # Возврат без причины бесполезен: автор увидит «доработайте» и не узнает,
     # что именно не так.
