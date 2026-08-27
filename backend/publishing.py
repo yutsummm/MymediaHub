@@ -64,6 +64,36 @@ def _notify(c, user_id, message: str, kind: str) -> None:
     )
 
 
+def compose(post: dict, settings: dict, platform: str) -> str:
+    """
+    Итоговый текст для площадки: заголовок и тело, с подстановками и метками.
+
+    Единственное место, где текст собирается целиком. Раньше это было
+    размазано: Telegram склеивал заголовок в perform_publish, ВКонтакте — в
+    _publish_to_vk, а предпросмотр в интерфейсе показывал третий вариант,
+    собранный на клиенте. Три сборки одного и того же расходятся не «если», а
+    «когда» — и уже расходились: разметка в заголовке уходила во ВКонтакте
+    сырой.
+
+    Для ВКонтакте ссылки разворачиваются здесь же: гиперссылок в тексте
+    записи там нет, и `подпись (адрес)` — окончательный вид. Для Telegram
+    остаётся разметка: в HTML её превращает отправщик, потому что резать по
+    длине нужно до появления тегов.
+    """
+    def prepared(text: str) -> str:
+        return content.prepare(
+            text, platform=platform,
+            variables=settings.get("variables") or {},
+            tags=post.get("tags"),
+            utm_enabled=bool(settings.get("utm_enabled")),
+        )
+
+    body = prepared(content.for_platform(post, platform))
+    title = prepared(post.get("title") or "")
+    message = f"{title}\n\n{body}" if title else body
+    return richtext.to_plain(message) if platform == "vk" else message
+
+
 def _group_content_settings(c, group_id: int | None) -> dict:
     """
     Настройки группы, влияющие на исходящий текст.
@@ -121,7 +151,8 @@ def _add_first_comment(post: dict, settings: dict, vk_post_id, text: str):
         return None, f"первый комментарий не оставлен: {e}"
 
 
-def _publish_to_vk(c, post: dict, settings: dict) -> tuple[int | None, list[str]]:
+def _publish_to_vk(c, post: dict, settings: dict,
+                   message: str) -> tuple[int | None, list[str]]:
     """Возвращает (id записи на стене, ошибки по отдельным файлам)."""
     photo_errors: list[str] = []
     attachments: list[str] = []
@@ -156,7 +187,6 @@ def _publish_to_vk(c, post: dict, settings: dict) -> tuple[int | None, list[str]
                 )
             photo_errors.append(msg)
 
-    message = f"{post['title']}\n\n{post['content']}"
     return vk_wall_post(token, group, message, attachments), photo_errors
 
 
@@ -189,19 +219,6 @@ def perform_publish(conn, post_row, group_id: int | None = None) -> dict:
             utm_enabled=group_settings["utm_enabled"],
         )
 
-    def outgoing_title(platform: str) -> str:
-        """
-        Заголовок проходит ту же обработку, что и текст.
-
-        Раньше он уходил как есть, и разметка вела себя по-разному на двух
-        площадках: в Telegram заголовок склеивается с текстом в одно
-        сообщение и разбирается как разметка, а во ВКонтакте утекал сырым —
-        `[запись](https://…)` прямо на стене. Подстановки группы в заголовке
-        тоже не работали. С появлением своего заголовка у шаблонов
-        (`title_template`) наступить на это стало легко.
-        """
-        return outgoing(platform, post.get("title") or "")
-
     c.execute(
         "UPDATE posts SET status='published', published_at=%s WHERE id=%s",
         (app_now(), post_id),
@@ -232,9 +249,7 @@ def perform_publish(conn, post_row, group_id: int | None = None) -> dict:
                 # разворачивается в «подпись (адрес)» — это не компромисс, а
                 # единственный доступный там вид.
                 vk_post_id, photo_errors = _publish_to_vk(
-                    c, {**post,
-                        "title": richtext.to_plain(outgoing_title("vk")),
-                        "content": richtext.to_plain(outgoing("vk"))}, vk)
+                    c, post, vk, compose(post, group_settings, "vk"))
                 vk_comment_id, comment_error = _add_first_comment(
                     post, vk, vk_post_id,
                     richtext.to_plain(outgoing("vk", post.get("first_comment") or "")))
@@ -264,9 +279,7 @@ def perform_publish(conn, post_row, group_id: int | None = None) -> dict:
         tg = decrypt_row_secret(c.fetchone(), "bot_token")
         if tg:
             try:
-                body = outgoing("telegram")
-                heading = outgoing_title("telegram")
-                text = f"{heading}\n\n{body}" if post.get("title") else body
+                text = compose(post, group_settings, "telegram")
                 tg_message_ids = tg_send_post(
                     tg["bot_token"], tg["chat_id"], text,
                     post.get("media") or [], backend_base(),
