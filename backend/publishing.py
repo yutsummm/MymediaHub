@@ -11,6 +11,7 @@ import requests as http_requests
 from psycopg2.extras import Json
 
 import content
+import richtext
 from stats import serialize_post
 from utils import (
     UPLOAD_DIR,
@@ -213,10 +214,15 @@ def perform_publish(conn, post_row, group_id: int | None = None) -> dict:
         vk = decrypt_row_secret(c.fetchone(), "access_token")
         if vk:
             try:
+                # ВКонтакте гиперссылок в тексте записи не умеет вовсе:
+                # ссылкой становится только видимый адрес. Поэтому разметка
+                # разворачивается в «подпись (адрес)» — это не компромисс, а
+                # единственный доступный там вид.
                 vk_post_id, photo_errors = _publish_to_vk(
-                    c, {**post, "content": outgoing("vk")}, vk)
+                    c, {**post, "content": richtext.to_plain(outgoing("vk"))}, vk)
                 vk_comment_id, comment_error = _add_first_comment(
-                    post, vk, vk_post_id, outgoing("vk", post.get("first_comment") or ""))
+                    post, vk, vk_post_id,
+                    richtext.to_plain(outgoing("vk", post.get("first_comment") or "")))
                 if comment_error:
                     photo_errors.append(comment_error)
                 if photo_errors:

@@ -7,6 +7,7 @@ from psycopg2.extras import Json
 import audit
 import review
 import slots as publishing_slots
+import templates
 from models import (
     AIEnhanceRequest,
     GenerateRequest,
@@ -14,13 +15,13 @@ from models import (
     PostQueue,
     PostUpdate,
     ReviewReject,
+    TemplateSave,
 )
 from publish_queue import enqueue, get_job, job_for_post
 from stats import save_platform_stats, serialize_post, serialize_posts
 from utils import (
     _AI_PROMPTS,
     app_now,
-    as_json_list,
     check_rate_limit,
     decrypt_row_secret,
     fmt_dt,
@@ -902,41 +903,111 @@ def get_calendar(
 
 @router.get("/api/templates")
 def get_templates(user_id: int = Depends(get_current_user_id)):
+    """Встроенные шаблоны плюс шаблоны групп, где человек состоит."""
     conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT * FROM templates")
-    rows = c.fetchall()
-    conn.close()
-    result = []
-    for r in rows:
-        d = dict(r)
-        try:
-            d["fields"] = as_json_list(d["fields"])
-        except Exception:
-            d["fields"] = []
-        result.append(d)
-    return result
+    try:
+        return templates.visible_to(conn, user_id)
+    finally:
+        conn.close()
+
+
+@router.post("/api/groups/{gid}/templates")
+def create_template(gid: int, body: TemplateSave, user_id: int = Depends(get_current_user_id)):
+    """
+    Заводит шаблон группы.
+
+    Владелец — группа, а не человек: шаблон описывает, как публикует
+    учреждение, и должен остаться, когда автор уйдёт.
+    """
+    conn = get_db()
+    try:
+        role = require_group_member(gid, user_id, conn)
+        if role == "volunteer":
+            raise HTTPException(403, "Наблюдатели не могут заводить шаблоны")
+        name = (body.name or "").strip()
+        text = (body.template_text or "").strip()
+        if not name:
+            raise HTTPException(400, "У шаблона должно быть название")
+        if not text:
+            raise HTTPException(400, "Шаблон без текста бесполезен")
+
+        fields = templates.extract_fields(text, body.title_template or "")
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO templates (name, type, description, fields, template_text, "
+            "  title_template, group_id, created_by) "
+            "VALUES (%(name)s, %(type)s, %(description)s, %(fields)s, %(text)s, "
+            "        %(title)s, %(gid)s, %(user_id)s) "
+            # Повторное название внутри группы — это правка того же шаблона,
+            # а не второй такой же: человек ожидает, что «сохранить» перезапишет.
+            "ON CONFLICT (group_id, type) WHERE group_id IS NOT NULL DO UPDATE SET "
+            "  name=EXCLUDED.name, description=EXCLUDED.description, "
+            "  fields=EXCLUDED.fields, template_text=EXCLUDED.template_text, "
+            "  title_template=EXCLUDED.title_template "
+            "RETURNING *",
+            {"name": name, "type": templates.slug(name, gid),
+             "description": (body.description or "").strip(),
+             "fields": Json(fields), "text": text,
+             "title": (body.title_template or "").strip() or None,
+             "gid": gid, "user_id": user_id},
+        )
+        result = templates.serialize(c.fetchone())
+        conn.commit()
+        return result
+    finally:
+        conn.close()
+
+
+@router.delete("/api/groups/{gid}/templates/{template_id}")
+def delete_template(gid: int, template_id: int, user_id: int = Depends(get_current_user_id)):
+    conn = get_db()
+    try:
+        role = require_group_member(gid, user_id, conn)
+        if role == "volunteer":
+            raise HTTPException(403, "Наблюдатели не могут удалять шаблоны")
+        c = conn.cursor()
+        # group_id в условии обязателен: без него удаление добралось бы до
+        # встроенных шаблонов, общих для всех групп.
+        c.execute("DELETE FROM templates WHERE id=%s AND group_id=%s RETURNING id",
+                  (template_id, gid))
+        if not c.fetchone():
+            raise HTTPException(404, "Шаблон не найден")
+        conn.commit()
+        return {"ok": True}
+    finally:
+        conn.close()
+
+
+# Заголовки встроенных шаблонов. У своих заголовок берётся из
+# title_template — правила «на каждый тип своя формула» для произвольного
+# шаблона не существует.
+BUILTIN_TITLES = {
+    "announcement": lambda f: "Анонс: " + f.get("event_name", ""),
+    "results": lambda f: "Итоги: " + f.get("event_name", ""),
+    "vacancy": lambda f: "Вакансия: " + f.get("position", ""),
+    "grant": lambda f: f.get("grant_name", ""),
+}
 
 
 @router.post("/api/generate-text")
 def generate_text(body: GenerateRequest, user_id: int = Depends(get_current_user_id)):
+    """Собирает текст поста из шаблона и заполненных полей."""
     conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT * FROM templates WHERE type=%s", (body.template_type,))
-    tmpl = c.fetchone()
-    conn.close()
-    if not tmpl:
-        raise HTTPException(404, "Шаблон не найден")
-    text = tmpl["template_text"]
-    for k, v in body.fields.items():
-        text = text.replace(f"{{{k}}}", v)
-    titles = {
-        "announcement": "Анонс: " + body.fields.get("event_name", ""),
-        "results": "Итоги: " + body.fields.get("event_name", ""),
-        "vacancy": "Вакансия: " + body.fields.get("position", ""),
-        "grant": body.fields.get("grant_name", ""),
-    }
-    return {"text": text, "title": titles.get(body.template_type, "Новый пост")}
+    try:
+        tmpl = templates.find(conn, body.template_type, user_id)
+    finally:
+        conn.close()
+
+    text = templates.render(tmpl["template_text"], body.fields)
+    if tmpl.get("title_template"):
+        title = templates.render(tmpl["title_template"], body.fields).strip()
+    elif body.template_type in BUILTIN_TITLES:
+        title = BUILTIN_TITLES[body.template_type](body.fields)
+    else:
+        # Своего заголовка нет — берём название шаблона: оно всяко ближе к делу,
+        # чем «Новый пост», и человек его тут же поправит.
+        title = tmpl["name"]
+    return {"text": text, "title": title or "Новый пост"}
 
 
 # ── AI Enhance ───────────────────────────────────────────────────────────────

@@ -118,6 +118,13 @@ export interface Template {
   description: string
   fields: TemplateField[]
   template_text: string
+  /** Заготовка заголовка; у встроенных её нет — там правило на каждый тип */
+  title_template?: string | null
+  /** null — встроенный шаблон, общий для всех групп */
+  group_id?: number | null
+  /** Встроенные править нельзя: правка одной группы изменила бы их всем */
+  editable?: boolean
+  created_at?: string | null
 }
 
 export interface AnalyticsSummary {

@@ -22,6 +22,7 @@ from fastapi import Header, HTTPException, Request
 from jose import JWTError, jwt
 from psycopg2.extras import Json
 
+import richtext
 from logs import get_logger, user_id_var
 
 # ── DB ───────────────────────────────────────────────────────────────────────
@@ -1202,17 +1203,31 @@ def _remember_message(posted_ids: list[int], response) -> None:
 
 
 def tg_send_post(bot_token: str, chat_id: str, message: str, media: list[dict], backend_base: str) -> list[int]:
+    """
+    Отправляет пост в канал. Текст приходит с разметкой ссылок `[текст](адрес)`.
+
+    Разметка разворачивается в HTML прямо здесь, а не раньше: предел длины у
+    Telegram считается по видимым символам, и резать по нему уже готовый HTML
+    значит разрывать теги пополам. Поэтому режем исходную разметку, а в HTML
+    превращаем каждый кусок отдельно.
+    """
     photos_videos = [m for m in media if m.get("type") in ("image", "video")]
     docs = [m for m in media if m.get("type") == "doc"]
     posted_ids: list[int] = []
 
-    caption_with_media = len(message) <= TG_CAPTION_LIMIT and (photos_videos or docs)
+    def caption(text: str) -> dict:
+        """Подпись к медиа: обрезанная по видимой длине и уже в HTML."""
+        return {"caption": richtext.to_html(richtext.truncate(text, TG_CAPTION_LIMIT)),
+                "parse_mode": "HTML"}
+
+    caption_with_media = (richtext.visible_length(message) <= TG_CAPTION_LIMIT
+                          and (photos_videos or docs))
     sent_text_separately = False
 
     if message and not caption_with_media:
-        for chunk_start in range(0, len(message), TG_MESSAGE_LIMIT):
-            chunk = message[chunk_start:chunk_start + TG_MESSAGE_LIMIT]
-            res = tg_api(bot_token, "sendMessage", data={"chat_id": chat_id, "text": chunk})
+        for chunk in richtext.chunks(message, TG_MESSAGE_LIMIT):
+            res = tg_api(bot_token, "sendMessage", data={
+                "chat_id": chat_id, "text": richtext.to_html(chunk), "parse_mode": "HTML"})
             _remember_message(posted_ids, res)
         sent_text_separately = True
 
@@ -1224,7 +1239,7 @@ def tg_send_post(bot_token: str, chat_id: str, message: str, media: list[dict], 
             field = "photo" if item["type"] == "image" else "video"
             data = {"chat_id": chat_id}
             if not sent_text_separately and message:
-                data["caption"] = message[:TG_CAPTION_LIMIT]
+                data.update(caption(message))
             res = tg_api(bot_token, method, data=data, files={field: (fname, file_bytes)}, _timeout=300)
             _remember_message(posted_ids, res)
         else:
@@ -1236,7 +1251,7 @@ def tg_send_post(bot_token: str, chat_id: str, message: str, media: list[dict], 
                 files[attach_key] = (fname, file_bytes)
                 m = {"type": "photo" if item["type"] == "image" else "video", "media": f"attach://{attach_key}"}
                 if idx == 0 and not sent_text_separately and message:
-                    m["caption"] = message[:TG_CAPTION_LIMIT]
+                    m.update(caption(message))
                 media_payload.append(m)
             res = tg_api(
                 bot_token, "sendMediaGroup",
@@ -1251,12 +1266,15 @@ def tg_send_post(bot_token: str, chat_id: str, message: str, media: list[dict], 
         file_bytes, fname = _resolve_media_bytes(item, backend_base)
         data = {"chat_id": chat_id}
         if idx == 0 and not sent_text_separately and not photos_videos and message:
-            data["caption"] = message[:TG_CAPTION_LIMIT]
+            data.update(caption(message))
         res = tg_api(bot_token, "sendDocument", data=data, files={"document": (fname, file_bytes)}, _timeout=300)
         _remember_message(posted_ids, res)
 
     if not posted_ids and message:
-        res = tg_api(bot_token, "sendMessage", data={"chat_id": chat_id, "text": message[:TG_MESSAGE_LIMIT]})
+        res = tg_api(bot_token, "sendMessage", data={
+            "chat_id": chat_id,
+            "text": richtext.to_html(richtext.truncate(message, TG_MESSAGE_LIMIT)),
+            "parse_mode": "HTML"})
         _remember_message(posted_ids, res)
 
     return posted_ids
