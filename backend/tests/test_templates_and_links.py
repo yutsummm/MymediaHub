@@ -297,3 +297,110 @@ def test_watchers_cannot_create_templates(client, group, make_user):
     r = client.post(f"/api/groups/{group['gid']}/templates", headers=auth(watcher),
                     json={"name": "Нельзя", "template_text": "текст {x}"})
     assert r.status_code == 403
+
+
+# ── Ссылки внутри шаблона ───────────────────────────────────────────────────
+
+def test_template_keeps_link_markup_through_rendering(client, group):
+    """
+    Разметка ссылки в шаблоне должна дожить до поста нетронутой: подстановка
+    полей и ссылки живут в одном тексте и не должны мешать друг другу.
+    """
+    created = client.post(f"/api/groups/{group['gid']}/templates",
+                          headers=auth(group["token"]),
+                          json={"name": "Набор",
+                                "template_text": "Ждём на {название}. "
+                                                 "Записаться [по ссылке](https://s.ru/reg)."}).json()
+    assert [f["key"] for f in created["fields"]] == ["название"], \
+        "адрес ссылки приняли за поле шаблона"
+
+    r = client.post("/api/generate-text", headers=auth(group["token"]),
+                    json={"template_type": created["type"], "fields": {"название": "фестивале"}})
+    assert r.json()["text"] == "Ждём на фестивале. Записаться [по ссылке](https://s.ru/reg)."
+
+
+def test_field_inside_a_link_address_is_substituted(client, group):
+    """Адрес вполне может зависеть от поля — например, номера смены."""
+    created = client.post(f"/api/groups/{group['gid']}/templates",
+                          headers=auth(group["token"]),
+                          json={"name": "Смена",
+                                "template_text": "[Запись](https://s.ru/reg?smena={номер})"}).json()
+    r = client.post("/api/generate-text", headers=auth(group["token"]),
+                    json={"template_type": created["type"], "fields": {"номер": "7"}})
+    assert r.json()["text"] == "[Запись](https://s.ru/reg?smena=7)"
+
+
+def test_field_as_a_link_label_is_substituted(client, group):
+    created = client.post(f"/api/groups/{group['gid']}/templates",
+                          headers=auth(group["token"]),
+                          json={"name": "Подпись",
+                                "template_text": "[{куда}](https://s.ru)"}).json()
+    r = client.post("/api/generate-text", headers=auth(group["token"]),
+                    json={"template_type": created["type"], "fields": {"куда": "на сайт"}})
+    assert r.json()["text"] == "[на сайт](https://s.ru)"
+
+
+def test_title_markup_no_longer_leaks_raw_into_vk(client, group, monkeypatch):
+    """
+    Заголовок склеивается с текстом в одно сообщение на обеих площадках.
+    Раньше он уходил без обработки, и разметка вела себя по-разному: в
+    Telegram становилась ссылкой, во ВКонтакте оставалась `[текст](адрес)`
+    прямо на стене.
+    """
+    import publishing
+
+    gid, token = group["gid"], group["token"]
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO vk_settings (workspace_id, group_id, access_token) "
+              "VALUES (%s,'42','tkn') ON CONFLICT DO NOTHING", (gid,))
+    c.execute("INSERT INTO tg_settings (workspace_id, bot_token, chat_id) "
+              "VALUES (%s,'tkn','@chan') ON CONFLICT DO NOTHING", (gid,))
+    conn.commit()
+
+    r = client.post(f"/api/groups/{gid}/posts", headers=auth(token), json={
+        "title": "Набор [открыт](https://s.ru/reg)", "content": "Подробности ниже.",
+        "status": "draft", "platforms": ["vk", "telegram"]})
+    pid = r.json()["id"]
+
+    sent: dict = {}
+    monkeypatch.setattr(publishing, "vk_wall_post",
+                        lambda *a, **kw: (sent.update(vk=a[2]), 1)[1])
+    monkeypatch.setattr(publishing, "tg_send_post",
+                        lambda *a, **kw: (sent.update(tg=a[2]), [2])[1])
+    c.execute("SELECT * FROM posts WHERE id=%s", (pid,))
+    publishing.perform_publish(conn, c.fetchone(), group_id=gid)
+    conn.close()
+
+    assert "[открыт]" not in sent["vk"], "разметка заголовка утекла во ВКонтакте сырой"
+    assert "открыт (https://s.ru/reg)" in sent["vk"]
+    # В Telegram заголовок уходит разметкой — её развернёт сам отправщик
+    assert "[открыт](https://s.ru/reg)" in sent["tg"]
+
+
+def test_group_variables_work_in_the_title_too(client, group, monkeypatch):
+    """Подстановки в заголовке не работали вовсе — он шёл мимо обработки."""
+    import publishing
+
+    gid, token = group["gid"], group["token"]
+    client.put(f"/api/groups/{gid}", json={"variables": {"центр": "«Спектр»"}},
+               headers=auth(token))
+    conn = get_db()
+    c = conn.cursor()
+    c.execute("INSERT INTO vk_settings (workspace_id, group_id, access_token) "
+              "VALUES (%s,'42','tkn') ON CONFLICT DO NOTHING", (gid,))
+    conn.commit()
+
+    r = client.post(f"/api/groups/{gid}/posts", headers=auth(token), json={
+        "title": "Новости {{центр}}", "content": "текст",
+        "status": "draft", "platforms": ["vk"]})
+    pid = r.json()["id"]
+    sent: dict = {}
+    monkeypatch.setattr(publishing, "vk_wall_post",
+                        lambda *a, **kw: (sent.update(vk=a[2]), 1)[1])
+    c.execute("SELECT * FROM posts WHERE id=%s", (pid,))
+    publishing.perform_publish(conn, c.fetchone(), group_id=gid)
+    conn.close()
+
+    assert "Новости «Спектр»" in sent["vk"]
+    assert "{{центр}}" not in sent["vk"]
