@@ -189,6 +189,19 @@ def perform_publish(conn, post_row, group_id: int | None = None) -> dict:
             utm_enabled=group_settings["utm_enabled"],
         )
 
+    def outgoing_title(platform: str) -> str:
+        """
+        Заголовок проходит ту же обработку, что и текст.
+
+        Раньше он уходил как есть, и разметка вела себя по-разному на двух
+        площадках: в Telegram заголовок склеивается с текстом в одно
+        сообщение и разбирается как разметка, а во ВКонтакте утекал сырым —
+        `[запись](https://…)` прямо на стене. Подстановки группы в заголовке
+        тоже не работали. С появлением своего заголовка у шаблонов
+        (`title_template`) наступить на это стало легко.
+        """
+        return outgoing(platform, post.get("title") or "")
+
     c.execute(
         "UPDATE posts SET status='published', published_at=%s WHERE id=%s",
         (app_now(), post_id),
@@ -219,7 +232,9 @@ def perform_publish(conn, post_row, group_id: int | None = None) -> dict:
                 # разворачивается в «подпись (адрес)» — это не компромисс, а
                 # единственный доступный там вид.
                 vk_post_id, photo_errors = _publish_to_vk(
-                    c, {**post, "content": richtext.to_plain(outgoing("vk"))}, vk)
+                    c, {**post,
+                        "title": richtext.to_plain(outgoing_title("vk")),
+                        "content": richtext.to_plain(outgoing("vk"))}, vk)
                 vk_comment_id, comment_error = _add_first_comment(
                     post, vk, vk_post_id,
                     richtext.to_plain(outgoing("vk", post.get("first_comment") or "")))
@@ -250,7 +265,8 @@ def perform_publish(conn, post_row, group_id: int | None = None) -> dict:
         if tg:
             try:
                 body = outgoing("telegram")
-                text = f"{title}\n\n{body}" if post.get("title") else body
+                heading = outgoing_title("telegram")
+                text = f"{heading}\n\n{body}" if post.get("title") else body
                 tg_message_ids = tg_send_post(
                     tg["bot_token"], tg["chat_id"], text,
                     post.get("media") or [], backend_base(),

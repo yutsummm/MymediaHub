@@ -173,6 +173,7 @@ export default function PostEditor({
   const [tmplTitle, setTmplTitle] = useState('')
   const [tmplText, setTmplText] = useState('')
   const [tmplSaving, setTmplSaving] = useState(false)
+  const tmplTextRef = useRef<HTMLTextAreaElement | null>(null)
   // Очередь по расписанию: время считает сервер, мы только показываем, какое
   // окно достанется. Держать копию правил расписания на клиенте значило бы
   // однажды с ними разойтись.
@@ -313,20 +314,27 @@ export default function PostEditor({
 
   const LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/
   const hasLinks = LINK_RE.test(content)
+  const tmplHasLinks = LINK_RE.test(tmplText)
 
   /**
    * Оборачивает выделенное в разметку ссылки. Если ничего не выделено —
    * вставляет заготовку и ставит курсор туда, где ждут адрес: пустая
    * заготовка без подсказки, куда писать, бесполезна.
    */
-  function insertLink() {
-    const el = textareaRef.current
-    const start = el?.selectionStart ?? content.length
-    const end = el?.selectionEnd ?? content.length
-    const selected = content.slice(start, end).trim()
-    const label = selected || 'текст ссылки'
-    const chunk = `[${label}](https://)`
-    setContent(content.slice(0, start) + chunk + content.slice(end))
+  /**
+   * Вставляет разметку ссылки в произвольное поле.
+   *
+   * Общая для текста поста и для текста шаблона: разметка одна, и заводить
+   * для шаблона вторую механику значило бы, что она однажды разойдётся с
+   * первой.
+   */
+  function wrapAsLink(value: string, el: HTMLTextAreaElement | null,
+                      apply: (next: string) => void) {
+    const start = el?.selectionStart ?? value.length
+    const end = el?.selectionEnd ?? value.length
+    const selected = value.slice(start, end).trim()
+    const chunk = `[${selected || 'текст ссылки'}](https://)`
+    apply(value.slice(0, start) + chunk + value.slice(end))
     requestAnimationFrame(() => {
       if (!el) return
       el.focus()
@@ -334,6 +342,11 @@ export default function PostEditor({
       const caret = start + chunk.length - 1
       el.setSelectionRange(caret, caret)
     })
+  }
+
+  function insertLink() {
+    const el = textareaRef.current
+    wrapAsLink(content, el, setContent)
   }
 
   function appendText(chunk: string) {
@@ -1259,7 +1272,8 @@ export default function PostEditor({
               <div className="ts tg" style={{ marginBottom: 16, maxWidth: '62ch' }}>
                 Заготовка, которую вы используете постоянно. В местах, которые меняются
                 от поста к посту, поставьте фигурные скобки: <code>{'{дата}'}</code>,
-                {' '}<code>{'{место}'}</code>. При создании поста система спросит именно их.
+                {' '}<code>{'{место}'}</code> — при создании поста система спросит именно их.
+                Ссылки тоже можно: они сохранятся в шаблоне и попадут в каждый пост.
               </div>
 
               <div className="fg">
@@ -1279,9 +1293,25 @@ export default function PostEditor({
 
               <div className="fg">
                 <label>Текст шаблона</label>
-                <textarea value={tmplText} onChange={e => setTmplText(e.target.value)} rows={6}
-                  placeholder="В субботу в {время} ждём вас на настольные игры в {место}. Вход свободный."
+                <textarea ref={tmplTextRef} value={tmplText}
+                  onChange={e => setTmplText(e.target.value)} rows={6}
+                  placeholder="В субботу в {время} ждём вас на настольные игры в {место}. Запись [по ссылке](https://)."
                   style={{ width: '100%', resize: 'vertical' }} />
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
+                  <button type="button" className="btn btn-secondary btn-sm"
+                    onClick={() => wrapAsLink(tmplText, tmplTextRef.current, setTmplText)}>
+                    🔗 Вставить ссылку
+                  </button>
+                  <span className="ts tg" style={{ margin: 0 }}>
+                    Ссылка останется в шаблоне и попадёт в каждый пост
+                  </span>
+                </div>
+                {tmplHasLinks && (
+                  <div className="ts tg" style={{ marginTop: 8 }}>
+                    В Telegram текст станет кликабельным, во ВКонтакте адрес появится
+                    в скобках: гиперссылки в записях там не поддерживаются.
+                  </div>
+                )}
                 {tmplFieldNames.length > 0 && (
                   <>
                     <div className="ts tg" style={{ marginTop: 8 }}>
