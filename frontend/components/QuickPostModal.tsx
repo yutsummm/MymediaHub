@@ -66,7 +66,7 @@ function QuickPostModal({ onClose, scheduledDate, onSaved }: {
         <div className="qpm-body">
           <input
             className="qpm-title-input"
-            placeholder="Заголовок поста..."
+            placeholder="Название поста — для списка, не для публикации..."
             value={title}
             onChange={e => setTitle(e.target.value)}
             autoFocus

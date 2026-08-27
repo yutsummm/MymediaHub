@@ -340,12 +340,15 @@ def test_field_as_a_link_label_is_substituted(client, group):
     assert r.json()["text"] == "[на сайт](https://s.ru)"
 
 
-def test_title_markup_no_longer_leaks_raw_into_vk(client, group, monkeypatch):
+def test_title_never_reaches_the_platforms(client, group, monkeypatch):
     """
-    Заголовок склеивается с текстом в одно сообщение на обеих площадках.
-    Раньше он уходил без обработки, и разметка вела себя по-разному: в
-    Telegram становилась ссылкой, во ВКонтакте оставалась `[текст](адрес)`
-    прямо на стене.
+    Заголовок — служебное название для списка и календаря, и в публикацию он
+    не попадает. У записи во ВКонтакте и в Telegram нет заголовка как
+    сущности: там просто текст, и первой строкой каждого поста оказывалось
+    то, что автор писал себе для ориентирования.
+
+    Заодно это снимало дублирование: встроенные шаблоны начинают текст с
+    названия мероприятия, а заголовок собирался как «Анонс: то же самое».
     """
     import publishing
 
@@ -372,14 +375,45 @@ def test_title_markup_no_longer_leaks_raw_into_vk(client, group, monkeypatch):
     publishing.perform_publish(conn, c.fetchone(), group_id=gid)
     conn.close()
 
-    assert "[открыт]" not in sent["vk"], "разметка заголовка утекла во ВКонтакте сырой"
-    assert "открыт (https://s.ru/reg)" in sent["vk"]
-    # В Telegram заголовок уходит разметкой — её развернёт сам отправщик
-    assert "[открыт](https://s.ru/reg)" in sent["tg"]
+    assert sent["vk"].strip() == "Подробности ниже."
+    assert sent["tg"].strip() == "Подробности ниже."
+    for message in (sent["vk"], sent["tg"]):
+        assert "Набор" not in message, "служебный заголовок ушёл в публикацию"
+        assert "открыт" not in message
 
 
-def test_group_variables_work_in_the_title_too(client, group, monkeypatch):
-    """Подстановки в заголовке не работали вовсе — он шёл мимо обработки."""
+def test_media_caption_does_not_leak_the_internal_title(client, group):
+    """
+    Название видео и документа во ВКонтакте видит зритель. Служебный заголовок
+    там был бы такой же утечкой, как и в тексте, — берём первую строку самого
+    текста, она публичная.
+    """
+    import publishing
+
+    caption = publishing._public_caption(
+        {"title": "служебное имя", "content": "  \n\nПриглашаем на фестиваль!\nВторая строка"},
+        "video.mp4")
+    assert caption == "Приглашаем на фестиваль!"
+    # Текста нет вовсе — остаётся имя файла, но не заголовок
+    assert publishing._public_caption({"title": "служебное имя", "content": "  "},
+                                      "video.mp4") == "video.mp4"
+
+
+def test_title_is_still_kept_for_our_own_lists(client, group):
+    """
+    Наружу заголовок не идёт, но у нас он остаётся: по нему пост ищут в
+    списке, календаре и отчёте.
+    """
+    r = client.post(f"/api/groups/{group['gid']}/posts", headers=auth(group["token"]),
+                    json={"title": "Внутреннее имя", "content": "текст", "status": "draft"})
+    assert r.json()["title"] == "Внутреннее имя"
+    listed = client.get(f"/api/groups/{group['gid']}/posts",
+                        headers=auth(group["token"])).json()["posts"]
+    assert any(p["title"] == "Внутреннее имя" for p in listed)
+
+
+def test_group_variables_are_applied_to_the_body(client, group, monkeypatch):
+    """Подстановки применяются к тексту — заголовок наружу не идёт вовсе."""
     import publishing
 
     gid, token = group["gid"], group["token"]
@@ -392,7 +426,7 @@ def test_group_variables_work_in_the_title_too(client, group, monkeypatch):
     conn.commit()
 
     r = client.post(f"/api/groups/{gid}/posts", headers=auth(token), json={
-        "title": "Новости {{центр}}", "content": "текст",
+        "title": "служебное имя", "content": "Новости {{центр}}",
         "status": "draft", "platforms": ["vk"]})
     pid = r.json()["id"]
     sent: dict = {}
@@ -404,6 +438,7 @@ def test_group_variables_work_in_the_title_too(client, group, monkeypatch):
 
     assert "Новости «Спектр»" in sent["vk"]
     assert "{{центр}}" not in sent["vk"]
+    assert "служебное имя" not in sent["vk"]
 
 
 # ── Предпросмотр ────────────────────────────────────────────────────────────
@@ -419,8 +454,8 @@ def test_preview_shows_what_each_platform_will_actually_get(client, group):
                json={"variables": {"центр": "«Спектр»"}, "utm_enabled": True})
 
     r = client.post(f"/api/groups/{gid}/posts/preview", headers=auth(token), json={
-        "title": "Набор в {{центр}}",
-        "content": "Записаться [по ссылке](https://s.ru/reg).",
+        "title": "служебное имя",
+        "content": "Набор в {{центр}}. Записаться [по ссылке](https://s.ru/reg).",
         "tags": ["вакансии"],
         "platforms": ["vk", "telegram"],
     })
@@ -430,9 +465,11 @@ def test_preview_shows_what_each_platform_will_actually_get(client, group):
     def flat(preview: dict) -> str:
         return "".join(s["text"] for s in preview["segments"])
 
-    # Подстановка сработала на обеих площадках, включая заголовок
+    # Подстановка сработала на обеих площадках
     assert "«Спектр»" in flat(by_platform["vk"])
     assert "«Спектр»" in flat(by_platform["telegram"])
+    # А служебный заголовок в предпросмотр не попал — как и в публикацию
+    assert "служебное имя" not in flat(by_platform["vk"])
 
     # ВКонтакте: адрес виден, ссылки как куска нет — там её не бывает
     vk_text = flat(by_platform["vk"])
