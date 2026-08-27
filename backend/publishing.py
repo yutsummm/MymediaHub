@@ -88,9 +88,13 @@ def compose(post: dict, settings: dict, platform: str) -> str:
             utm_enabled=bool(settings.get("utm_enabled")),
         )
 
-    body = prepared(content.for_platform(post, platform))
-    title = prepared(post.get("title") or "")
-    message = f"{title}\n\n{body}" if title else body
+    # Заголовок в публикацию не попадает. У записи во ВКонтакте и в Telegram
+    # нет заголовка как сущности — там просто текст, и первой строкой каждого
+    # поста оказывалось служебное название, которое автор писал себе для
+    # списка. Хуже того, оно дублировалось: встроенные шаблоны уже начинают
+    # текст с названия мероприятия, а заголовок собирался как «Анонс: то же
+    # самое» — и название выходило дважды подряд.
+    message = prepared(content.for_platform(post, platform))
     return richtext.to_plain(message) if platform == "vk" else message
 
 
@@ -109,6 +113,20 @@ def _group_content_settings(c, group_id: int | None) -> dict:
         return {"variables": {}, "utm_enabled": False}
     variables = row["variables"] if isinstance(row["variables"], dict) else {}
     return {"variables": variables, "utm_enabled": bool(row["utm_enabled"])}
+
+
+# Название видео и документа во ВКонтакте видит зритель, поэтому оно не может
+# быть служебным заголовком поста. У ВК на него ограничение в 128 символов.
+VK_MEDIA_TITLE_LIMIT = 128
+
+
+def _public_caption(post: dict, fallback: str) -> str:
+    """Первая осмысленная строка текста — на подпись к файлу."""
+    for line in (post.get("content") or "").splitlines():
+        line = line.strip()
+        if line:
+            return line[:VK_MEDIA_TITLE_LIMIT]
+    return fallback
 
 
 def _media_bytes(item: dict) -> bytes:
@@ -171,12 +189,16 @@ def _publish_to_vk(c, post: dict, settings: dict,
             elif item_type == "video":
                 attachments.append(vk_upload_video_to_wall(
                     token, group, data, fname,
-                    title=post.get("title", ""), description=post.get("content", ""),
+                    # Не заголовок поста: он служебный и наружу не идёт.
+                    # Название видно зрителю, поэтому берём первую строку
+                    # самого текста — она публичная и осмысленная.
+                    title=_public_caption(post, orig_name),
+                    description=post.get("content", ""),
                 ))
             else:
                 attachments.append(vk_upload_doc_to_wall(
                     token, group, data, orig_name,
-                    title=post.get("title", "") or orig_name,
+                    title=_public_caption(post, orig_name),
                 ))
         except Exception as media_err:
             msg = str(media_err)

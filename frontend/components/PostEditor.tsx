@@ -384,7 +384,7 @@ export default function PostEditor({
   }
 
   async function save() {
-    if (!title.trim()) { showToast('Введите заголовок', 'error'); return }
+    if (!title.trim()) { showToast('Введите название поста', 'error'); return }
     if (!content.trim()) { showToast('Введите текст', 'error'); return }
     setSaving(true)
     try {
@@ -763,8 +763,17 @@ export default function PostEditor({
               {isEdit ? 'Редактировать пост' : 'Редактор текста'}
             </h2>
             <div className="fg">
-              <label>Заголовок поста</label>
-              <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="Введите заголовок..." />
+              <label>Название поста</label>
+              <input type="text" value={title} onChange={e => setTitle(e.target.value)}
+                placeholder="Например: анонс медиашколы, август" />
+              {/* Раньше поле называлось «заголовок», и название уходило первой
+                  строкой публикации. У записи во ВКонтакте и в Telegram
+                  заголовка нет — там просто текст, и служебное имя оказывалось
+                  на виду у читателей. */}
+              <div className="ts tg" style={{ marginTop: 6 }}>
+                Нужно, чтобы находить пост в списке и календаре. В саму публикацию не попадёт —
+                всё, что должны увидеть читатели, пишите в тексте ниже.
+              </div>
             </div>
             <div className="fg">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
@@ -1320,11 +1329,12 @@ export default function PostEditor({
               </div>
 
               <div className="fg">
-                <label>Заголовок поста (необязательно)</label>
+                <label>Название поста (необязательно)</label>
                 <input type="text" value={tmplTitle} onChange={e => setTmplTitle(e.target.value)}
                   placeholder="Настолки {дата}" />
                 <div className="ts tg" style={{ marginTop: 6 }}>
-                  Если не заполнить, заголовком станет название шаблона
+                  Служебное имя для списка постов — в публикацию не попадёт.
+                  Если не заполнить, им станет название шаблона.
                 </div>
               </div>
 
