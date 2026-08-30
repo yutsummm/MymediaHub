@@ -1075,6 +1075,58 @@ def generate_text(body: GenerateRequest, user_id: int = Depends(get_current_user
 
 # ── AI Enhance ───────────────────────────────────────────────────────────────
 
+# Модель Groq — в переменной окружения, а не в коде. Поставщик выводит модели
+# из обращения без предупреждения: llama-3.1-8b-instant, на которой ИИ-помощник
+# работал, однажды просто исчезла, и починка потребовала выкатки. Замена модели
+# не должна стоить релиза.
+DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
+
+
+def groq_model() -> str:
+    return os.getenv("GROQ_MODEL", "").strip() or DEFAULT_GROQ_MODEL
+
+
+def _ai_failure(error, model: str) -> HTTPException:
+    """
+    Превращает отказ Groq в сообщение, по которому видно, что чинить.
+
+    Раньше любая ошибка приходила как «Ошибка Groq API: …», и человек шёл
+    проверять ключи — даже когда ключ был в полном порядке, а исчезла модель.
+    Разница между «ключ не приняли» и «модели больше нет» — это разные
+    действия, и сообщение обязано их различать.
+    """
+    response = getattr(error, "response", None)
+    status = getattr(response, "status_code", None)
+    detail = ""
+    if response is not None:
+        try:
+            detail = response.json().get("error", {}).get("message", "")
+        except Exception:
+            # Не всякий отказ приходит с разбираемым телом; тогда обойдёмся кодом.
+            pass
+
+    if status in (401, 403):
+        return HTTPException(503, (
+            "Groq не принял ключ доступа. Проверьте GROQ_API_KEY: ключ мог быть "
+            "отозван или заменён. Новый берётся на console.groq.com/keys. "
+            f"Ответ сервиса: {detail or status}"
+        ))
+    if status == 404:
+        return HTTPException(503, (
+            f"Модель «{model}» у Groq недоступна — её вывели из обращения или "
+            "она не открыта для вашего ключа. Ключ при этом может быть исправен. "
+            "Укажите другую в переменной GROQ_MODEL; список доступных — "
+            "console.groq.com/docs/models."
+        ))
+    if status == 429:
+        return HTTPException(429, (
+            "Groq временно отказывает: исчерпан лимит запросов. "
+            "Подождите минуту и попробуйте снова."
+        ))
+    return HTTPException(502, f"Ошибка Groq API: {detail or str(error)}")
+
+
+
 @router.post("/api/ai-enhance")
 def ai_enhance(body: AIEnhanceRequest, user_id: int = Depends(get_current_user_id)):
     # Ключ по пользователю, а не по IP: за прокси Railway у всех клиентов один IP,
@@ -1093,13 +1145,14 @@ def ai_enhance(body: AIEnhanceRequest, user_id: int = Depends(get_current_user_i
             "GROQ_API_KEY не настроен. "
             "Получите бесплатный ключ на console.groq.com и добавьте его в .env"
         ))
+    model = groq_model()
 
     try:
         resp = http_requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
             json={
-                "model": "llama-3.1-8b-instant",
+                "model": model,
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": body.text},
@@ -1117,12 +1170,7 @@ def ai_enhance(body: AIEnhanceRequest, user_id: int = Depends(get_current_user_i
     except http_requests.exceptions.Timeout:
         raise HTTPException(504, "Превышено время ожидания ответа от ИИ (30 с)")
     except http_requests.exceptions.HTTPError as e:
-        detail = ""
-        try:
-            detail = e.response.json().get("error", {}).get("message", "")
-        except Exception:
-            pass
-        raise HTTPException(502, f"Ошибка Groq API: {detail or str(e)}")
+        raise _ai_failure(e, model)
     except http_requests.exceptions.RequestException as e:
         raise HTTPException(502, f"Ошибка связи с ИИ: {str(e)}")
     except (KeyError, IndexError):
