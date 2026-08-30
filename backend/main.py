@@ -605,6 +605,27 @@ def check_upload_storage():
         log.info(f"📁  загрузки: {UPLOAD_DIR} (файлов: {len(files)})")
 
 
+def check_ai_model() -> None:
+    """
+    Пишет в лог, какая модель настроена у ИИ-помощника.
+
+    Поставщик выводит модели из обращения молча, и узнаём мы об этом от
+    человека, у которого перестала работать кнопка. Строка в логе при старте
+    даёт хотя бы точку отсчёта: видно, что именно мы просим, не заглядывая в
+    переменные окружения работающего контейнера.
+    """
+    from routers.posts import DEFAULT_GROQ_MODEL, groq_model
+
+    if not os.getenv("GROQ_API_KEY", "").strip():
+        log.info("🤖  ИИ-помощник выключен: GROQ_API_KEY не задан")
+        return
+    model = groq_model()
+    suffix = "" if os.getenv("GROQ_MODEL", "").strip() else " (умолчание)"
+    log.info(f"🤖  ИИ-помощник: модель {model}{suffix}")
+    if model == DEFAULT_GROQ_MODEL and not os.getenv("GROQ_MODEL", "").strip():
+        log.info("     сменить можно переменной GROQ_MODEL, без выкатки")
+
+
 def check_public_url() -> None:
     """
     Предупреждает, если собственный адрес приложения не задан.
@@ -657,6 +678,7 @@ def startup():
         log.error(f"❌  не удалось зашифровать токены интеграций: {e}")
         raise
     check_public_url()
+    check_ai_model()
     try:
         check_upload_storage()
     except Exception as e:
