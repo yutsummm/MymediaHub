@@ -16,6 +16,7 @@ const LABELS: Record<string, string> = {
   upload: 'Загрузить',
   my: 'Мои загрузки',
   groups: 'Группы',
+  help: 'Справка',
 }
 
 export default function Breadcrumbs({ classNames = '' }: { classNames?: string }) {

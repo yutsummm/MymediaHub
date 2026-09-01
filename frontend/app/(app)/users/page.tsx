@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from '@/contexts/ToastContext'
 import { api } from '@/lib/api'
+import HelpTip from '@/components/HelpTip'
 import StateWrapper from '@/components/StateWrapper'
 import Pagination from '@/components/Pagination'
 import ConfirmDialog from '@/components/ConfirmDialog'
@@ -127,6 +128,7 @@ export default function UsersPage() {
         <div className="card-header">
           <div>
             <span className="card-title">Пользователи</span>
+            <HelpTip topic="roles.two-systems" />
             {users && (
               <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 4 }}>
                 Всего {meta.total}, администраторов на этой странице {admins.length}

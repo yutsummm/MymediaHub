@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import Pagination from '@/components/Pagination'
+import HelpTip from '@/components/HelpTip'
 
 const PAGE_SIZE = 20
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -317,7 +318,7 @@ export default function PostsPage() {
             <thead>
               <tr>
                 <th>Заголовок</th>
-                <th>Статус</th>
+                <th>Статус<HelpTip topic="post.status" /></th>
                 <th>Платформы</th>
                 <th>Теги</th>
                 <th>Дата</th>

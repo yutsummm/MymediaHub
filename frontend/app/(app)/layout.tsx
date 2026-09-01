@@ -22,6 +22,7 @@ const TITLES: Record<string, string> = {
   '/volunteer-media':            'Медиа волонтёров',
   '/volunteer-media/my':         'Мои загрузки',
   '/volunteer-media/upload':     'Загрузить медиа',
+  '/help':                       'Справка',
 }
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {

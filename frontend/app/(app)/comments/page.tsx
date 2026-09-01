@@ -1,6 +1,7 @@
 'use client'
 import { useCallback, useEffect, useState } from 'react'
 import Pagination from '@/components/Pagination'
+import HelpTip from '@/components/HelpTip'
 import { api } from '@/lib/api'
 import { useToast } from '@/contexts/ToastContext'
 import { useGroup } from '@/contexts/GroupContext'
@@ -138,6 +139,7 @@ export default function CommentsPage() {
         <span style={{ fontSize: 12, color: 'var(--text-3)', marginLeft: 'auto', fontWeight: 500 }}>
           Срок ответа: {sla} ч
         </span>
+        <HelpTip topic="comments.answered" />
       </div>
 
       {items === null ? (

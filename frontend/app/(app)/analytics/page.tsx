@@ -1,6 +1,7 @@
 'use client'
 import { useEffect, useRef, useState, useCallback, memo } from 'react'
 import { api } from '@/lib/api'
+import HelpTip from '@/components/HelpTip'
 import { useGroup } from '@/contexts/GroupContext'
 import StateWrapper from '@/components/StateWrapper'
 import Chart from 'chart.js/auto'
@@ -299,6 +300,7 @@ export default function AnalyticsPage() {
               {reporting ? <div className="ai-spinner" style={{ width: 13, height: 13 }} /> : IcoReport}
               {reporting ? 'Готовим...' : 'Отчёт'}
             </button>
+            <HelpTip topic="stats.report" />
           </div>
         </div>
         <div style={{ padding: '4px 20px 20px' }}>
@@ -309,7 +311,10 @@ export default function AnalyticsPage() {
       {/* Bottom grid */}
       <div className="grid2">
         <div className="card anim-in" style={{ animationDelay: '260ms' }}>
-          <div className="card-header"><span className="card-title">Сравнение площадок</span></div>
+          <div className="card-header">
+            <span className="card-title">Сравнение площадок</span>
+            <HelpTip topic="stats.telegram" />
+          </div>
           <div style={{ padding: 20 }}>
             <div className="chart-box" style={{ height: 200 }}><canvas ref={barRef} /></div>
             {sum?.platform_stats?.some(p => !p.stats_available) && (

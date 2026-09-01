@@ -2183,3 +2183,106 @@ select option { background: var(--bg-2); color: var(--text); }
 }
 .preview-meta span:first-child { font-variant-numeric: tabular-nums; }
 .preview-meta .over { color: var(--red); font-weight: 600; }
+
+/* ─── Подсказки «?» ───────────────────────────────────────────────────────
+   Открываются по нажатию, а не по наведению: с телефона навести нельзя, и
+   подсказка, доступная только с мыши, для половины людей не существует. */
+.help-tip { position: relative; display: inline-flex; vertical-align: middle; margin-left: 6px; }
+.help-tip-btn {
+  width: 15px; height: 15px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--r-full); cursor: pointer;
+  border: 1px solid var(--border-2); background: transparent;
+  color: var(--text-3); font-size: 10px; font-weight: 700; line-height: 1;
+  padding: 0; letter-spacing: 0;
+  /* Внутри .stat-label и <th> стоит text-transform: uppercase — «?» он не
+     портит, а вот наследованный от них разряд букв смещает знак с центра. */
+  text-transform: none;
+  transition: color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
+}
+.help-tip-btn:hover, .help-tip-btn.on { color: var(--text); border-color: var(--text-3); }
+.help-tip-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Рисуется в конце страницы, координаты считает компонент: внутри карточки с
+   overflow: hidden окошко читалось наполовину. */
+.help-tip-pop {
+  position: fixed; z-index: 200;
+  width: min(300px, calc(100vw - 16px));
+  display: flex; flex-direction: column; gap: 7px;
+  padding: 12px 14px; border-radius: var(--r-lg);
+  background: var(--surface); border: 1px solid var(--border-2);
+  box-shadow: var(--shadow-lg);
+  text-transform: none; letter-spacing: normal; font-weight: 400;
+  animation: help-pop var(--dur-fast) var(--ease-out);
+}
+@keyframes help-pop { from { opacity: 0; transform: translateY(-4px); } }
+@media (prefers-reduced-motion: reduce) { .help-tip-pop { animation: none; } }
+
+.help-tip-ttl { font-size: 12.5px; font-weight: 700; color: var(--text); }
+.help-tip-txt { font-size: 12px; line-height: 1.6; color: var(--text-2); }
+.help-tip-foot { display: flex; gap: 12px; margin-top: 1px; }
+.help-tip-link {
+  font-size: 11.5px; font-weight: 600; color: var(--text-3);
+  text-decoration: none;
+}
+.help-tip-link:hover { color: var(--text); }
+
+/* Кнопка справки внизу меню */
+.sidebar-help {
+  padding: 4px 9px !important; font-size: 13px; font-weight: 700; line-height: 1;
+}
+.sidebar-help.active { color: var(--text); background: var(--sidebar-active-bg); }
+
+/* ─── Страница «Что умеет система» ───────────────────────────────────── */
+.help-intro { margin-bottom: 14px; }
+.help-h1 {
+  font-size: 19px; font-weight: 700; color: var(--text);
+  letter-spacing: -0.02em; margin-bottom: 8px;
+}
+.help-lead {
+  font-size: 13px; line-height: 1.65; color: var(--text-2);
+  max-width: 720px; margin-bottom: 16px;
+}
+.help-search { width: 100%; max-width: 420px; }
+.help-found { font-size: 12px; color: var(--text-3); margin-top: 10px; }
+
+.help-jump { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 16px; }
+.help-jump-item {
+  font-size: 12px; font-weight: 600; text-decoration: none;
+  color: var(--text-2); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--r-full);
+  padding: 5px 12px;
+  transition: color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
+}
+.help-jump-item:hover { color: var(--text); border-color: var(--border-2); }
+
+.help-section { margin-bottom: 14px; scroll-margin-top: 80px; }
+.help-section-intro {
+  font-size: 12.5px; line-height: 1.65; color: var(--text-2);
+  max-width: 720px; margin-bottom: 18px;
+}
+/* Одна колонка на широком экране: строка справки длиной в весь монитор
+   читается плохо, а две колонки ломают порядок чтения сверху вниз. */
+.help-list { display: flex; flex-direction: column; gap: 20px; max-width: 720px; }
+.help-item { scroll-margin-top: 90px; }
+.help-item:target .help-item-ttl { color: var(--accent-2); }
+.help-item-ttl {
+  font-size: 13.5px; font-weight: 700; color: var(--text);
+  margin-bottom: 6px; letter-spacing: -0.01em;
+}
+.help-item-txt { font-size: 12.5px; line-height: 1.7; color: var(--text-2); }
+.help-item-foot {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; margin-top: 8px;
+}
+.help-where {
+  font-size: 11px; color: var(--text-3);
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 2px 8px;
+}
+.help-item-link { font-size: 11.5px; font-weight: 600; color: var(--text-3); text-decoration: none; }
+.help-item-link:hover { color: var(--text); }
+
+.help-support { margin-bottom: 20px; }
+.help-support .help-item-txt { max-width: 720px; }

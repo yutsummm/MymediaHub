@@ -6,6 +6,8 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useGroup } from '@/contexts/GroupContext'
 import QuickPostModal from '@/components/QuickPostModal'
 import Onboarding from '@/components/Onboarding'
+import HelpTip from '@/components/HelpTip'
+import type { HelpTopicId } from '@/lib/help'
 import type { AnalyticsSummary, Post } from '@/lib/types'
 
 const fmtN = (n: number) => n >= 1_000_000 ? (n / 1_000_000).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'K' : String(n)
@@ -45,14 +47,15 @@ function useCountUp(target: number, duration = 700): number {
 
 // raw === null — показателя не существует (счётчики не собирали). Это не то же
 // самое, что ноль: «0 %» читается как «людям не заходит», а данных просто нет.
-const StatCard = memo(function StatCard({ label, raw, fmt, icon, index }: {
-  label: string; raw: number | null; fmt: (n: number) => string; icon: React.ReactNode; index: number
+const StatCard = memo(function StatCard({ label, raw, fmt, icon, index, topic }: {
+  label: string; raw: number | null; fmt: (n: number) => string; icon: React.ReactNode
+  index: number; topic?: HelpTopicId
 }) {
   const animated = useCountUp(raw ?? 0)
   return (
     <div className="stat-card anim-in" style={{ animationDelay: `${index * 60}ms` }}>
       <div className="stat-top">
-        <div className="stat-label">{label}</div>
+        <div className="stat-label">{label}{topic && <HelpTip topic={topic} />}</div>
         <div className="stat-icon">{icon}</div>
       </div>
       <div className="stat-value">{raw === null ? '—' : fmt(animated)}</div>
@@ -98,12 +101,12 @@ export default function DashboardPage() {
     { label: 'Всего постов',    raw: sum.total_posts,   fmt: (n: number) => String(n) },
     // Счётчики приходят только из синхронизации ВК — подписываем честно,
     // иначе цифры читаются как охват по всем площадкам сразу
-    { label: 'Охват ВКонтакте', raw: sum.total_views,   fmt: fmtN },
+    { label: 'Охват ВКонтакте', raw: sum.total_views,   fmt: fmtN, topic: 'stats.no-data' as const },
     { label: 'Реакции ВКонтакте', raw: sum.total_reactions, fmt: fmtN },
     // Десятые доли процента: useCountUp работает с целыми, поэтому считаем в
     // «промилле» и делим обратно при выводе. null пробрасываем как есть — карточка
     // покажет прочерк вместо выдуманных нулей.
-    { label: 'Вовлечённость ВК', raw: sum.engagement_rate === null ? null : Math.round(sum.engagement_rate * 10), fmt: (n: number) => (n / 10).toFixed(1) + '%' },
+    { label: 'Вовлечённость ВК', raw: sum.engagement_rate === null ? null : Math.round(sum.engagement_rate * 10), fmt: (n: number) => (n / 10).toFixed(1) + '%', topic: 'stats.engagement' as const },
   ] : []
 
   const statusRows = sum ? [
@@ -123,7 +126,8 @@ export default function DashboardPage() {
       <div className="stats-grid" style={{ marginBottom: 20 }}>
         {sum
           ? cards.map((c, i) => (
-              <StatCard key={i} index={i} label={c.label} raw={c.raw} fmt={c.fmt} icon={DASH_ICONS[i]} />
+              <StatCard key={i} index={i} label={c.label} raw={c.raw} fmt={c.fmt} icon={DASH_ICONS[i]}
+                topic={'topic' in c ? c.topic : undefined} />
             ))
           : [0,1,2,3].map(i => <SkeletonStatCard key={i} index={i} />)
         }

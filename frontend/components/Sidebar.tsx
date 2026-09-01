@@ -338,6 +338,18 @@ function Sidebar({
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="user-name">{user.name}</div>
             </div>
+            {/* Справка живёт внизу, рядом с темой и выходом, а не в списке
+                разделов: это не место работы, а место, куда заходят, когда
+                что-то непонятно. В общем списке она соперничала бы за внимание
+                с настоящими задачами. */}
+            <button
+              onClick={() => go('/help')}
+              className={`btn btn-ghost btn-sm sidebar-help${pathname === '/help' ? ' active' : ''}`}
+              title="Что умеет система"
+              aria-label="Справка"
+            >
+              ?
+            </button>
             <div
               className="theme-toggle"
               data-theme-state={THEME_THUMB[theme].pos}
