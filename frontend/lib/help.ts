@@ -326,4 +326,4 @@ export function helpTopic(id: HelpTopicId): HelpTopic {
  *
  * Чтобы включить — вписать сюда адрес вида https://t.me/имя_аккаунта.
  */
-export const SUPPORT_TELEGRAM = ''
+export const SUPPORT_TELEGRAM = 'https://t.me/Context_support'
