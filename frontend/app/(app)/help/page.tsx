@@ -50,6 +50,7 @@ export default function HelpPage() {
   // Ссылка на поддержку несёт, откуда человек пришёл: иначе первым сообщением
   // всегда идёт «а где вы это видели».
   const supportHref = useMemo(() => {
+    if (!SUPPORT_TELEGRAM) return null
     const about = currentGroup ? `Группа «${currentGroup.name}». ` : ''
     return `${SUPPORT_TELEGRAM}?text=${encodeURIComponent(`${about}Вопрос по медиаПространству: `)}`
   }, [currentGroup])
@@ -74,7 +75,7 @@ export default function HelpPage() {
           {needle && (
             <div className="help-found">
               {found === 0
-                ? 'Ничего не нашлось. Спросите нас — внизу страницы есть связь.'
+                ? `Ничего не нашлось.${supportHref ? ' Спросите нас — внизу страницы есть связь.' : ''}`
                 : `Нашлось: ${found}`}
             </div>
           )}
@@ -116,24 +117,28 @@ export default function HelpPage() {
         </section>
       ))}
 
-      <section className="card anim-in help-support">
-        <div style={{ padding: '20px 24px' }}>
-          <h3 className="help-item-ttl" style={{ fontSize: 15 }}>Не нашли ответ — напишите нам</h3>
-          <p className="help-item-txt" style={{ marginBottom: 14 }}>
-            Справка отвечает на предвиденные вопросы, а непредвиденных всегда больше.
-            Если что-то не получается или ведёт себя странно — напишите, разберёмся.
-            И заодно поймём, чего здесь не хватает.
-          </p>
-          <a
-            href={supportHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn btn-primary btn-sm"
-          >
-            Написать в Telegram
-          </a>
-        </div>
-      </section>
+      {/* Блока связи нет, пока не задан адрес: кнопка в никуда хуже её
+          отсутствия — нажавший решит, что писать некуда. */}
+      {supportHref && (
+        <section className="card anim-in help-support">
+          <div style={{ padding: '20px 24px' }}>
+            <h3 className="help-item-ttl" style={{ fontSize: 15 }}>Не нашли ответ — напишите нам</h3>
+            <p className="help-item-txt" style={{ marginBottom: 14 }}>
+              Справка отвечает на предвиденные вопросы, а непредвиденных всегда больше.
+              Если что-то не получается или ведёт себя странно — напишите, разберёмся.
+              И заодно поймём, чего здесь не хватает.
+            </p>
+            <a
+              href={supportHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-primary btn-sm"
+            >
+              Написать в Telegram
+            </a>
+          </div>
+        </section>
+      )}
     </div>
   )
 }
