@@ -20,8 +20,12 @@ const MARGIN = 8
  * нужна: спрятать читаемый текст под значок значит сделать хуже, а повторить
  * его рядом — засорить экран.
  *
- * **Открывается по нажатию, а не по наведению**: с телефона навести нельзя, и
- * подсказка, доступная только с мыши, для половины людей просто отсутствует.
+ * **Мышь открывает наведением, палец — нажатием.** Наведение удобнее: не надо
+ * ни целиться, ни закрывать за собой. Но только им ограничиться нельзя — с
+ * телефона навести физически невозможно, и подсказка, доступная лишь с мыши,
+ * для этих людей просто не существует. Различаем не по ширине экрана (она про
+ * размер окна, а не про то, чем человек тычет), а по `(hover: hover)` и
+ * `(pointer: fine)`. Нажатие работает всегда — им же пользуется клавиатура.
  *
  * **Окошко рисуется в конце страницы, а не на месте значка.** Карточки с
  * цифрами обрезают всё, что выходит за их границы, и подсказка внутри такой
@@ -31,10 +35,40 @@ const MARGIN = 8
 export default function HelpTip({ topic }: { topic: HelpTopicId }) {
   const [open, setOpen] = useState(false)
   const [box, setBox] = useState<{ top: number; left: number } | null>(null)
+  // Открыто наведением — закрывается само, когда курсор ушёл. Открыто
+  // нажатием — держится, пока не закроют: иначе с клавиатуры до ссылок внутри
+  // не добраться, а на планшете подсказка гасла бы от случайного касания.
+  const byHover = useRef(false)
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const btn = useRef<HTMLButtonElement>(null)
   const pop = useRef<HTMLSpanElement>(null)
   const id = useId()
   const entry = helpTopic(topic)
+
+  /** Есть ли чем наводить. Тач-экран сюда не попадает. */
+  const canHover = () =>
+    typeof window !== 'undefined' &&
+    window.matchMedia('(hover: hover) and (pointer: fine)').matches
+
+  const cancelClose = useCallback(() => {
+    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null }
+  }, [])
+
+  const openByHover = useCallback(() => {
+    if (!canHover()) return
+    cancelClose()
+    byHover.current = true
+    setOpen(true)
+  }, [cancelClose])
+
+  // Курсор идёт к окошку через восьмипиксельный зазор и по дороге покидает
+  // значок. Без задержки подсказка захлопывалась бы ровно в этот момент, и
+  // до ссылок внутри было бы не дотянуться.
+  const closeByHover = useCallback(() => {
+    if (!byHover.current) return
+    cancelClose()
+    closeTimer.current = setTimeout(() => setOpen(false), 180)
+  }, [cancelClose])
 
   const place = useCallback(() => {
     const b = btn.current?.getBoundingClientRect()
@@ -45,6 +79,8 @@ export default function HelpTip({ topic }: { topic: HelpTopicId }) {
     const left = Math.min(Math.max(MARGIN, b.left - 6), window.innerWidth - width - MARGIN)
     setBox({ top: b.bottom + 8, left })
   }, [])
+
+  useEffect(() => cancelClose, [cancelClose])
 
   useEffect(() => {
     if (!open) return
@@ -79,7 +115,21 @@ export default function HelpTip({ topic }: { topic: HelpTopicId }) {
         aria-expanded={open}
         aria-controls={id}
         aria-label={`Что это: ${entry.title}`}
-        onClick={e => { e.preventDefault(); e.stopPropagation(); setOpen(v => !v) }}
+        onMouseEnter={openByHover}
+        onMouseLeave={closeByHover}
+        onClick={e => {
+          e.preventDefault(); e.stopPropagation()
+          cancelClose()
+          // Нажатие по открытой наведением подсказке закрепляет её, а не
+          // гасит: на мыши курсор уже открыл окошко, и толкование нажатия как
+          // «переключить» означало бы, что попытка закрепить закрывает.
+          // Читать здесь `open` нельзя: между наведением и нажатием проходит
+          // мгновение, обработчик остаётся от прежнего рендера и видит «закрыто».
+          // Отсюда решение принимается по флагу, а состояние меняется функцией.
+          const wasHover = byHover.current
+          byHover.current = false
+          setOpen(v => (wasHover ? true : !v))
+        }}
       >
         ?
       </button>
@@ -90,6 +140,8 @@ export default function HelpTip({ topic }: { topic: HelpTopicId }) {
           id={id}
           role="note"
           style={{ top: box.top, left: box.left }}
+          onMouseEnter={cancelClose}
+          onMouseLeave={closeByHover}
         >
           <span className="help-tip-ttl">{entry.title}</span>
           <span className="help-tip-txt">{entry.text}</span>
