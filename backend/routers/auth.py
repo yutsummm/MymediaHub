@@ -16,11 +16,14 @@ from models import (
     VerifyEmailRequest,
 )
 from utils import (
+    DEFAULT_SMTP_PORT,
+    SMTP_SSL_PORT,
     check_invite_usable,
     check_rate_limit,
     client_ip,
     create_token,
     current_session,
+    email_transport,
     get_current_user_id,
     get_db,
     hash_password,
@@ -112,6 +115,11 @@ def smtp_test(actor_id: int = Depends(get_current_user_id)):
     открыта всем и возвращала в теле ответа полный трейсбек — а это имена
     внутренних модулей, пути и адрес SMTP-сервера. Подробности уходят в лог,
     ответ остаётся односложным.
+
+    Проверяет ровно тот путь, которым уходят настоящие письма. Отдельная
+    проверка «какого-нибудь SMTP» отвечала бы на вопрос, которого никто не
+    задавал: раньше здесь стоял адрес Gmail по умолчанию, и ручка бодро
+    рапортовала об успехе, пока письма уходили через Brevo и не уходили вовсе.
     """
     conn = get_db()
     try:
@@ -119,20 +127,36 @@ def smtp_test(actor_id: int = Depends(get_current_user_id)):
     finally:
         conn.close()
 
-    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    transport = email_transport()
+    if transport == "none":
+        return {"ok": False, "transport": transport,
+                "error": "Отправка писем не настроена"}
+    if transport == "brevo":
+        return {"ok": False, "transport": transport,
+                "error": "Письма идут через Brevo — эта проверка только для SMTP"}
+
+    smtp_host = os.getenv("SMTP_HOST", "")
     smtp_user = os.getenv("SMTP_USER", "")
     smtp_password = os.getenv("SMTP_PASSWORD", "")
-    if not smtp_user or not smtp_password:
-        return {"ok": False, "error": "SMTP_USER или SMTP_PASSWORD не заданы"}
     try:
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-        return {"ok": True, "message": f"SMTP подключение успешно ({smtp_user})"}
+        smtp_port = int(os.getenv("SMTP_PORT", "").strip() or DEFAULT_SMTP_PORT)
+    except ValueError:
+        return {"ok": False, "transport": transport, "error": "SMTP_PORT должен быть числом"}
+
+    try:
+        if smtp_port == SMTP_SSL_PORT:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15) as server:
+                server.login(smtp_user, smtp_password)
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=15) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_password)
+        return {"ok": True, "transport": transport,
+                "message": f"Связь с {smtp_host} есть, вход под {smtp_user} принят"}
     except Exception as e:
         log.warning(f"SMTP недоступен: {type(e).__name__}: {e}")
-        return {"ok": False, "error": f"Не удалось подключиться к SMTP: {type(e).__name__}"}
+        return {"ok": False, "transport": transport,
+                "error": f"Не удалось подключиться к SMTP: {type(e).__name__}"}
 
 
 @router.post("/api/auth/register")
