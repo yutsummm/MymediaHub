@@ -14,6 +14,7 @@ import os
 from datetime import timedelta
 
 import comments as comments_service
+import storage
 from health import beat
 from logs import get_logger
 from publish_queue import enqueue, process_jobs, requeue_stuck_jobs
@@ -40,6 +41,7 @@ PUBLISH_POLL_INTERVAL = int(os.getenv("PUBLISH_POLL_SECONDS", "3"))
 # Автоснятие постов. Минута точности здесь никому не нужна: «убрать анонс
 # через неделю» — не та задача, где важны секунды, а лишний такт означает
 # лишний проход по таблице.
+STORAGE_SWEEP_INTERVAL = int(os.getenv("UPLOAD_SWEEP_HOURS", "6")) * 3600
 RETENTION_INTERVAL = int(os.getenv("RETENTION_POLL_SECONDS", "300"))
 # Сбор обращений под публикациями. Срок ответа считается часами, поэтому
 # минута точности не нужна, а каждый такт — это запрос к ВК на каждый пост.
@@ -221,6 +223,16 @@ async def retention_loop():
     await _run_loop("retention", process_due, RETENTION_INTERVAL)
 
 
+async def storage_loop():
+    """
+    Убирает файлы, на которые больше никто не ссылается.
+
+    Такт редкий: осиротевший файл никому не мешает ещё несколько часов, а
+    ходить по всему каталогу каждую минуту незачем.
+    """
+    await _run_loop("storage", storage.run, STORAGE_SWEEP_INTERVAL)
+
+
 async def comments_loop():
     """Вычитывает комментарии и предупреждает о приближении срока ответа."""
     await _run_loop("comments", comments_service.collect, COMMENTS_INTERVAL)
@@ -250,6 +262,8 @@ def start(app) -> None:
     log.info(f"⏰  планировщик запущен, проверка каждые {SCHEDULER_INTERVAL} с")
     app.state.retention_task = asyncio.create_task(retention_loop())
     log.info(f"🧹  автоснятие постов запущено, раз в {RETENTION_INTERVAL} с")
+    app.state.storage_task = asyncio.create_task(storage_loop())
+    log.info(f"🗑️   уборка файлов запущена, раз в {STORAGE_SWEEP_INTERVAL // 3600} ч")
     if comments_service.COMMENTS_ENABLED:
         app.state.comments_task = asyncio.create_task(comments_loop())
         log.info(f"💬  сбор обращений запущен, раз в {COMMENTS_INTERVAL} с")

@@ -104,6 +104,7 @@ def _loops() -> dict:
         "scheduler": scheduler.SCHEDULER_INTERVAL,
         "publish_worker": scheduler.PUBLISH_POLL_INTERVAL,
         "retention": scheduler.RETENTION_INTERVAL,
+        "storage": scheduler.STORAGE_SWEEP_INTERVAL,
     }
     if scheduler.comments_service.COMMENTS_ENABLED:
         expected["comments"] = scheduler.COMMENTS_INTERVAL
