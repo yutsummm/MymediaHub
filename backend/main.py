@@ -34,6 +34,7 @@ from utils import (
     encrypt_secret,
     get_db,
     hash_password,
+    serve_disposition,
 )
 
 load_dotenv()
@@ -716,4 +717,13 @@ def serve_upload(filename: str, exp: str | None = None, sig: str | None = None):
     # одна ошибка в регулярке не должна открывать файловую систему.
     if not path.startswith(os.path.realpath(UPLOAD_DIR) + os.sep) or not os.path.isfile(path):
         raise HTTPException(404, "Файл не найден")
-    return FileResponse(path)
+
+    # Тип содержимого называем сами, а не отдаём на угадывание по расширению.
+    # Незнакомое расширение — поток байтов вложением: файлы, легшие на диск до
+    # того, как расширение стали выводить из типа, могут называться как угодно,
+    # и веб-страница среди них выполнялась бы прямо на нашем домене.
+    media_type, inline = serve_disposition(filename)
+    headers = {"X-Content-Type-Options": "nosniff"}
+    if not inline:
+        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return FileResponse(path, media_type=media_type, headers=headers)
