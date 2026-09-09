@@ -925,6 +925,31 @@ def require_group_member(group_id: int, user_id: int, conn) -> str:
     return row["role"]
 
 
+def upload_allowance(user_id: int, conn) -> tuple[int, int]:
+    """
+    Сколько файлов человеку позволено загрузить и за какое время.
+
+    Раньше загружать мог любой вошедший, без единого ограничения: свежий
+    аккаунт за несколько минут забивал общее хранилище, и после этого
+    переставали грузиться и посты, и медиа у всех сразу.
+
+    **Полный запрет для тех, кто не в группе, был бы неверен**: часть людей
+    работает без группы — глобальные ручки существуют именно для них, — и
+    отнимать у них загрузку значит чинить безопасность за счёт работы. Поэтому
+    им остаётся редкая, «штучная» норма: настоящему человеку её хватает,
+    а сваливать гигабайты она делает бессмысленным занятием.
+    """
+    c = conn.cursor()
+    c.execute("SELECT 1 FROM group_members WHERE user_id=%s LIMIT 1", (user_id,))
+    if c.fetchone():
+        return 30, 300
+    c.execute("SELECT role FROM users WHERE id=%s", (user_id,))
+    row = c.fetchone()
+    if row and row["role"] == "admin":
+        return 30, 300
+    return 5, 3600
+
+
 def check_invite_usable(token: str, conn) -> dict:
     """
     Проверяет ссылку, ничего не расходуя. Нужна на первом шаге регистрации:
@@ -1072,6 +1097,65 @@ ALLOWED_DOC_TYPES = {
     "text/plain",
     "text/csv",
 }
+# Расширение файла на диске выводится **из проверенного типа**, а не из имени,
+# которое прислал человек. Раньше бралось имя: файл, названный `photo.html` и
+# объявленный картинкой, ложился на диск как `…html` и отдавался браузеру как
+# веб-страница — со скриптом внутри и на нашем домене.
+UPLOAD_EXTENSIONS = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "video/mp4": "mp4",
+    "video/quicktime": "mov",
+    "video/webm": "webm",
+    "video/x-msvideo": "avi",
+    "application/pdf": "pdf",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/vnd.ms-excel": "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/vnd.ms-powerpoint": "ppt",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+    "text/plain": "txt",
+    "text/csv": "csv",
+}
+
+# Чем отдавать файл наружу. Список шире, чем расширения при записи: файлы,
+# загруженные до этой правки, лежат с расширениями из чужих имён — `jpeg`
+# вместо `jpg` и подобное, — и обязаны продолжать открываться.
+# **Незнакомое расширение отдаётся потоком байтов и вложением**: именно так
+# обезвреживается то, что успело лечь на диск с опасным именем.
+SERVE_TYPES = {
+    "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+    "gif": "image/gif", "webp": "image/webp",
+    "mp4": "video/mp4", "mov": "video/quicktime", "qt": "video/quicktime",
+    "webm": "video/webm", "avi": "video/x-msvideo",
+    "pdf": "application/pdf",
+    "doc": "application/msword",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xls": "application/vnd.ms-excel",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "ppt": "application/vnd.ms-powerpoint",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "txt": "text/plain", "csv": "text/csv",
+}
+# Показывать прямо в странице безопасно только то, что браузер не исполняет.
+INLINE_PREFIXES = ("image/", "video/")
+
+
+def serve_disposition(filename: str) -> tuple[str, bool]:
+    """
+    Чем отдать файл и можно ли показывать его прямо в странице.
+
+    Возвращает (тип содержимого, показывать ли встроенно). Всё незнакомое —
+    поток байтов вложением: пусть лучше скачается, чем выполнится.
+    """
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    media_type = SERVE_TYPES.get(ext, "application/octet-stream")
+    return media_type, media_type.startswith(INLINE_PREFIXES)
+
+
 MAX_IMAGE_SIZE = 10 * 1024 * 1024   # 10 MB
 MAX_VIDEO_SIZE = 100 * 1024 * 1024  # 100 MB
 MAX_DOC_SIZE = 50 * 1024 * 1024     # 50 MB
