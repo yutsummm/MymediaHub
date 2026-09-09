@@ -10,8 +10,11 @@ import json
 import os
 import re
 import secrets
+import smtplib
 import time
 from datetime import UTC, datetime, timedelta
+from email.message import EmailMessage
+from email.utils import formataddr
 from math import asin, cos, radians, sin, sqrt
 
 import bcrypt
@@ -700,12 +703,117 @@ def purge_rate_limits(older_than_seconds: int = 3600) -> int:
 
 
 # ── Email ────────────────────────────────────────────────────────────────────
+#
+# Путей отправки два: обычный SMTP и Brevo. **Так сделано не ради гибкости, а
+# по опыту**: пока поставщик был зашит в код, любая его причуда останавливала
+# регистрацию целиком — сначала аккаунт отвергли по адресу, с которого мы
+# ходим, потом отказались включать транзакционную отправку. Ни то, ни другое
+# не чинится с нашей стороны, а новые люди всё это время не могли завести
+# аккаунт. SMTP говорят все почтовые службы, поэтому смена поставщика теперь
+# стоит правки переменных, а не выкатки.
+#
+# Раньше `.env.example` уже обещал этот выбор, но `smtplib` жил только в
+# отладочной ручке и писем не отправлял: описание существовало, поведения не
+# было. Теперь обещание исполнено.
 
-def _send_email(to_email: str, subject: str, html: str):
-    """Отправка через Brevo. Общая для сброса пароля и подтверждения почты."""
+SMTP_TIMEOUT = 20
+DEFAULT_SMTP_PORT = 587
+# Порт подразумевает способ шифрования: 465 — сразу в защищённом соединении,
+# 587 — обычное с переходом на защищённое. Спрашивать это отдельной переменной
+# значит дать человеку возможность ошибиться там, где выбора на самом деле нет.
+SMTP_SSL_PORT = 465
+
+
+def email_transport() -> str:
+    """
+    Каким путём уходят письма: ``smtp`` | ``brevo`` | ``none``.
+
+    Явный выбор — `EMAIL_TRANSPORT`. Без него путь выводится из заданных
+    переменных: настроен SMTP — идём через него, иначе через Brevo. Так
+    переключение не требует помнить о ещё одной настройке.
+    """
+    choice = os.getenv("EMAIL_TRANSPORT", "").strip().lower()
+    if choice in ("smtp", "brevo"):
+        return choice
+    if os.getenv("SMTP_HOST") and os.getenv("SMTP_USER") and os.getenv("SMTP_PASSWORD"):
+        return "smtp"
+    if os.getenv("BREVO_API_KEY") and os.getenv("BREVO_SENDER_EMAIL"):
+        return "brevo"
+    return "none"
+
+
+def _sender_name() -> str:
+    return (os.getenv("MAIL_SENDER_NAME", "").strip()
+            or os.getenv("BREVO_SENDER_NAME", "").strip()
+            or "медиаПространство")
+
+
+def _send_via_smtp(to_email: str, subject: str, html: str, text: str) -> None:
+    host = os.getenv("SMTP_HOST", "").strip()
+    user = os.getenv("SMTP_USER", "").strip()
+    password = os.getenv("SMTP_PASSWORD", "")
+    if not host:
+        raise ValueError("SMTP_HOST не задан")
+    if not user or not password:
+        raise ValueError("SMTP_USER или SMTP_PASSWORD не заданы")
+    try:
+        port = int(os.getenv("SMTP_PORT", "").strip() or DEFAULT_SMTP_PORT)
+    except ValueError:
+        raise ValueError("SMTP_PORT должен быть числом") from None
+
+    # Отправитель — тот ящик, под которым вошли. Яндекс и большинство почтовых
+    # служб отвергают письмо, если в поле «От кого» стоит чужой адрес, и делают
+    # это отказом на весь сеанс. Отдельной переменной для отправителя нет
+    # намеренно: она существовала бы только затем, чтобы в неё ошиблись.
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = formataddr((_sender_name(), user), charset="utf-8")
+    msg["To"] = to_email
+    # Простой текст обязателен, а не «на всякий случай»: письмо без текстовой
+    # части почтовые фильтры считают признаком рассылки и охотнее уводят в спам.
+    msg.set_content(text)
+    msg.add_alternative(html, subtype="html")
+
+    try:
+        if port == SMTP_SSL_PORT:
+            with smtplib.SMTP_SSL(host, port, timeout=SMTP_TIMEOUT) as server:
+                server.login(user, password)
+                server.send_message(msg)
+        else:
+            with smtplib.SMTP(host, port, timeout=SMTP_TIMEOUT) as server:
+                server.starttls()
+                server.login(user, password)
+                server.send_message(msg)
+    except smtplib.SMTPAuthenticationError as e:
+        # Самая частая причина — обычный пароль вместо пароля приложения либо
+        # выключенный доступ по протоколу. Различить их со стороны клиента
+        # нельзя, поэтому называем обе.
+        raise RuntimeError(
+            "Почтовый сервер не принял логин или пароль. Нужен пароль приложения, "
+            "а не пароль от ящика, и в настройках почты должен быть разрешён "
+            f"доступ по протоколу SMTP. Ответ сервера: {e.smtp_code}"
+        ) from e
+    except smtplib.SMTPSenderRefused as e:
+        raise RuntimeError(
+            f"Почтовый сервер отверг отправителя {user}: письмо должно уходить "
+            f"с того же ящика, под которым выполнен вход. Ответ: {e.smtp_code}"
+        ) from e
+    except smtplib.SMTPRecipientsRefused as e:
+        raise RuntimeError(f"Почтовый сервер отверг получателя {to_email}: {e.recipients}") from e
+    except (OSError, smtplib.SMTPConnectError) as e:
+        # Сюда попадают таймаут и отказ в соединении. На чужом хостинге это
+        # чаще всего значит, что почтовая служба не пускает наш адрес.
+        raise RuntimeError(
+            f"Не удалось связаться с почтовым сервером {host}:{port} — "
+            f"{type(e).__name__}: {e}"
+        ) from e
+    except smtplib.SMTPException as e:
+        raise RuntimeError(f"Ошибка отправки: {type(e).__name__}: {e}") from e
+
+
+def _send_via_brevo(to_email: str, subject: str, html: str) -> None:
     api_key = os.getenv("BREVO_API_KEY", "")
     sender_email = os.getenv("BREVO_SENDER_EMAIL", "")
-    sender_name = os.getenv("BREVO_SENDER_NAME", "MediaHub")
     if not api_key:
         raise ValueError("BREVO_API_KEY не задан")
     if not sender_email:
@@ -715,21 +823,57 @@ def _send_email(to_email: str, subject: str, html: str):
         "https://api.brevo.com/v3/smtp/email",
         headers={"api-key": api_key, "Content-Type": "application/json"},
         json={
-            "sender": {"name": sender_name, "email": sender_email},
+            "sender": {"name": _sender_name(), "email": sender_email},
             "to": [{"email": to_email}],
             "subject": subject,
             "htmlContent": html,
         },
         timeout=10,
     )
-    if resp.status_code >= 400:
-        raise RuntimeError(f"Brevo error {resp.status_code}: {resp.text}")
+    if resp.status_code < 400:
+        return
+
+    # Сообщения различают причины. Раньше всё приходило как «Brevo error», и по
+    # такому тексту нельзя понять, чинить ключ, писать в поддержку или просто
+    # подождать — на обеих реальных поломках это стоило часов разбирательства.
+    detail = resp.text[:300]
+    if resp.status_code == 401 and "IP" in resp.text:
+        raise RuntimeError(
+            "Brevo не узнал адрес, с которого мы обращаемся: в аккаунте включено "
+            "ограничение по IP. Снять его в разделе Security → Authorised IPs. "
+            f"Подробности: {detail}"
+        )
+    if resp.status_code == 401:
+        raise RuntimeError(f"Brevo не принял ключ. Подробности: {detail}")
+    if resp.status_code == 403:
+        raise RuntimeError(
+            "Brevo не включил транзакционную отправку для аккаунта — это ручная "
+            "проверка с их стороны, настройками не решается. "
+            f"Подробности: {detail}"
+        )
+    if resp.status_code == 402:
+        raise RuntimeError(f"Исчерпан лимит тарифа Brevo. Подробности: {detail}")
+    raise RuntimeError(f"Brevo ответил {resp.status_code}: {detail}")
+
+
+def _send_email(to_email: str, subject: str, html: str, text: str) -> None:
+    """Отправка письма выбранным путём. Общая для всех писем приложения."""
+    transport = email_transport()
+    if transport == "smtp":
+        _send_via_smtp(to_email, subject, html, text)
+    elif transport == "brevo":
+        _send_via_brevo(to_email, subject, html)
+    else:
+        raise ValueError(
+            "Отправка писем не настроена: задайте SMTP_HOST, SMTP_USER и "
+            "SMTP_PASSWORD либо BREVO_API_KEY и BREVO_SENDER_EMAIL"
+        )
 
 
 def _code_email_html(lead: str, code: str, note: str) -> str:
     return f"""
     <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px">
-      <h2 style="color:#4f46e5">MediaHub</h2>
+      <h2 style="color:#4f46e5">медиаПространство</h2>
       <p>{lead}</p>
       <div style="font-size:36px;font-weight:800;letter-spacing:12px;color:#4f46e5;padding:20px;background:#f0f0ff;border-radius:12px;text-align:center">{code}</div>
       <p style="color:#888;font-size:13px;margin-top:20px">{note}</p>
@@ -737,28 +881,36 @@ def _code_email_html(lead: str, code: str, note: str) -> str:
     """
 
 
+def _code_email_text(lead: str, code: str, note: str) -> str:
+    """
+    То же письмо простым текстом. Нужен не как запасной вариант для древних
+    почтовиков, а для доставки: письмо, состоящее из одного HTML, фильтры
+    считают признаком рассылки и охотнее уводят в спам.
+    """
+    return f"медиаПространство\n\n{lead}\n\n    {code}\n\n{note}\n"
+
+
 def send_reset_email(to_email: str, code: str):
+    lead = "Вы запросили сброс пароля. Ваш код:"
+    note = ("Код действителен 15 минут. Если вы не запрашивали сброс — "
+            "проигнорируйте это письмо.")
     _send_email(
         to_email,
-        "Сброс пароля — MediaHub",
-        _code_email_html(
-            "Вы запросили сброс пароля. Ваш код:",
-            code,
-            "Код действителен 15 минут. Если вы не запрашивали сброс — проигнорируйте это письмо.",
-        ),
+        "Сброс пароля — медиаПространство",
+        _code_email_html(lead, code, note),
+        _code_email_text(lead, code, note),
     )
 
 
 def send_verification_email(to_email: str, code: str):
+    lead = "Вы регистрируетесь в медиаПространстве. Код подтверждения:"
+    note = ("Код действителен 15 минут. Если вы не регистрировались — просто "
+            "проигнорируйте это письмо, аккаунт создан не будет.")
     _send_email(
         to_email,
-        "Подтверждение регистрации — MediaHub",
-        _code_email_html(
-            "Вы регистрируетесь в MediaHub. Код подтверждения:",
-            code,
-            "Код действителен 15 минут. Если вы не регистрировались — просто проигнорируйте это письмо, "
-            "аккаунт создан не будет.",
-        ),
+        "Подтверждение регистрации — медиаПространство",
+        _code_email_html(lead, code, note),
+        _code_email_text(lead, code, note),
     )
 
 
