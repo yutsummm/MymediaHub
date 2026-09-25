@@ -84,7 +84,13 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    connectable = create_engine(get_database_url(), poolclass=pool.NullPool)
+    # Драйвер — psycopg2, как и во всём приложении. Без явного указания свежие
+    # SQLAlchemy для схемы postgresql:// сначала пробуют psycopg (v3), которого
+    # нет в зависимостях, и preDeploy-миграция падает на ModuleNotFoundError.
+    connectable = create_engine(
+        "postgresql+psycopg2://" + get_database_url().split("://", 1)[1],
+        poolclass=pool.NullPool,
+    )
 
     with connectable.connect() as connection:
         context.configure(

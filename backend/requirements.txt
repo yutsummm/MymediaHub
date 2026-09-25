@@ -2,6 +2,11 @@ fastapi==0.111.0
 uvicorn[standard]==0.29.0
 python-multipart==0.0.9
 psycopg2-binary==2.9.9
+# SQLAlchemy не пинуна, но её минорные обновления меняли драйвер по умолчанию
+# для схемы postgresql:// с psycopg2 на psycopg (v3), которого в requirements
+# нет — и preDeploy-миграция падала на ModuleNotFoundError. Драйвер задаём
+# явно, чтобы выбор не зависел от версии SQLAlchemy.
+SQLAlchemy==2.0.52
 python-dotenv==1.0.1
 requests==2.32.3
 python-jose[cryptography]==3.3.0
