@@ -62,12 +62,6 @@ function RegisterForm() {
   const [showPw, setShowPw]       = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [err, setErr]             = useState('')
-  // Регистрация двухшаговая: 'form' — анкета, 'code' — ввод кода из письма.
-  // Аккаунт создаётся только на втором шаге, поэтому здесь ещё нет ни токена,
-  // ни пользователя.
-  const [step, setStep]           = useState<'form' | 'code'>('form')
-  const [code, setCode]           = useState('')
-  const [resent, setResent]       = useState('')
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -79,41 +73,16 @@ function RegisterForm() {
     if (password !== confirm)           { setErr('Пароли не совпадают'); return }
     setIsSubmitting(true)
     try {
-      await api.register(name.trim(), email.trim(), password, inviteToken)
-      setStep('code')
-    } catch (ex: unknown) {
-      setErr((ex as Error).message)
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  async function submitCode(e: React.FormEvent) {
-    e.preventDefault()
-    setErr(''); setResent('')
-    if (code.trim().length !== 6) { setErr('Код состоит из 6 цифр'); return }
-    setIsSubmitting(true)
-    try {
-      const { user, token, invite_error } = await api.verifyEmail(email.trim(), code.trim())
+      const { user, token, invite_error } = await api.register(name.trim(), email.trim(), password, inviteToken)
       login(user, token)
-      // Приглашение могло исчерпаться, пока человек искал письмо — молчать об
-      // этом нельзя, иначе он не поймёт, почему групп нет.
+      // Приглашение могло исчерпаться или истечь к моменту регистрации —
+      // молчать об этом нельзя, иначе человек не поймёт, почему групп нет.
       if (invite_error) alert(`Аккаунт создан, но в группу войти не удалось: ${invite_error}`)
       router.push('/dashboard')
     } catch (ex: unknown) {
       setErr((ex as Error).message)
     } finally {
       setIsSubmitting(false)
-    }
-  }
-
-  async function resend() {
-    setErr(''); setResent('')
-    try {
-      await api.resendCode(email.trim())
-      setResent('Новый код отправлен')
-    } catch (ex: unknown) {
-      setErr((ex as Error).message)
     }
   }
 
@@ -148,79 +117,10 @@ function RegisterForm() {
               style={{ display: 'flex', width: 'fit-content', alignItems: 'center', margin: '0 auto 6px' }}
             />
             <div style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 500, marginTop: 12 }}>
-              {step === 'form' ? 'Создайте аккаунт' : 'Подтвердите почту'}
+              Создайте аккаунт
             </div>
           </div>
 
-          {step === 'code' ? (
-            <form onSubmit={submitCode}>
-              <div style={{
-                padding: '12px 14px', borderRadius: 'var(--r-lg)',
-                background: 'var(--accent-light)', border: '1px solid var(--border)',
-                fontSize: 12.5, color: 'var(--text-3)', lineHeight: 1.6, marginBottom: 16,
-              }}>
-                Мы отправили код на <strong style={{ color: 'var(--text-2)' }}>{email}</strong>.
-                Введите его, чтобы завершить регистрацию. Код действует 15 минут.
-              </div>
-
-              <div className="fg">
-                <label>Код из письма</label>
-                <input
-                  type="text" inputMode="numeric" autoComplete="one-time-code" autoFocus
-                  value={code} maxLength={6} placeholder="000000"
-                  onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
-                  style={{ textAlign: 'center', fontSize: 22, fontWeight: 700, letterSpacing: '8px' }}
-                />
-              </div>
-
-              {err && (
-                <div style={{
-                  padding: '10px 14px', borderRadius: 'var(--r-md)',
-                  background: 'var(--red-bg)', border: '1px solid rgba(239,68,68,0.25)',
-                  color: 'var(--red)', fontSize: 12.5, fontWeight: 500,
-                  marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8,
-                }}>
-                  <svg {...S} style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                  {err}
-                </div>
-              )}
-              {resent && (
-                <div style={{ fontSize: 12, color: 'var(--green)', fontWeight: 600, marginBottom: 12 }}>
-                  {resent}
-                </div>
-              )}
-
-              <button type="submit" className="btn btn-primary" disabled={isSubmitting}
-                style={{ width: '100%', justifyContent: 'center', height: 40, fontSize: 13.5, fontWeight: 600 }}>
-                {isSubmitting ? (
-                  <>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" style={{ animation: 'spin 0.7s linear infinite' }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
-                    Проверяем...
-                  </>
-                ) : (
-                  <>
-                    Подтвердить и войти
-                    <svg {...S}><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
-                  </>
-                )}
-              </button>
-
-              <div style={{
-                display: 'flex', justifyContent: 'space-between', gap: 12,
-                marginTop: 14, fontSize: 12, color: 'var(--text-3)',
-              }}>
-                <button type="button" onClick={() => { setStep('form'); setCode(''); setErr(''); setResent('') }}
-                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--text-3)', fontSize: 12 }}>
-                  Изменить адрес
-                </button>
-                <button type="button" onClick={resend}
-                  style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--accent)', fontWeight: 600, fontSize: 12 }}>
-                  Отправить код заново
-                </button>
-              </div>
-            </form>
-          ) : (
-          <>
           <form onSubmit={submit}>
             <div className="fg">
               <label>Имя и фамилия</label>
@@ -305,11 +205,9 @@ function RegisterForm() {
             background: 'var(--accent-light)', border: '1px solid var(--border)',
             fontSize: 11, color: 'var(--text-3)', lineHeight: 1.6,
           }}>
-            На указанный адрес придёт код подтверждения — без него аккаунт не создаётся.
-            Доступ к группе даёт только приглашение от администратора.
+            Аккаунт создаётся сразу — без письма с кодом. Доступ к группе даёт
+            только приглашение от администратора.
           </div>
-          </>
-          )}
         </div>
       </div>
     </div>

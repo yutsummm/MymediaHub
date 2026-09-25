@@ -902,16 +902,7 @@ def send_reset_email(to_email: str, code: str):
     )
 
 
-def send_verification_email(to_email: str, code: str):
-    lead = "Вы регистрируетесь в медиаПространстве. Код подтверждения:"
-    note = ("Код действителен 15 минут. Если вы не регистрировались — просто "
-            "проигнорируйте это письмо, аккаунт создан не будет.")
-    _send_email(
-        to_email,
-        "Подтверждение регистрации — медиаПространство",
-        _code_email_html(lead, code, note),
-        _code_email_text(lead, code, note),
-    )
+
 
 
 # ── Group membership ────────────────────────────────────────────────────────

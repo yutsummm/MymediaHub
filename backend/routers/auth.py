@@ -11,9 +11,7 @@ from models import (
     ForgotPasswordRequest,
     LoginRequest,
     RegisterRequest,
-    ResendCodeRequest,
     ResetPasswordRequest,
-    VerifyEmailRequest,
 )
 from utils import (
     DEFAULT_SMTP_PORT,
@@ -34,15 +32,11 @@ from utils import (
     revoke_user_sessions,
     row_to_dict,
     send_reset_email,
-    send_verification_email,
     verify_password,
 )
 
 router = APIRouter()
 log = get_logger("auth")
-
-# Сколько живёт код подтверждения регистрации.
-VERIFICATION_TTL = timedelta(minutes=15)
 
 
 def _issue_session(c, uid: int, request=None) -> dict:
@@ -65,24 +59,6 @@ def _validate_password(password: str) -> None:
         raise HTTPException(400, "Пароль должен содержать хотя бы одну букву")
     if not re.search(r'[!@#$%^&*()\-_=+\[\]{};:\'",.<>/?\\|`~]', password):
         raise HTTPException(400, "Пароль должен содержать хотя бы один спецсимвол")
-
-
-def _send_code_or_drop(conn, email: str, code: str) -> None:
-    """
-    Письмо уходит после коммита заявки. Если отправка не удалась — заявку
-    убираем, иначе человек застрянет с кодом, которого никогда не увидит.
-    """
-    try:
-        send_verification_email(email, code)
-    except Exception as e:
-        c = conn.cursor()
-        c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
-        conn.commit()
-        conn.close()
-        if isinstance(e, ValueError):
-            raise HTTPException(503, str(e))
-        log.exception("не удалось отправить письмо с кодом", extra={"email": email})
-        raise HTTPException(500, "Не удалось отправить письмо. Попробуйте позже.")
 
 
 @router.post("/api/auth/login")
@@ -162,10 +138,13 @@ def smtp_test(actor_id: int = Depends(get_current_user_id)):
 @router.post("/api/auth/register")
 def register(req: RegisterRequest, request: Request = None):
     """
-    Шаг 1 из 2. Пользователь здесь НЕ создаётся — заявка кладётся в
-    email_verifications, а на почту уходит код. Аккаунт появляется только после
-    /api/auth/verify-email. Иначе любым чужим адресом можно было завести
-    рабочий аккаунт: почта никак не проверялась.
+    Аккаунт создаётся сразу и человек сразу же пускается внутрь: почта
+    не подтверждается кодом. Раньше регистрация была двухшаговой — заявка в
+    email_verifications, код на почту, подтверждение через verify-email, — и
+    на каждом шаге люди терялись: письма не доходили, код протухал.
+
+    В чужую группу это по-прежнему не пускает: попасть туда можно только по
+    действующему приглашению (см. test_registration_isolation.py).
     """
     ip = client_ip(request)
     check_rate_limit(f"register:{ip}", 3, 300)
@@ -185,8 +164,8 @@ def register(req: RegisterRequest, request: Request = None):
         conn.close()
         raise HTTPException(409, "Пользователь с таким email уже существует")
 
-    # Ссылку проверяем сразу, не расходуя: про мёртвое приглашение надо сказать
-    # здесь, а не после того, как человек сходит за кодом в почту.
+    # Про мёртвое приглашение надо сказать сразу, ещё до создания аккаунта:
+    # иначе человек зарегистрируется, а в группу не попадёт и не поймёт, за что.
     if req.invite_token:
         try:
             check_invite_usable(req.invite_token.strip(), conn)
@@ -194,110 +173,29 @@ def register(req: RegisterRequest, request: Request = None):
             conn.close()
             raise
 
-    # Пароль храним уже захешированным: заявка живёт в базе до подтверждения.
-    code = str(random.randint(100000, 999999))
-    c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
-    c.execute(
-        "INSERT INTO email_verifications (email, name, password_hash, code, expires_at, invite_token) "
-        "VALUES (%(email)s, %(name)s, %(password_hash)s, %(code)s, %(expires_at)s, %(invite_token)s)",
-        {
-            "email": email,
-            "name": name,
-            "password_hash": hash_password(req.password),
-            "code": code,
-            "expires_at": datetime.now(UTC) + VERIFICATION_TTL,
-            "invite_token": req.invite_token.strip() if req.invite_token else None,
-        },
-    )
-    conn.commit()
-    _send_code_or_drop(conn, email, code)
-    conn.close()
-    return {"status": "code_sent", "email": email}
-
-
-@router.post("/api/auth/verify-email")
-def verify_email(req: VerifyEmailRequest, request: Request = None):
-    """Шаг 2 из 2: код сошёлся — создаём пользователя и сразу пускаем внутрь."""
-    ip = client_ip(request)
-    check_rate_limit(f"verify:{ip}", 10, 300)
-    email = req.email.lower().strip()
-    conn = get_db()
-    c = conn.cursor()
-    c.execute(
-        "SELECT * FROM email_verifications WHERE email=%s ORDER BY id DESC LIMIT 1", (email,)
-    )
-    pending = c.fetchone()
-    if not pending:
-        conn.close()
-        raise HTTPException(400, "Заявка не найдена. Зарегистрируйтесь заново")
-    if datetime.now(UTC) > pending["expires_at"]:
-        c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
-        conn.commit()
-        conn.close()
-        raise HTTPException(400, "Срок действия кода истёк. Зарегистрируйтесь заново")
-    if pending["code"] != req.code.strip():
-        conn.close()
-        raise HTTPException(400, "Неверный код подтверждения")
-
-    # Пока заявка ждала подтверждения, адрес могли занять.
-    c.execute("SELECT id FROM users WHERE email=%s", (email,))
-    if c.fetchone():
-        c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
-        conn.commit()
-        conn.close()
-        raise HTTPException(409, "Пользователь с таким email уже существует")
-
-    name = pending["name"]
     avatar = "".join(p[0].upper() for p in name.split()[:2])
     c.execute(
         "INSERT INTO users (name, email, role, avatar, password_hash) "
         "VALUES (%(name)s, %(email)s, %(role)s, %(avatar)s, %(password_hash)s) RETURNING id",
         {"name": name, "email": email, "role": "member", "avatar": avatar,
-         "password_hash": pending["password_hash"]},
+         "password_hash": hash_password(req.password)},
     )
     uid = c.fetchone()["id"]
 
     # Никакого автоматического вступления в группу. Раньше новый пользователь
     # молча попадал в первую группу (ORDER BY id ASC LIMIT 1) с ролью editor —
     # то есть любой посторонний после регистрации мог публиковать в реальные
-    # VK-паблик и Telegram-канал организации. Попасть в чужую группу теперь
-    # можно только по действующему приглашению.
+    # VK-паблик и Telegram-канал организации. Приглашение, оказавшееся мёртвым
+    # именно в этот момент, аккаунт не отменяет — но об этом честно говорим.
     invite_error = None
-    if pending["invite_token"]:
+    if req.invite_token:
         try:
-            redeem_invite(pending["invite_token"], uid, conn)
+            redeem_invite(req.invite_token.strip(), uid, conn)
         except HTTPException as e:
-            # Приглашение могло истечь, пока человек искал письмо. Аккаунт всё
-            # равно заслужен — создаём, но честно говорим, что в группу не ввели.
             invite_error = e.detail
-    c.execute("DELETE FROM email_verifications WHERE email=%s", (email,))
-    conn.commit()
     session = _issue_session(c, uid, request)
     conn.close()
     return {**session, "invite_error": invite_error}
-
-
-@router.post("/api/auth/resend-code")
-def resend_code(req: ResendCodeRequest, request: Request = None):
-    """Новый код по той же заявке — письмо теряется чаще, чем хотелось бы."""
-    ip = client_ip(request)
-    check_rate_limit(f"resend:{ip}", 3, 300)
-    email = req.email.lower().strip()
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT id FROM email_verifications WHERE email=%s", (email,))
-    if not c.fetchone():
-        conn.close()
-        raise HTTPException(400, "Заявка не найдена. Зарегистрируйтесь заново")
-    code = str(random.randint(100000, 999999))
-    c.execute(
-        "UPDATE email_verifications SET code=%s, expires_at=%s WHERE email=%s",
-        (code, datetime.now(UTC) + VERIFICATION_TTL, email),
-    )
-    conn.commit()
-    _send_code_or_drop(conn, email, code)
-    conn.close()
-    return {"status": "code_sent", "email": email}
 
 
 @router.post("/api/auth/logout")

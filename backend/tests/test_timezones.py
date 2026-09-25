@@ -31,7 +31,7 @@ CONVERTED = [
     ("tg_settings", "connected_at"), ("invite_links", "created_at"),
     ("invite_links", "expires_at"), ("post_stats", "updated_at"),
     ("publish_jobs", "created_at"), ("publish_jobs", "finished_at"),
-    ("password_resets", "expires_at"), ("email_verifications", "expires_at"),
+    ("password_resets", "expires_at"),
 ]
 
 

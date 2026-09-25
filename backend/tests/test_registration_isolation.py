@@ -5,29 +5,27 @@
 (ORDER BY id ASC LIMIT 1) с ролью editor — то есть любой посторонний после
 регистрации мог опубликовать пост в реальные VK-паблик и Telegram-канал
 организации. Эти тесты стерегут именно этот сценарий.
+
+Регистрация теперь одношаговая: аккаунт создаётся сразу, без подтверждения
+почты. Изоляция групп от этого не зависит — новичок по-прежнему не получает
+ни одной группы без действующего приглашения.
 """
 import uuid
 
 import pytest
-from conftest import auth, pending_code
+from conftest import auth
 
 
 def _register(client, prefix="stranger", invite_token=None):
     """
-    Полный путь регистрации: заявка → код из базы → аккаунт. Отдаёт ответ того
-    шага, на котором всё закончилось, поэтому проверки статусов ниже работают
-    и для отказов на первом шаге (битая или исчерпанная ссылка).
+    Регистрация с приглашением или без. Отдаёт ответ register, поэтому проверки
+    статусов ниже работают и для отказов (битая или исчерпанная ссылка).
     """
     email = f"{prefix}-{uuid.uuid4().hex[:8]}@test.local"
     body = {"name": "Посторонний", "email": email, "password": "Passw0rd!"}
     if invite_token is not None:
         body["invite_token"] = invite_token
-    r = client.post("/api/auth/register", json=body)
-    if r.status_code != 200:
-        return r
-    return client.post(
-        "/api/auth/verify-email", json={"email": email, "code": pending_code(email)}
-    )
+    return client.post("/api/auth/register", json=body)
 
 
 # ── Главное: чужих групп новичок не получает ────────────────────────────────
@@ -124,7 +122,7 @@ def test_invited_volunteer_still_cannot_publish(client, invite_link):
 
 
 def test_register_with_unknown_invite_creates_nothing(client):
-    """Битый токен отбивается сразу, до письма, и не создаёт «висячего» пользователя."""
+    """Битый токен отбивается сразу, и аккаунт за ним не создаётся."""
     email = f"ghost-{uuid.uuid4().hex[:8]}@test.local"
     r = client.post(
         "/api/auth/register",

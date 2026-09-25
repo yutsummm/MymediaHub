@@ -141,15 +141,6 @@ class RegisterRequest(BaseModel):
     invite_token: str | None = None
 
 
-class VerifyEmailRequest(BaseModel):
-    email: str
-    code: str
-
-
-class ResendCodeRequest(BaseModel):
-    email: str
-
-
 class ForgotPasswordRequest(BaseModel):
     email: str
 

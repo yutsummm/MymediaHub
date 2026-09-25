@@ -18,8 +18,7 @@ BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 EXPECTED_TABLES = {
     "users", "posts", "templates", "notifications", "vk_settings", "tg_settings",
-    "email_verifications", "password_resets", "groups", "group_members",
-    "invite_links", "volunteer_media",
+    "password_resets", "groups", "group_members", "invite_links", "volunteer_media",
 }
 
 
@@ -201,7 +200,7 @@ def test_legacy_database_gets_stamped_not_recreated(legacy_database):
     # Ровно то, ради чего нужен догоняющий upgrade: поздние миграции доехали
     c.execute(
         "SELECT 1 FROM information_schema.columns "
-        "WHERE table_name='email_verifications' AND column_name='invite_token'"
+        "WHERE table_name='password_resets' AND column_name='created_at'"
     )
     assert c.fetchone(), "после штампа база должна догнаться до head"
     conn.close()

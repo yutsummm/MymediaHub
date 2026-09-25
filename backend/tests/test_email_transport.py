@@ -1,13 +1,7 @@
 """
 Отправка писем: путь выбирается настройками, а отказ называет причину.
 
-Поводом стали две подряд поломки регистрации, ни одна из которых не чинилась
-с нашей стороны. Сначала Brevo перестал принимать обращения с адреса, откуда
-мы ходим, потом отказался включать транзакционную отправку вовсе. Всё это
-время новый человек не мог завести аккаунт: он создаётся только после
-подтверждения почты.
-
-Отсюда требования, которые здесь и стерегутся:
+Письма остались только для сброса пароля, но требования к отправке прежние:
 
 * **поставщик — сменная деталь**: SMTP говорят все почтовые службы, и переход
   не должен стоить выкатки;
@@ -32,7 +26,6 @@ import utils
 # письмо по-настоящему, — предохранитель правильный. Но здесь проверяется сама
 # отправка, поэтому берём настоящие функции до подмены. Наружу всё равно ничего
 # не уйдёт: почтовый сервер в этих тестах подставной.
-send_verification = utils.send_verification_email
 send_reset = utils.send_reset_email
 
 
@@ -106,7 +99,7 @@ def test_explicit_choice_beats_guessing(monkeypatch):
 def test_nothing_configured_says_so(monkeypatch):
     assert utils.email_transport() == "none"
     with pytest.raises(ValueError) as e:
-        send_verification("kto@to.ru", "123456")
+        send_reset("kto@to.ru", "123456")
     assert "не настроена" in str(e.value)
 
 
@@ -119,7 +112,7 @@ def test_sender_matches_the_mailbox_we_logged_in_with(monkeypatch):
     """
     use_smtp(monkeypatch)
     monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
-    send_verification("volonter@mail.ru", "123456")
+    send_reset("volonter@mail.ru", "123456")
     msg = FakeSMTP.last["message"]
     assert "mediahub@yandex.ru" in msg["From"]
     assert FakeSMTP.last["login"] == ("mediahub@yandex.ru", "пароль-приложения")
@@ -128,7 +121,7 @@ def test_sender_matches_the_mailbox_we_logged_in_with(monkeypatch):
 def test_letter_carries_plain_text_beside_html(monkeypatch):
     use_smtp(monkeypatch)
     monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
-    send_verification("volonter@mail.ru", "654321")
+    send_reset("volonter@mail.ru", "654321")
     msg = FakeSMTP.last["message"]
     kinds = {part.get_content_type() for part in msg.walk()}
     assert "text/plain" in kinds and "text/html" in kinds
@@ -166,7 +159,7 @@ def test_bad_password_points_at_the_app_password(monkeypatch):
     monkeypatch.setattr(smtplib, "SMTP",
                         raising(smtplib.SMTPAuthenticationError(535, b"bad login")))
     with pytest.raises(RuntimeError) as e:
-        send_verification("kto@to.ru", "123456")
+        send_reset("kto@to.ru", "123456")
     text = str(e.value)
     assert "пароль приложения" in text
     assert "SMTP" in text
@@ -177,7 +170,7 @@ def test_wrong_sender_is_named_as_such(monkeypatch):
     monkeypatch.setattr(smtplib, "SMTP",
                         raising(smtplib.SMTPSenderRefused(553, b"not owned", "x@y.ru")))
     with pytest.raises(RuntimeError) as e:
-        send_verification("kto@to.ru", "123456")
+        send_reset("kto@to.ru", "123456")
     assert "отправителя" in str(e.value)
 
 
@@ -185,7 +178,7 @@ def test_unreachable_server_is_not_confused_with_bad_password(monkeypatch):
     use_smtp(monkeypatch)
     monkeypatch.setattr(smtplib, "SMTP", raising(TimeoutError("timed out")))
     with pytest.raises(RuntimeError) as e:
-        send_verification("kto@to.ru", "123456")
+        send_reset("kto@to.ru", "123456")
     text = str(e.value)
     assert "связаться" in text
     assert "пароль" not in text
@@ -209,7 +202,7 @@ def test_brevo_refusals_are_distinguishable(monkeypatch):
         monkeypatch.setattr(utils.http_requests, "post",
                             lambda *a, _r=Resp(code, body), **k: _r)
         with pytest.raises(RuntimeError) as e:
-            send_verification("kto@to.ru", "123456")
+            send_reset("kto@to.ru", "123456")
         assert expected in str(e.value), f"{code} должен называться причиной"
 
 

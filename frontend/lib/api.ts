@@ -127,23 +127,19 @@ export const api = {
     req<{ user: import('./types').User; token: string }>('/api/auth/login', {
       method: 'POST', body: body({ email, password }),
     }),
-  // Регистрация в два шага: register только шлёт код на почту, аккаунт создаёт
-  // verifyEmail. inviteToken — регистрация по ссылке-приглашению; без него новый
+  // Регистрация одношаговая: аккаунт создаётся сразу, ответ — сессия.
+  // inviteToken — регистрация по ссылке-приглашению; без него новый
   // пользователь не попадает ни в одну существующую группу.
   register: (name: string, email: string, password: string, inviteToken?: string | null) =>
-    req<{ status: string; email: string }>('/api/auth/register', {
-      method: 'POST',
-      body: body(inviteToken ? { name, email, password, invite_token: inviteToken } : { name, email, password }),
-    }),
-  verifyEmail: (email: string, code: string) =>
     req<{
       user: import('./types').User
       token: string
       groups: import('./types').Group[]
       invite_error: string | null
-    }>('/api/auth/verify-email', { method: 'POST', body: body({ email, code }) }),
-  resendCode: (email: string) =>
-    req<{ status: string }>('/api/auth/resend-code', { method: 'POST', body: body({ email }) }),
+    }>('/api/auth/register', {
+      method: 'POST',
+      body: body(inviteToken ? { name, email, password, invite_token: inviteToken } : { name, email, password }),
+    }),
   // Настоящий выход: гасит токен на сервере. Раньше выход был только на
   // клиенте — приложение забывало токен, а сам токен жил ещё до 72 часов.
   logout: () => req<{ status: string }>('/api/auth/logout', { method: 'POST' }),

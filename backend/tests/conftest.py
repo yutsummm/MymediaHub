@@ -132,41 +132,24 @@ def no_outgoing_email(monkeypatch):
     import utils
 
     for module in (auth_router, utils):
-        for fn in ("send_verification_email", "send_reset_email"):
+        for fn in ("send_reset_email",):
             if hasattr(module, fn):
                 monkeypatch.setattr(module, fn, lambda *a, **kw: None)
     yield
 
 
-def pending_code(email: str) -> str:
-    """Достаёт код подтверждения из базы — писем в тестах нет."""
-    from utils import get_db
-
-    conn = get_db()
-    c = conn.cursor()
-    c.execute(
-        "SELECT code FROM email_verifications WHERE email=%s ORDER BY id DESC LIMIT 1",
-        (email.lower().strip(),),
-    )
-    row = c.fetchone()
-    conn.close()
-    assert row, f"нет заявки на регистрацию для {email}"
-    return row["code"]
-
-
 def register_and_verify(client, email: str, password: str = "Passw0rd!", **extra) -> dict:
-    """Полный путь регистрации: заявка → код → аккаунт. Отдаёт тело verify-email."""
+    """
+    Регистрация одношаговая: аккаунт создаётся сразу, имя функции осталось от
+    двухшагового прошлого, чтобы не трогать два десятка тестов, которые её зовут.
+    Отдаёт тело ответа register — пользователь, токен, группы.
+    """
     r = client.post(
         "/api/auth/register",
         json={"name": "Тест Юзер", "email": email, "password": password, **extra},
     )
     assert r.status_code == 200, r.text
-    assert r.json()["status"] == "code_sent"
-    v = client.post(
-        "/api/auth/verify-email", json={"email": email, "code": pending_code(email)}
-    )
-    assert v.status_code == 200, v.text
-    return v.json()
+    return r.json()
 
 
 def drain_publish_queue(max_jobs: int = 50) -> int:

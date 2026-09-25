@@ -9,7 +9,7 @@ JWT проверялся только подписью, без обращени�
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
-from conftest import auth, pending_code
+from conftest import auth
 
 from utils import get_db, list_sessions, purge_sessions, revoke_user_sessions
 
@@ -110,17 +110,14 @@ def _reset_code(email: str) -> str:
     return row["code"]
 
 
-def test_registration_code_flow_still_issues_working_token(client):
-    """Подтверждение почты тоже должно заводить нормальную сессию."""
+def test_registration_issues_working_token(client):
+    """Регистрация тоже должна заводить нормальную сессию — аккаунт создаётся сразу."""
     import uuid
 
     email = f"sess-{uuid.uuid4().hex[:8]}@test.local"
-    client.post(
+    body = client.post(
         "/api/auth/register",
         json={"name": "Сессия", "email": email, "password": "Passw0rd!"},
-    )
-    body = client.post(
-        "/api/auth/verify-email", json={"email": email, "code": pending_code(email)}
     ).json()
     assert works(client, body["token"])
     assert len(sessions_of(body["user"]["id"])) == 1
